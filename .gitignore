@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+*.iml
+.vscode/
+
+# Local Claude Code state
+.claude/
+
+# Local investigation notes (personal)
+VSNATION_DEX.md
+CLAUDE.md
+TODO.md
+

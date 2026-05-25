@@ -1,0 +1,133 @@
+@mixin control-base($background-color, $border-radius, $cursor: pointer !important) {
+  background-color: $background-color !important;
+  border: none !important;
+  border-radius: $border-radius;
+  cursor: $cursor;
+}
+
+@mixin input-colors($has-value-height) {
+  &__input-container {
+    color: white !important;
+  }
+
+  &__input-container--has-value {
+    color: white !important;
+    height: $has-value-height;
+  }
+}
+
+@mixin indicator-controls {
+  &__indicator-separator {
+    display: none;
+  }
+
+  &__indicators {
+    padding: 8px 16px 7px 0 !important;
+  }
+
+  &__indicator,
+  &__indicator-clear-value {
+    padding: 0 !important;
+    cursor: pointer;
+  }
+}
+
+@mixin option-active-state {
+  &--is-focused,
+  &--is-selected {
+    background-color: transparent !important;
+    color: var(--color-green) !important;
+    cursor: pointer !important;
+  }
+}
+
+@mixin text-base($font-family, $font-size, $line-height, $text-transform: null) {
+  font-family: $font-family, sans-serif !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+  font-size: $font-size !important;
+  line-height: $line-height !important;
+  color: white !important;
+
+  @if $text-transform != null {
+    text-transform: $text-transform;
+  }
+}
+
+@mixin simple-value-and-placeholder(
+  $font-family,
+  $font-size,
+  $line-height,
+  $single-transform: null,
+  $placeholder-transform: null,
+  $placeholder-line-height: null
+) {
+  &__single-value {
+    @include text-base($font-family, $font-size, $line-height, $single-transform);
+  }
+
+  &__placeholder {
+    @if $placeholder-line-height != null {
+      @include text-base(
+        $font-family,
+        $font-size,
+        $placeholder-line-height,
+        $placeholder-transform
+      );
+    } @else {
+      @include text-base(
+        $font-family,
+        $font-size,
+        $line-height,
+        $placeholder-transform
+      );
+    }
+  }
+}
+
+@mixin scrollbar-base {
+  &-list::-webkit-scrollbar {
+    width: 4px;
+    height: 0;
+  }
+
+  &-list::-webkit-scrollbar-track {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+    border-radius: 3px !important;
+  }
+
+  &-list::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+    border-radius: 3px !important;
+  }
+
+  &-list::-webkit-scrollbar-thumb:hover {
+    background: var(--color-green) !important;
+    border-radius: 3px !important;
+  }
+}
+
+@mixin scrollbar-filter {
+  &-list::-webkit-scrollbar {
+    width: 4px !important;
+    height: 0 !important;
+  }
+
+  &-list::-webkit-scrollbar-track {
+    border-radius: 3px !important;
+  }
+
+  &-list::-webkit-scrollbar-track-piece {
+    border-radius: 3px !important;
+  }
+
+  &-list::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+    border-radius: 3px !important;
+  }
+
+  &-list::-webkit-scrollbar-thumb:hover {
+    background: var(--color-green) !important;
+    border-radius: 3px !important;
+  }
+}

@@ -1,0 +1,114 @@
+name: Reusable Build and Package .dapp
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version to use'
+        default: '20'
+        type: string
+      build_command:
+        description: 'Command to build the project'
+        default: 'yarn build:prod'
+        type: string
+      manifest_name:
+        description: 'Name of the .dapp application'
+        required: true
+        type: string
+      manifest_description:
+        description: 'Description of the .dapp application'
+        required: true
+        type: string
+      manifest_icon:
+        description: 'Path to the icon file'
+        default: 'localapp/app/logo.svg'
+        type: string
+      manifest_url:
+        description: 'URL for the application'
+        default: 'localapp/app/index.html'
+        type: string
+      manifest_version_prefix:
+        description: 'Version prefix of the application'
+        required: true
+        type: string
+      manifest_api_version:
+        description: 'API version of the application'
+        default: '7.3'
+        type: string
+      manifest_min_api_version:
+        description: 'Minimum API version required'
+        default: '7.3'
+        type: string
+      manifest_guid:
+        description: 'GUID for the .dapp manifest'
+        required: true
+        type: string
+      dapp_name:
+        description: 'Name of the dapp'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Git
+      run: git fetch --prune --unshallow
+        
+    - name: Get commit count
+      id: commit_count
+      run: |
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          echo "COMMIT_COUNT=${COMMIT_COUNT}" >> $GITHUB_ENV
+
+    - name: Generate version
+      id: version
+      run: |
+          VERSION="${{inputs.manifest_version_prefix}}.${{ env.COMMIT_COUNT }}"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+    - name: Set up Node.js environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    - name: Install dependencies
+      run: yarn install
+
+    - name: Build the project
+      run: ${{ inputs.build_command }}
+
+    - name: Create folder structure
+      run: mkdir -p ${{ inputs.dapp_name }}/app
+
+    - name: Copy build files
+      run: cp -r html/* ${{ inputs.dapp_name }}/app/
+
+    - name: Create manifest.json
+      run: |
+        echo '{
+          "name":  "${{ inputs.manifest_name }}",
+          "description":  "${{ inputs.manifest_description }}",
+          "icon":  "${{ inputs.manifest_icon }}",
+          "url":  "${{ inputs.manifest_url }}",
+          "version":  "${{ env.VERSION }}",
+          "api_version":  "${{ inputs.manifest_api_version }}",
+          "min_api_version":  "${{ inputs.manifest_min_api_version }}",
+          "guid":  "${{ inputs.manifest_guid }}"
+         }' > ${{ inputs.dapp_name }}/manifest.json
+
+    - name: Package into .dapp file
+      run: |
+        cd ${{ inputs.dapp_name }}
+        zip -r ../${{ inputs.dapp_name }}.dapp ./*
+        cd ..
+
+    - name: Upload .dapp file
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.dapp_name }}.dapp
+        path: ${{ inputs.dapp_name }}.dapp

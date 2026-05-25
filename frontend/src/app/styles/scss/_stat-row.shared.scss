@@ -1,0 +1,29 @@
+@mixin stat-row(
+  $title-class,
+  $value-class,
+  $font-size: null,
+  $title-max-width: null,
+  $title-width: null
+) {
+  display: flex;
+
+  @if $font-size != null {
+    font-size: $font-size;
+  }
+
+  .#{$title-class} {
+    margin-right: 24px;
+
+    @if $title-max-width != null {
+      max-width: $title-max-width;
+    }
+
+    @if $title-width != null {
+      width: $title-width;
+    }
+  }
+
+  .#{$value-class} {
+    color: var(--color-green);
+  }
+}

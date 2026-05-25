@@ -1,0 +1,72 @@
+export const outlinedAssetSelectStyles = {
+  control: (base, state) => ({
+    ...base,
+    minHeight: 41,
+    height: 41,
+    borderRadius: 170,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    border: `1px solid ${state.isFocused ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.08)'}`,
+    boxShadow: 'none',
+    cursor: 'pointer',
+    transition: 'border-color 0.15s, background 0.15s',
+    '&:hover': {
+      backgroundColor: 'rgba(255, 255, 255, 0.08)',
+      borderColor: 'rgba(255, 255, 255, 0.15)',
+    },
+  }),
+  valueContainer: (base) => ({
+    ...base,
+    height: 41,
+    padding: '0 0 0 14px',
+  }),
+  input: (base) => ({
+    ...base,
+    margin: 0,
+    padding: 0,
+    color: 'white',
+  }),
+  singleValue: (base) => ({
+    ...base,
+    color: 'white',
+    fontSize: 14,
+    lineHeight: '17px',
+    textTransform: 'none',
+  }),
+  placeholder: (base) => ({
+    ...base,
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 14,
+    lineHeight: '14px',
+    textTransform: 'none',
+  }),
+  indicatorsContainer: (base) => ({
+    ...base,
+    height: 41,
+  }),
+  dropdownIndicator: (base) => ({
+    ...base,
+    color: 'rgba(255, 255, 255, 0.5)',
+    padding: 8,
+  }),
+  indicatorSeparator: () => ({ display: 'none' }),
+  menu: (base) => ({
+    ...base,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    borderRadius: 20,
+    boxShadow: 'none',
+    marginTop: 6,
+  }),
+  menuList: (base) => ({
+    ...base,
+    padding: '10px 12px',
+  }),
+  option: (base, state) => ({
+    ...base,
+    backgroundColor: state.isFocused ? 'rgba(255,255,255,0.08)' : 'transparent',
+    color: state.isSelected ? 'var(--color-green)' : 'white',
+    fontSize: 14,
+    textTransform: 'none',
+    cursor: 'pointer',
+    borderRadius: 8,
+  }),
+};

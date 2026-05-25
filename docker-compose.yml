@@ -1,0 +1,55 @@
+# Production compose for BeamTerminal.
+# Deploy path: /root/Beam/BeamTerminal
+#
+# explorer-node runs on the host (systemd unit) on 127.0.0.1:8888.
+# nginx runs on the host (not in compose), see ../nginx.conf.
+#
+# Both indexer and api use host network mode so they can reach
+# - explorer-node on 127.0.0.1:8888
+# - postgres on 127.0.0.1:5432 (postgres publishes to loopback only)
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    restart: always
+    environment:
+      POSTGRES_DB: beamterminal
+      POSTGRES_USER: beamterminal
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    secrets: [postgres_password]
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U beamterminal -d beamterminal"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  indexer:
+    build: ./backend
+    command: node dist/src/indexer.js
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    network_mode: host
+    env_file: ./backend/.env
+
+  api:
+    build: ./backend
+    command: node dist/src/api.js
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    network_mode: host
+    env_file: ./backend/.env
+
+volumes:
+  postgres-data:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt

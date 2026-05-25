@@ -1,0 +1,11 @@
+{
+    "name": "BeamTerminal",
+    "description": "BEAM DEX terminal — pairs, charts, trades, swap.",
+    "url": "localapp/index.html",
+    "icon": "localapp/appicon.svg",
+    "guid": "e9b8c2a7-31df-4f5d-b7a4-d8f8c0a4f93a",
+    "major": 0,
+    "version": "1.0.0",
+    "api_version": "7.3",
+    "min_api_version": "7.3"
+}

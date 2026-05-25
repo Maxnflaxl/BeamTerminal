@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: beamterminal-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: beamterminal
+      POSTGRES_USER: beamterminal
+      POSTGRES_PASSWORD: beamterminal
+    ports:
+      # Bound to 5433 on the host to avoid conflicting with a system Postgres
+      # on the default port. Update DATABASE_URL in .env to match.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - beamterminal-postgres-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U beamterminal -d beamterminal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  beamterminal-postgres-dev:

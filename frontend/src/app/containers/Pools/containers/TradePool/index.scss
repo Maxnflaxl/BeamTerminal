@@ -1,0 +1,36 @@
+@use '../../../../styles/scss/stat-row.shared' as statRow;
+
+.amount-wrapper {
+  @include statRow.stat-row('amount-title', 'amount-value', null, 100px, 100%);
+}
+.assets-selector-wrapper {
+  display: flex;
+  align-items: center;
+  margin-bottom: 24px;
+  justify-content: space-between;
+  width: 100%;
+  height: 56px;
+  border: none;
+  outline: none;
+  border-radius: 10px;
+  padding-right: 15px;
+  background-color: var(--color-opasity-0-1);
+}
+
+.trade-embedded-actions {
+  width: 100%;
+
+  > .trade-embedded-action-button {
+    flex: 1 1 120px;
+    min-width: 0;
+    margin: 0 !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  > .trade-embedded-action-button > svg {
+    margin-right: 8px !important;
+  }
+}

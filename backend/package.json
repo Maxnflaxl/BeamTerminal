@@ -1,0 +1,35 @@
+{
+  "name": "beamterminal-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "yarn@4.5.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/indexer.ts",
+    "dev:api": "tsx watch src/api.ts",
+    "start": "node dist/indexer.js",
+    "start:api": "node dist/api.js",
+    "migrate": "tsx scripts/migrate.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/rate-limit": "^10.2.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.1.0",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "undici": "^7.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
