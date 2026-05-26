@@ -320,7 +320,9 @@ export const NetworkCharts: React.FC = () => {
   const txosTotal          = useOneShot<ApiChartSeries>(() => api.charts.txosTotal());
   const utxosTotal         = useOneShot<ApiChartSeries>(() => api.charts.utxosTotal());
   const shieldedInsDaily   = useOneShot<ApiChartSeries>(() => api.charts.shieldedInsDaily());
+  const shieldedInsTotal   = useOneShot<ApiChartSeries>(() => api.charts.shieldedInsTotal());
   const shieldedOutsDaily  = useOneShot<ApiChartSeries>(() => api.charts.shieldedOutsDaily());
+  const shieldedOutsTotal  = useOneShot<ApiChartSeries>(() => api.charts.shieldedOutsTotal());
   const contractsTotal     = useOneShot<ApiChartSeries>(() => api.charts.contractsTotal());
   const feesDaily          = useOneShot<ApiChartSeries>(() => api.charts.feesDaily());
   const feesTotal          = useOneShot<ApiChartSeries>(() => api.charts.feesTotal());
@@ -349,8 +351,10 @@ export const NetworkCharts: React.FC = () => {
     { key: 'callsTotal',       title: 'Contract calls (total)',  state: contractCallsTotal, formatter: fmtInt,        category: 'blockchain' },
     { key: 'assets',           title: 'Confidential Assets',     state: assets,             formatter: fmtInt,        category: 'blockchain' },
     // Lelantus
-    { key: 'shieldedIns',      title: 'Shielded inputs / day',   state: shieldedInsDaily,   formatter: fmtInt,        category: 'lelantus' },
-    { key: 'shieldedOuts',     title: 'Shielded outputs / day',  state: shieldedOutsDaily,  formatter: fmtInt,        category: 'lelantus' },
+    { key: 'shieldedIns',       title: 'Shielded inputs / day',  state: shieldedInsDaily,   formatter: fmtInt,        category: 'lelantus' },
+    { key: 'shieldedInsTotal',  title: 'Shielded inputs (total)',state: shieldedInsTotal,   formatter: fmtInt,        category: 'lelantus' },
+    { key: 'shieldedOuts',      title: 'Shielded outputs / day', state: shieldedOutsDaily,  formatter: fmtInt,        category: 'lelantus' },
+    { key: 'shieldedOutsTotal', title: 'Shielded outputs (total)',state: shieldedOutsTotal,  formatter: fmtInt,        category: 'lelantus' },
     // DeFi
     { key: 'tvl',              title: 'DEX TVL',                 state: tvl,                formatter: fmtUsd,        category: 'defi' },
     { key: 'dexVolume',        title: 'DEX volume / day',        state: dexVolume,          formatter: fmtUsd,        category: 'defi' },

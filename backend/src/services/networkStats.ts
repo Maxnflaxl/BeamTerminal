@@ -36,7 +36,9 @@ export interface NetworkSeries {
   daily_contract_calls:ChartPoint[];
   total_mw_outputs:    ChartPoint[];
   daily_sh_inputs:     ChartPoint[];
+  total_sh_inputs:     ChartPoint[];
   daily_sh_outputs:    ChartPoint[];
+  total_sh_outputs:    ChartPoint[];
 }
 
 interface ExplorerRow {
@@ -158,7 +160,9 @@ export async function fetchNetworkSeries(): Promise<NetworkSeries> {
     daily_contract_calls: deltaSeries(rows, 'P'),
     total_mw_outputs:     passthrough(rows, 'O'),
     daily_sh_inputs:      deltaSeries(rows, 'Y'),
+    total_sh_inputs:      passthrough(rows, 'Y'),
     daily_sh_outputs:     deltaSeries(rows, 'Z'),
+    total_sh_outputs:     passthrough(rows, 'Z'),
   };
   logger.info({ rows: rows.length, ms: Date.now() - t0 }, 'network series fetched');
   return series;
