@@ -7,28 +7,20 @@ interface SeriesPoint {
 }
 
 // ---------------------------------------------------------------------------
-// Hashrate per day (sol/s, derived from cumulative chainwork diffs).
-// Frontend converts to MSol/s by dividing by 1e6.
+// Hashrate per day in Sol/s. Matches the Health page's diffToHashrate logic
+// (= difficulty / block_time), aggregated as Σ difficulty / Δt across each
+// day's blocks. Chainwork can't be used directly because Beam's chainwork is
+// exponential (2^diff per block), not Σ difficulty.
 // ---------------------------------------------------------------------------
 const HASHRATE_SQL = `
-  WITH daily AS (
-    SELECT time_bucket(INTERVAL '1 day', block_ts) AS day,
-           MAX(chainwork)::numeric AS chainwork_end,
-           MAX(block_ts) AS last_ts
-      FROM block_metrics
-     GROUP BY day
-  ),
-  diffs AS (
-    SELECT day,
-           chainwork_end - LAG(chainwork_end) OVER (ORDER BY day) AS dwork,
-           EXTRACT(epoch FROM last_ts - LAG(last_ts) OVER (ORDER BY day)) AS dt
-      FROM daily
-  )
-  SELECT EXTRACT(epoch FROM day)::bigint AS ts,
-         (dwork / NULLIF(dt, 0))::float8 AS value
-    FROM diffs
-   WHERE dwork IS NOT NULL AND dt > 0
-   ORDER BY day
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
+         (SUM(difficulty)::float8
+            / NULLIF(EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts)), 0))::float8 AS value
+    FROM block_metrics
+   WHERE difficulty > 0
+   GROUP BY time_bucket(INTERVAL '1 day', block_ts)
+  HAVING COUNT(*) > 1
+   ORDER BY 1
 `;
 
 // Kernels per day = sum of per-block kernel counts in the day's blocks.
