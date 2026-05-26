@@ -16,7 +16,13 @@ const Row = styled.div`
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  overflow-x: auto;
+
+  @media (max-width: 640px) {
+    padding: 0 12px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px 12px;
+  }
 `;
 
 const Stat = styled.div`
@@ -28,6 +34,12 @@ const Stat = styled.div`
     border-right: none;
     margin-right: 0;
     padding-right: 0;
+  }
+
+  @media (max-width: 640px) {
+    margin-right: 0;
+    padding-right: 0;
+    border-right: none;
   }
 `;
 
@@ -53,6 +65,13 @@ const BeamPx = styled.div`
   b {
     color: white;
     margin-left: 4px;
+  }
+
+  @media (max-width: 640px) {
+    margin-left: 0;
+    grid-column: 1 / -1;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
 `;
 
