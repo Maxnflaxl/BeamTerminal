@@ -49,42 +49,28 @@ const CATEGORIES: ReadonlyArray<{ key: Category; label: string }> = [
 
 const Page = styled.div`
   width: 100%;
-  max-width: 1280px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 16px;
-  display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 16px;
-
-  @media (max-width: 800px) {
-    grid-template-columns: 1fr;
-  }
 `;
 
-const Sidebar = styled.div`
+const CategoryBar = styled.div`
   display: flex;
-  flex-direction: column;
   gap: 6px;
-  align-self: start;
-  position: sticky;
-  top: 16px;
-
-  @media (max-width: 800px) {
-    flex-direction: row;
-    flex-wrap: wrap;
-    position: static;
-  }
-`;
-
-const Main = styled.div`
-  min-width: 0;
 `;
 
 const Toolbar = styled.div`
   display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+`;
+
+const TimeframeGroup = styled.div`
+  display: flex;
+  gap: 6px;
 `;
 
 const TfButton = styled.button<{ active?: boolean }>`
@@ -344,19 +330,19 @@ export const NetworkCharts: React.FC = () => {
 
   return (
     <Page>
-      <Sidebar>
-        {CATEGORIES.map((c) => (
-          <TfButton
-            key={c.key}
-            active={category === c.key}
-            onClick={() => setCategory(c.key)}
-          >
-            {c.label}
-          </TfButton>
-        ))}
-      </Sidebar>
-      <Main>
-        <Toolbar>
+      <Toolbar>
+        <CategoryBar>
+          {CATEGORIES.map((c) => (
+            <TfButton
+              key={c.key}
+              active={category === c.key}
+              onClick={() => setCategory(c.key)}
+            >
+              {c.label}
+            </TfButton>
+          ))}
+        </CategoryBar>
+        <TimeframeGroup>
           {TIMEFRAMES.map((tf) => (
             <TfButton
               key={tf}
@@ -366,21 +352,21 @@ export const NetworkCharts: React.FC = () => {
               {tf}
             </TfButton>
           ))}
-        </Toolbar>
-        <Grid>
-          {charts.map((c) => (
-            <ChartCell
-              key={c.key}
-              state={c.state}
-              title={c.title}
-              timeframe={timeframe}
-              scale={c.scale}
-              formatter={c.formatter}
-              onExpand={() => setExpandedKey(c.key)}
-            />
-          ))}
-        </Grid>
-      </Main>
+        </TimeframeGroup>
+      </Toolbar>
+      <Grid>
+        {charts.map((c) => (
+          <ChartCell
+            key={c.key}
+            state={c.state}
+            title={c.title}
+            timeframe={timeframe}
+            scale={c.scale}
+            formatter={c.formatter}
+            onExpand={() => setExpandedKey(c.key)}
+          />
+        ))}
+      </Grid>
       {expanded && (
         <ModalBackdrop onClick={() => setExpandedKey(null)}>
           <ModalContent onClick={(e) => e.stopPropagation()}>
