@@ -3,14 +3,22 @@ import { styled } from '@linaria/react';
 import { api, type ApiChartPoint, type ApiChartSeries } from '../api/client';
 import { SimpleChart } from '../components/SimpleChart';
 
-type Timeframe = '1W' | '1M' | '3M' | 'ALL';
-const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1W', '1M', '3M', 'ALL'];
-const TIMEFRAME_DAYS: Record<Timeframe, number | null> = { '1W': 7, '1M': 30, '3M': 90, ALL: null };
+type Timeframe = '1W' | '1M' | '3M' | 'YTD' | 'ALL';
+const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1W', '1M', '3M', 'YTD', 'ALL'];
+const TIMEFRAME_DAYS: Record<Timeframe, number | null> = { '1W': 7, '1M': 30, '3M': 90, YTD: -1, ALL: null };
 
 function filterByTimeframe(series: ReadonlyArray<ApiChartPoint>, tf: Timeframe): ApiChartPoint[] {
+  if (series.length === 0) return [];
   const days = TIMEFRAME_DAYS[tf];
-  if (days === null || series.length === 0) return series.slice();
-  const cutoff = series[series.length - 1].ts - days * 86400;
+  if (days === null) return series.slice();
+  let cutoff: number;
+  if (tf === 'YTD') {
+    const last = series[series.length - 1].ts;
+    const year = new Date(last * 1000).getUTCFullYear();
+    cutoff = Date.UTC(year, 0, 1) / 1000;
+  } else {
+    cutoff = series[series.length - 1].ts - (days as number) * 86400;
+  }
   return series.filter((p) => p.ts >= cutoff);
 }
 
