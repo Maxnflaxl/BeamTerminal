@@ -38,6 +38,10 @@ const BLOCK_TIME_SQL = `
 // BEAM oracle directly (BEAM-quoted pools) or via the BEAM-paired pool's
 // reserve ratio (cross-rate). Doubles the priceable side to estimate full
 // pool value (AMMs hold equal value on both sides at equilibrium).
+//
+// Materializes a per-day cross-rate map (best BEAM-paired pool per asset
+// per day) and JOINs against it — avoids the O(N²) LATERAL pattern when
+// pool_state_snapshots is large.
 const TVL_SQL = `
   WITH oracle_day AS (
     SELECT time_bucket(INTERVAL '1 day', ts) AS day,
@@ -53,47 +57,41 @@ const TVL_SQL = `
       FROM pool_state_snapshots
      GROUP BY pool_id, time_bucket(INTERVAL '1 day', ts)
   ),
+  beam_paired AS (
+    SELECT DISTINCT ON (pd.day, p.aid2)
+           pd.day,
+           p.aid2 AS asset_aid,
+           pd.reserve1::numeric AS beam_reserve,
+           pd.reserve2::numeric AS asset_reserve
+      FROM pool_day pd
+      JOIN pools p ON p.pool_id = pd.pool_id
+     WHERE p.aid1 = 0 AND pd.reserve1 > 0 AND pd.reserve2 > 0
+     ORDER BY pd.day, p.aid2, pd.reserve1 DESC
+  ),
   priced AS (
     SELECT pd.day,
            CASE
              WHEN p.aid1 = 0 AND od.beam_usd IS NOT NULL THEN
                2 * (pd.reserve1 / 1e8::numeric) * od.beam_usd
-             WHEN bphr1.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+             WHEN bp1.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
                2 * (pd.reserve1 / power(10::numeric, a1.decimals))
-                 * (bphr1.beam_reserve / 1e8::numeric)
-                 / NULLIF(bphr1.other_reserve / power(10::numeric, a1.decimals), 0)
+                 * (bp1.beam_reserve / 1e8::numeric)
+                 / NULLIF(bp1.asset_reserve / power(10::numeric, a1.decimals), 0)
                  * od.beam_usd
-             WHEN bphr2.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+             WHEN bp2.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
                2 * (pd.reserve2 / power(10::numeric, a2.decimals))
-                 * (bphr2.beam_reserve / 1e8::numeric)
-                 / NULLIF(bphr2.other_reserve / power(10::numeric, a2.decimals), 0)
+                 * (bp2.beam_reserve / 1e8::numeric)
+                 / NULLIF(bp2.asset_reserve / power(10::numeric, a2.decimals), 0)
                  * od.beam_usd
            END AS tvl_usd
       FROM pool_day pd
       JOIN pools  p  ON p.pool_id = pd.pool_id
       JOIN assets a1 ON a1.aid = p.aid1
       JOIN assets a2 ON a2.aid = p.aid2
-      LEFT JOIN oracle_day od ON od.day = pd.day
-      LEFT JOIN LATERAL (
-        SELECT pds.reserve1::numeric AS beam_reserve,
-               pds.reserve2::numeric AS other_reserve
-          FROM pool_day pds
-          JOIN pools bp ON bp.pool_id = pds.pool_id
-         WHERE bp.aid1 = 0 AND bp.aid2 = p.aid1
-           AND pds.day = pd.day
-           AND pds.reserve1 > 0 AND pds.reserve2 > 0
-         LIMIT 1
-      ) bphr1 ON p.aid1 <> 0
-      LEFT JOIN LATERAL (
-        SELECT pds.reserve1::numeric AS beam_reserve,
-               pds.reserve2::numeric AS other_reserve
-          FROM pool_day pds
-          JOIN pools bp ON bp.pool_id = pds.pool_id
-         WHERE bp.aid1 = 0 AND bp.aid2 = p.aid2
-           AND pds.day = pd.day
-           AND pds.reserve1 > 0 AND pds.reserve2 > 0
-         LIMIT 1
-      ) bphr2 ON p.aid1 <> 0
+      LEFT JOIN oracle_day  od  ON od.day  = pd.day
+      LEFT JOIN beam_paired bp1 ON bp1.day = pd.day AND bp1.asset_aid = p.aid1
+      LEFT JOIN beam_paired bp2 ON bp2.day = pd.day AND bp2.asset_aid = p.aid2
+     WHERE pd.reserve1 > 0 OR pd.reserve2 > 0
   )
   SELECT EXTRACT(epoch FROM day)::bigint AS ts,
          SUM(tvl_usd)::float8 AS value
