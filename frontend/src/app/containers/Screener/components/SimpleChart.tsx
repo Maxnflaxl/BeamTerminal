@@ -84,6 +84,7 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
         borderColor: 'rgba(255, 255, 255, 0.1)',
         timeVisible: false,
         secondsVisible: false,
+        minBarSpacing: 0.01,
       },
     });
     chartRef.current = chart;
