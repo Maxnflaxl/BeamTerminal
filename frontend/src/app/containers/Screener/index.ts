@@ -10,3 +10,5 @@ export { Health } from './containers/explorer/Health';
 export { BANS } from './containers/explorer/BANS';
 export { BridgeTracker } from './containers/explorer/BridgeTracker';
 export { BeamExplorer } from './containers/explorer/BeamExplorer';
+export { Privacy } from './containers/Privacy';
+export { Footer } from './components/Footer';

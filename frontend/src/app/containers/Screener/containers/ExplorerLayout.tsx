@@ -3,7 +3,6 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { css } from '@linaria/core';
 import { ROUTES } from '@app/shared/constants';
-import { Footer } from '../components/Footer';
 
 const SubNav = styled.nav`
   width: 100%;
@@ -68,7 +67,6 @@ export const ExplorerLayout: React.FC = () => (
       </SubNavInner>
     </SubNav>
     <Outlet />
-    <Footer />
   </>
 );
 

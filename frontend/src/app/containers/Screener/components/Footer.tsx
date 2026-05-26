@@ -136,7 +136,7 @@ export const Footer: React.FC = () => (
       <Col>
         <ColTitle>BEAM</ColTitle>
         <FLink href="https://beam.mw" target="_blank" rel="noopener noreferrer">beam.mw</FLink>
-        <FLink href="https://beam.mw/privacy-policy" target="_blank" rel="noopener noreferrer">Privacy Policy</FLink>
+        <FLink href="/privacy">Privacy Policy</FLink>
       </Col>
       <Col>
         <ColTitle>Community</ColTitle>
@@ -155,7 +155,7 @@ export const Footer: React.FC = () => (
       </Col>
     </Inner>
     <BottomBar>
-      <span>Built by Maxnflaxl · not affiliated with the Beam Foundation</span>
+      <span>Built by Maxnflaxl</span>
       <IndexerBadge />
     </BottomBar>
   </Wrap>

@@ -24,6 +24,8 @@ import {
   BANS,
   BridgeTracker,
   BeamExplorer,
+  Privacy,
+  Footer,
 } from '@app/containers/Screener';
 import { ROUTES } from '@app/shared/constants';
 import { Loader, TopNav } from '@app/shared/components';
@@ -43,6 +45,7 @@ const routes = [
   { path: ROUTES.NAV.PAIR_DETAIL, element: <PairDetail /> },
   { path: ROUTES.NAV.ASSETS, element: <AssetsList /> },
   { path: ROUTES.NAV.ASSET_INFO, element: <AssetDetail /> },
+  { path: ROUTES.NAV.PRIVACY, element: <Privacy /> },
   {
     path: ROUTES.NAV.EXPLORER,
     element: <ExplorerLayout />,
@@ -105,6 +108,7 @@ const App = () => {
         >
           <TopNav />
           <ErrorBoundary>{content}</ErrorBoundary>
+          <Footer />
           <ToastContainer
             position="bottom-right"
             autoClose={3000}
