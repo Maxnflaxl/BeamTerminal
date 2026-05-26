@@ -23,6 +23,86 @@ const HASHRATE_SQL = `
    ORDER BY 1
 `;
 
+// Per-day average block time in seconds (Δt across the day's blocks).
+const BLOCK_TIME_SQL = `
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
+         (EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts))
+            / NULLIF(COUNT(*) - 1, 0))::float8 AS value
+    FROM block_metrics
+   GROUP BY time_bucket(INTERVAL '1 day', block_ts)
+  HAVING COUNT(*) > 1
+   ORDER BY 1
+`;
+
+// Per-day DEX TVL in USD. End-of-day reserves per pool, priced via the
+// BEAM oracle directly (BEAM-quoted pools) or via the BEAM-paired pool's
+// reserve ratio (cross-rate). Doubles the priceable side to estimate full
+// pool value (AMMs hold equal value on both sides at equilibrium).
+const TVL_SQL = `
+  WITH oracle_day AS (
+    SELECT time_bucket(INTERVAL '1 day', ts) AS day,
+           last(beam_usd, ts) AS beam_usd
+      FROM oracle_snapshots
+     GROUP BY day
+  ),
+  pool_day AS (
+    SELECT pool_id,
+           time_bucket(INTERVAL '1 day', ts) AS day,
+           last(reserve1, ts)::numeric AS reserve1,
+           last(reserve2, ts)::numeric AS reserve2
+      FROM pool_state_snapshots
+     GROUP BY pool_id, time_bucket(INTERVAL '1 day', ts)
+  ),
+  priced AS (
+    SELECT pd.day,
+           CASE
+             WHEN p.aid1 = 0 AND od.beam_usd IS NOT NULL THEN
+               2 * (pd.reserve1 / 1e8::numeric) * od.beam_usd
+             WHEN bphr1.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               2 * (pd.reserve1 / power(10::numeric, a1.decimals))
+                 * (bphr1.beam_reserve / 1e8::numeric)
+                 / NULLIF(bphr1.other_reserve / power(10::numeric, a1.decimals), 0)
+                 * od.beam_usd
+             WHEN bphr2.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               2 * (pd.reserve2 / power(10::numeric, a2.decimals))
+                 * (bphr2.beam_reserve / 1e8::numeric)
+                 / NULLIF(bphr2.other_reserve / power(10::numeric, a2.decimals), 0)
+                 * od.beam_usd
+           END AS tvl_usd
+      FROM pool_day pd
+      JOIN pools  p  ON p.pool_id = pd.pool_id
+      JOIN assets a1 ON a1.aid = p.aid1
+      JOIN assets a2 ON a2.aid = p.aid2
+      LEFT JOIN oracle_day od ON od.day = pd.day
+      LEFT JOIN LATERAL (
+        SELECT pds.reserve1::numeric AS beam_reserve,
+               pds.reserve2::numeric AS other_reserve
+          FROM pool_day pds
+          JOIN pools bp ON bp.pool_id = pds.pool_id
+         WHERE bp.aid1 = 0 AND bp.aid2 = p.aid1
+           AND pds.day = pd.day
+           AND pds.reserve1 > 0 AND pds.reserve2 > 0
+         LIMIT 1
+      ) bphr1 ON p.aid1 <> 0
+      LEFT JOIN LATERAL (
+        SELECT pds.reserve1::numeric AS beam_reserve,
+               pds.reserve2::numeric AS other_reserve
+          FROM pool_day pds
+          JOIN pools bp ON bp.pool_id = pds.pool_id
+         WHERE bp.aid1 = 0 AND bp.aid2 = p.aid2
+           AND pds.day = pd.day
+           AND pds.reserve1 > 0 AND pds.reserve2 > 0
+         LIMIT 1
+      ) bphr2 ON p.aid1 <> 0
+  )
+  SELECT EXTRACT(epoch FROM day)::bigint AS ts,
+         SUM(tvl_usd)::float8 AS value
+    FROM priced
+   WHERE tvl_usd IS NOT NULL
+   GROUP BY day
+   ORDER BY 1
+`;
+
 // Per-day average network difficulty (mean across the day's blocks).
 const DIFFICULTY_SQL = `
   SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
@@ -184,6 +264,19 @@ export async function chartsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/charts/difficulty', async (_req, reply) => {
     const { rows } = await q<Row>(DIFFICULTY_SQL);
     void reply.header('cache-control', 'public, max-age=600');
+    return { series: toSeries(rows) };
+  });
+
+  app.get('/charts/block-time', async (_req, reply) => {
+    const { rows } = await q<Row>(BLOCK_TIME_SQL);
+    void reply.header('cache-control', 'public, max-age=600');
+    return { series: toSeries(rows) };
+  });
+
+  app.get('/charts/tvl', async (_req, reply) => {
+    const { rows } = await q<Row>(TVL_SQL);
+    // Heavy pool-day x oracle-day join; cache for 30 min like dex-volume.
+    void reply.header('cache-control', 'public, max-age=1800');
     return { series: toSeries(rows) };
   });
 }

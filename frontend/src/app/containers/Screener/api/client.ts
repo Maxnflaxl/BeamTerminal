@@ -85,6 +85,8 @@ export const api = {
     assets:     (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/assets'),
     dexVolume:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/dex-volume'),
     difficulty: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/difficulty'),
+    blockTime:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/block-time'),
+    tvl:        (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/tvl'),
   },
 };
 

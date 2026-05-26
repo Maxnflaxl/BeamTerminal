@@ -219,6 +219,11 @@ function fmtHashrate(v: number): string {
   return fmtSIUnit(v, 'Sol/s');
 }
 
+function fmtBlockTime(v: number): string {
+  if (!Number.isFinite(v)) return '';
+  return v.toFixed(1) + 's';
+}
+
 function fmtDifficulty(v: number): string {
   if (!Number.isFinite(v)) return '';
   const abs = Math.abs(v);
@@ -274,7 +279,9 @@ interface ChartSpec {
 export const NetworkCharts: React.FC = () => {
   const hashrate   = useOneShot<ApiChartSeries>(() => api.charts.hashrate());
   const difficulty = useOneShot<ApiChartSeries>(() => api.charts.difficulty());
+  const blockTime  = useOneShot<ApiChartSeries>(() => api.charts.blockTime());
   const kernels    = useOneShot<ApiChartSeries>(() => api.charts.kernels());
+  const tvl        = useOneShot<ApiChartSeries>(() => api.charts.tvl());
   const dexVolume  = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
   const assets     = useOneShot<ApiChartSeries>(() => api.charts.assets());
 
@@ -284,7 +291,9 @@ export const NetworkCharts: React.FC = () => {
   const charts: ReadonlyArray<ChartSpec> = [
     { key: 'hashrate',   title: 'Hashrate (Beamhash III)', state: hashrate,   formatter: fmtHashrate },
     { key: 'difficulty', title: 'Difficulty',              state: difficulty, formatter: fmtDifficulty },
+    { key: 'blockTime',  title: 'Avg block time',          state: blockTime,  formatter: fmtBlockTime },
     { key: 'kernels',    title: 'Kernels / day',           state: kernels,    formatter: fmtInt },
+    { key: 'tvl',        title: 'DEX TVL',                 state: tvl,        formatter: fmtUsd },
     { key: 'dexVolume',  title: 'DEX volume / day',        state: dexVolume,  formatter: fmtUsd },
     { key: 'assets',     title: 'Confidential Assets',     state: assets,     formatter: fmtInt },
   ];
