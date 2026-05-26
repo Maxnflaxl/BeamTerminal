@@ -22,7 +22,6 @@ import { q, shutdown } from '../src/db.js';
 import { getContract, getStatus, type Row } from '../src/explorer.js';
 import { logger } from '../src/logger.js';
 import { config } from '../src/config.js';
-import { getBlockTsMap } from '../src/services/blockTimestamps.js';
 
 const ORACLE_DEPLOY_HEIGHT = 1_890_070; // From Version History
 const VALIDITY_PERIOD = 220;
@@ -201,11 +200,22 @@ async function main(): Promise<void> {
   // Sort ascending by height to replay in order.
   allCalls.sort((a, b) => a.height - b.height);
 
-  // Step 2: resolve block timestamps for every unique height.
+  // Step 2: resolve block timestamps via block_metrics (which has every block
+  // since chain genesis after the block-metrics backfill ran). One DB query
+  // beats 150k explorer round-trips that getBlockTsMap would otherwise need.
   const heights = Array.from(new Set(allCalls.map((c) => c.height)));
-  logger.info({ unique_heights: heights.length }, 'resolving block timestamps');
-  const tsMap = await getBlockTsMap(heights);
-  logger.info('block timestamps resolved');
+  logger.info({ unique_heights: heights.length }, 'resolving block timestamps from block_metrics');
+  const tsMap = new Map<number, Date>();
+  const CHUNK = 50_000;
+  for (let i = 0; i < heights.length; i += CHUNK) {
+    const slice = heights.slice(i, i + CHUNK);
+    const { rows } = await q<{ height: string; block_ts: Date }>(
+      'SELECT height, block_ts FROM block_metrics WHERE height = ANY($1::bigint[])',
+      [slice],
+    );
+    for (const r of rows) tsMap.set(Number(r.height), r.block_ts);
+  }
+  logger.info({ resolved: tsMap.size, missing: heights.length - tsMap.size }, 'block timestamps resolved');
 
   // Step 3: walk calls, maintain feed state, emit one snapshot per UTC day
   // at the EOD timestamp with the median valid at the day's last call.
