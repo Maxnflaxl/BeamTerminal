@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { q } from '../../db.js';
+import { fetchNetworkSeries, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
 
 interface SeriesPoint {
   ts: number;
@@ -244,9 +245,36 @@ function toSeries(rows: ReadonlyArray<Row>): SeriesPoint[] {
 // ---------------------------------------------------------------------------
 interface ChartDef {
   name: string;
-  sql: string;
+  /** SQL run by `runQuery`. Mutually exclusive with `fetch`. */
+  sql?: string;
+  /** Custom fetcher when the data isn't a single Postgres aggregate (e.g.
+   *  pulling from the explorer's /hdrs endpoint). Returns a ready series. */
+  fetch?: () => Promise<SeriesPoint[]>;
   /** Browser cache hint (the server-side cache is independent). */
   maxAgeSec: number;
+}
+
+// Network-stats group is fetched once and split into ten series; this group
+// lives behind a single in-memory promise so we don't hit the explorer eleven
+// times per refresh.
+let networkSeriesInflight: Promise<NetworkSeries> | null = null;
+let networkSeriesAt = 0;
+const NETWORK_SERIES_TTL_MS = 30 * 60 * 1000;
+async function getNetworkSeries(): Promise<NetworkSeries> {
+  const now = Date.now();
+  if (now - networkSeriesAt > NETWORK_SERIES_TTL_MS) networkSeriesInflight = null;
+  if (!networkSeriesInflight) {
+    networkSeriesInflight = fetchNetworkSeries()
+      .then((s) => { networkSeriesAt = Date.now(); return s; })
+      .catch((err) => { networkSeriesInflight = null; throw err; });
+  }
+  return networkSeriesInflight;
+}
+function netFetcher(key: keyof NetworkSeries): () => Promise<SeriesPoint[]> {
+  return async () => {
+    const s = await getNetworkSeries();
+    return s[key] as ChartPoint[];
+  };
 }
 
 const CHART_DEFS: ReadonlyArray<ChartDef> = [
@@ -257,6 +285,18 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'difficulty', sql: DIFFICULTY_SQL, maxAgeSec: 600 },
   { name: 'block-time', sql: BLOCK_TIME_SQL, maxAgeSec: 600 },
   { name: 'tvl',        sql: TVL_SQL,        maxAgeSec: 1800 },
+  // From the explorer's /hdrs endpoint (one fetch yields all ten).
+  { name: 'transactions-daily',  fetch: netFetcher('daily_txs'),             maxAgeSec: 600 },
+  { name: 'transactions-total',  fetch: netFetcher('total_txs'),             maxAgeSec: 600 },
+  { name: 'txos-total',          fetch: netFetcher('total_mw_outputs'),      maxAgeSec: 600 },
+  { name: 'utxos-total',         fetch: netFetcher('total_utxos'),           maxAgeSec: 600 },
+  { name: 'shielded-ins-daily',  fetch: netFetcher('daily_sh_inputs'),       maxAgeSec: 600 },
+  { name: 'shielded-outs-daily', fetch: netFetcher('daily_sh_outputs'),      maxAgeSec: 600 },
+  { name: 'contracts-total',     fetch: netFetcher('total_contracts'),       maxAgeSec: 600 },
+  { name: 'fees-daily',          fetch: netFetcher('daily_fee_groth'),       maxAgeSec: 600 },
+  { name: 'fees-total',          fetch: netFetcher('total_fee_groth'),       maxAgeSec: 600 },
+  { name: 'contract-calls-daily',fetch: netFetcher('daily_contract_calls'),  maxAgeSec: 600 },
+  { name: 'contract-calls-total',fetch: netFetcher('total_contract_calls'),  maxAgeSec: 600 },
 ];
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
@@ -271,8 +311,15 @@ const cache = new Map<string, CacheEntry>();
 
 async function runQuery(def: ChartDef): Promise<SeriesPoint[]> {
   const t0 = Date.now();
-  const { rows } = await q<Row>(def.sql);
-  const series = toSeries(rows);
+  let series: SeriesPoint[];
+  if (def.fetch) {
+    series = await def.fetch();
+  } else if (def.sql) {
+    const { rows } = await q<Row>(def.sql);
+    series = toSeries(rows);
+  } else {
+    throw new Error(`chart ${def.name} has neither sql nor fetch`);
+  }
   // eslint-disable-next-line no-console -- Fastify pino logger is per-request.
   console.log(`[charts] ${def.name} refreshed: ${series.length} pts in ${Date.now() - t0}ms`);
   return series;

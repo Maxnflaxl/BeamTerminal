@@ -41,9 +41,10 @@ function useOneShot<T>(fetcher: () => Promise<T>): FetchState<T> {
   return state;
 }
 
-type Category = 'blockchain' | 'defi';
+type Category = 'blockchain' | 'lelantus' | 'defi';
 const CATEGORIES: ReadonlyArray<{ key: Category; label: string }> = [
   { key: 'blockchain', label: 'Blockchain' },
+  { key: 'lelantus',   label: 'Lelantus' },
   { key: 'defi',       label: 'DeFi' },
 ];
 
@@ -242,6 +243,18 @@ function fmtBlockTime(v: number): string {
   return v.toFixed(1) + 's';
 }
 
+function fmtBeam(v: number): string {
+  // Input is groths; 1 BEAM = 1e8 groths.
+  const beam = v / 1e8;
+  if (!Number.isFinite(beam)) return '';
+  const abs = Math.abs(beam);
+  if (abs >= 1e9) return (beam / 1e9).toFixed(2) + 'B BEAM';
+  if (abs >= 1e6) return (beam / 1e6).toFixed(2) + 'M BEAM';
+  if (abs >= 1e3) return (beam / 1e3).toFixed(2) + 'k BEAM';
+  if (abs >= 1)   return beam.toFixed(2)         + ' BEAM';
+  return beam.toFixed(4) + ' BEAM';
+}
+
 function fmtDifficulty(v: number): string {
   if (!Number.isFinite(v)) return '';
   const abs = Math.abs(v);
@@ -295,13 +308,24 @@ interface ChartSpec {
 }
 
 export const NetworkCharts: React.FC = () => {
-  const hashrate   = useOneShot<ApiChartSeries>(() => api.charts.hashrate());
-  const difficulty = useOneShot<ApiChartSeries>(() => api.charts.difficulty());
-  const blockTime  = useOneShot<ApiChartSeries>(() => api.charts.blockTime());
-  const kernels    = useOneShot<ApiChartSeries>(() => api.charts.kernels());
-  const tvl        = useOneShot<ApiChartSeries>(() => api.charts.tvl());
-  const dexVolume  = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
-  const assets     = useOneShot<ApiChartSeries>(() => api.charts.assets());
+  const hashrate           = useOneShot<ApiChartSeries>(() => api.charts.hashrate());
+  const difficulty         = useOneShot<ApiChartSeries>(() => api.charts.difficulty());
+  const blockTime          = useOneShot<ApiChartSeries>(() => api.charts.blockTime());
+  const kernels            = useOneShot<ApiChartSeries>(() => api.charts.kernels());
+  const tvl                = useOneShot<ApiChartSeries>(() => api.charts.tvl());
+  const dexVolume          = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
+  const assets             = useOneShot<ApiChartSeries>(() => api.charts.assets());
+  const transactionsDaily  = useOneShot<ApiChartSeries>(() => api.charts.transactionsDaily());
+  const transactionsTotal  = useOneShot<ApiChartSeries>(() => api.charts.transactionsTotal());
+  const txosTotal          = useOneShot<ApiChartSeries>(() => api.charts.txosTotal());
+  const utxosTotal         = useOneShot<ApiChartSeries>(() => api.charts.utxosTotal());
+  const shieldedInsDaily   = useOneShot<ApiChartSeries>(() => api.charts.shieldedInsDaily());
+  const shieldedOutsDaily  = useOneShot<ApiChartSeries>(() => api.charts.shieldedOutsDaily());
+  const contractsTotal     = useOneShot<ApiChartSeries>(() => api.charts.contractsTotal());
+  const feesDaily          = useOneShot<ApiChartSeries>(() => api.charts.feesDaily());
+  const feesTotal          = useOneShot<ApiChartSeries>(() => api.charts.feesTotal());
+  const contractCallsDaily = useOneShot<ApiChartSeries>(() => api.charts.contractCallsDaily());
+  const contractCallsTotal = useOneShot<ApiChartSeries>(() => api.charts.contractCallsTotal());
 
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -309,13 +333,27 @@ export const NetworkCharts: React.FC = () => {
   const [category, setCategory] = useState<Category>('blockchain');
 
   const allCharts: ReadonlyArray<ChartSpec & { category: Category }> = [
-    { key: 'hashrate',   title: 'Hashrate (Beamhash III)', state: hashrate,   formatter: fmtHashrate,   category: 'blockchain' },
-    { key: 'difficulty', title: 'Difficulty',              state: difficulty, formatter: fmtDifficulty, category: 'blockchain' },
-    { key: 'blockTime',  title: 'Avg block time',          state: blockTime,  formatter: fmtBlockTime,  category: 'blockchain' },
-    { key: 'kernels',    title: 'Kernels / day',           state: kernels,    formatter: fmtInt,        category: 'blockchain' },
-    { key: 'assets',     title: 'Confidential Assets',     state: assets,     formatter: fmtInt,        category: 'blockchain' },
-    { key: 'tvl',        title: 'DEX TVL',                 state: tvl,        formatter: fmtUsd,        category: 'defi' },
-    { key: 'dexVolume',  title: 'DEX volume / day',        state: dexVolume,  formatter: fmtUsd,        category: 'defi' },
+    // Blockchain
+    { key: 'hashrate',         title: 'Hashrate (Beamhash III)', state: hashrate,           formatter: fmtHashrate,   category: 'blockchain' },
+    { key: 'difficulty',       title: 'Difficulty',              state: difficulty,         formatter: fmtDifficulty, category: 'blockchain' },
+    { key: 'blockTime',        title: 'Avg block time',          state: blockTime,          formatter: fmtBlockTime,  category: 'blockchain' },
+    { key: 'kernels',          title: 'Kernels / day',           state: kernels,            formatter: fmtInt,        category: 'blockchain' },
+    { key: 'transactionsDaily',title: 'Transactions / day',      state: transactionsDaily,  formatter: fmtInt,        category: 'blockchain' },
+    { key: 'transactionsTotal',title: 'Transactions (total)',    state: transactionsTotal,  formatter: fmtInt,        category: 'blockchain' },
+    { key: 'txosTotal',        title: 'TXOs (total)',            state: txosTotal,          formatter: fmtInt,        category: 'blockchain' },
+    { key: 'utxosTotal',       title: 'UTXOs',                   state: utxosTotal,         formatter: fmtInt,        category: 'blockchain' },
+    { key: 'contractsTotal',   title: 'Contracts active',        state: contractsTotal,     formatter: fmtInt,        category: 'blockchain' },
+    { key: 'feesDaily',        title: 'Fees / day',              state: feesDaily,          formatter: fmtBeam,       category: 'blockchain' },
+    { key: 'feesTotal',        title: 'Fees (total)',            state: feesTotal,          formatter: fmtBeam,       category: 'blockchain' },
+    { key: 'callsDaily',       title: 'Contract calls / day',    state: contractCallsDaily, formatter: fmtInt,        category: 'blockchain' },
+    { key: 'callsTotal',       title: 'Contract calls (total)',  state: contractCallsTotal, formatter: fmtInt,        category: 'blockchain' },
+    { key: 'assets',           title: 'Confidential Assets',     state: assets,             formatter: fmtInt,        category: 'blockchain' },
+    // Lelantus
+    { key: 'shieldedIns',      title: 'Shielded inputs / day',   state: shieldedInsDaily,   formatter: fmtInt,        category: 'lelantus' },
+    { key: 'shieldedOuts',     title: 'Shielded outputs / day',  state: shieldedOutsDaily,  formatter: fmtInt,        category: 'lelantus' },
+    // DeFi
+    { key: 'tvl',              title: 'DEX TVL',                 state: tvl,                formatter: fmtUsd,        category: 'defi' },
+    { key: 'dexVolume',        title: 'DEX volume / day',        state: dexVolume,          formatter: fmtUsd,        category: 'defi' },
   ];
 
   const charts = allCharts.filter((c) => c.category === category);

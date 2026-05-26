@@ -87,6 +87,17 @@ export const api = {
     difficulty: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/difficulty'),
     blockTime:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/block-time'),
     tvl:        (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/tvl'),
+    transactionsDaily:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/transactions-daily'),
+    transactionsTotal:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/transactions-total'),
+    txosTotal:           (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/txos-total'),
+    utxosTotal:          (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/utxos-total'),
+    shieldedInsDaily:    (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/shielded-ins-daily'),
+    shieldedOutsDaily:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/shielded-outs-daily'),
+    contractsTotal:      (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/contracts-total'),
+    feesDaily:           (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/fees-daily'),
+    feesTotal:           (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/fees-total'),
+    contractCallsDaily:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/contract-calls-daily'),
+    contractCallsTotal:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/contract-calls-total'),
   },
 };
 
