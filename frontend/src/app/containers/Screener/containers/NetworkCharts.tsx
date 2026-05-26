@@ -420,6 +420,21 @@ export const NetworkCharts: React.FC = () => {
   const kernels            = useOneShot<ApiChartSeries>(() => api.charts.kernels());
   const tvl                = useOneShot<ApiChartSeries>(() => api.charts.tvl());
   const dexVolume          = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
+
+  // Cumulative DEX volume derived from the daily series — running sum.
+  // Avoids a second backend round-trip and stays in lock-step with the
+  // daily chart's methodology.
+  const dexVolumeCumulative = useMemo<FetchState<ApiChartSeries>>(() => {
+    if (!dexVolume.data) {
+      return { data: null, loading: dexVolume.loading, error: dexVolume.error };
+    }
+    let acc = 0;
+    const series = dexVolume.data.series.map((p) => {
+      acc += p.value;
+      return { ts: p.ts, value: acc };
+    });
+    return { data: { series }, loading: false, error: null };
+  }, [dexVolume.data, dexVolume.loading, dexVolume.error]);
   const assets             = useOneShot<ApiChartSeries>(() => api.charts.assets());
   const transactionsDaily  = useOneShot<ApiChartSeries>(() => api.charts.transactionsDaily());
   const transactionsTotal  = useOneShot<ApiChartSeries>(() => api.charts.transactionsTotal());
@@ -464,8 +479,9 @@ export const NetworkCharts: React.FC = () => {
     { key: 'shieldedOuts',      title: 'Shielded outputs / day', state: shieldedOutsDaily,  formatter: fmtInt,        category: 'lelantus' },
     { key: 'shieldedOutsTotal', title: 'Shielded outputs (total)',state: shieldedOutsTotal,  formatter: fmtInt,        category: 'lelantus' },
     // DeFi
-    { key: 'tvl',              title: 'DEX TVL',                 state: tvl,                formatter: fmtUsd,        category: 'defi' },
-    { key: 'dexVolume',        title: 'DEX volume / day',        state: dexVolume,          formatter: fmtUsd,        category: 'defi' },
+    { key: 'tvl',                title: 'DEX TVL',                state: tvl,                formatter: fmtUsd, category: 'defi' },
+    { key: 'dexVolume',          title: 'DEX volume / day',       state: dexVolume,          formatter: fmtUsd, category: 'defi' },
+    { key: 'dexVolumeCumulative',title: 'DEX volume (total)',     state: dexVolumeCumulative,formatter: fmtUsd, category: 'defi' },
   ];
 
   const charts = allCharts.filter((c) => c.category === category);
