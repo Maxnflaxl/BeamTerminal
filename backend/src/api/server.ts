@@ -9,7 +9,7 @@ import { pairsRoutes } from './routes/pairs.js';
 import { ohlcvRoutes } from './routes/ohlcv.js';
 import { tradesRoutes } from './routes/trades.js';
 import { assetRoutes } from './routes/asset.js';
-import { chartsRoutes } from './routes/charts.js';
+import { chartsRoutes, startChartCacheRefresher } from './routes/charts.js';
 import { cgTickersRoutes } from './routes/cg/tickers.js';
 import { cgHistoricalTradesRoutes } from './routes/cg/historical_trades.js';
 
@@ -72,5 +72,6 @@ export async function startApi(): Promise<FastifyInstance> {
   const app = buildApp();
   await app.listen({ host: config.API_HOST, port: config.API_PORT });
   logger.info({ host: config.API_HOST, port: config.API_PORT }, 'api listening');
+  startChartCacheRefresher();
   return app;
 }

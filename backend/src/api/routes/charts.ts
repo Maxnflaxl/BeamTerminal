@@ -146,76 +146,76 @@ const ASSETS_SQL = `
    ORDER BY day
 `;
 
-// Per-day DEX volume in USD. Mirrors the valuation logic in services/dexStats.ts
-// but groups by day instead of summing into a scalar. Each trade hour is priced
-// with the nearest oracle snapshot + a BEAM-quoted pool reserve, then those
-// hours are bucketed to days.
+// Per-day DEX volume in USD. Daily granularity throughout (we don't actually
+// need hourly precision for a multi-year chart). Materializes:
+//   - per-day BEAM/USD from oracle_snapshots,
+//   - per-day BEAM-paired cross-rates (best-liquidity pool per asset),
+// then JOINs against trade_daily. Replaces the previous per-row LATERAL
+// pattern which was O(N²) on pool_state_snapshots.
 const DEX_VOLUME_SQL = `
-  WITH trade_hourly AS (
+  WITH oracle_day AS (
+    SELECT time_bucket(INTERVAL '1 day', ts) AS day,
+           last(beam_usd, ts) AS beam_usd
+      FROM oracle_snapshots
+     GROUP BY day
+  ),
+  pool_day AS (
+    SELECT pool_id,
+           time_bucket(INTERVAL '1 day', ts) AS day,
+           last(reserve1, ts)::numeric AS reserve1,
+           last(reserve2, ts)::numeric AS reserve2
+      FROM pool_state_snapshots
+     GROUP BY pool_id, time_bucket(INTERVAL '1 day', ts)
+  ),
+  beam_paired AS (
+    SELECT DISTINCT ON (pd.day, p.aid2)
+           pd.day,
+           p.aid2 AS asset_aid,
+           pd.reserve1::numeric AS beam_reserve,
+           pd.reserve2::numeric AS asset_reserve
+      FROM pool_day pd
+      JOIN pools p ON p.pool_id = pd.pool_id
+     WHERE p.aid1 = 0 AND pd.reserve1 > 0 AND pd.reserve2 > 0
+     ORDER BY pd.day, p.aid2, pd.reserve1 DESC
+  ),
+  trade_daily AS (
     SELECT t.pool_id,
-           time_bucket(INTERVAL '1 hour', t.block_ts) AS bucket,
+           time_bucket(INTERVAL '1 day', t.block_ts) AS day,
            SUM(t.volume_aid1)::numeric AS vol1,
            SUM(t.volume_aid2)::numeric AS vol2
       FROM trades t
      WHERE t.confirmed = TRUE
-     GROUP BY t.pool_id, time_bucket(INTERVAL '1 hour', t.block_ts)
+     GROUP BY t.pool_id, time_bucket(INTERVAL '1 day', t.block_ts)
   ),
   priced AS (
-    SELECT th.bucket,
+    SELECT td.day,
            CASE
-             WHEN p.aid1 = 0 AND ohb.beam_usd IS NOT NULL THEN
-               (th.vol1 / 1e8::numeric) * ohb.beam_usd
-             WHEN bphr1.beam_reserve IS NOT NULL AND ohb.beam_usd IS NOT NULL THEN
-               (th.vol1 / power(10::numeric, a1.decimals))
-                * (bphr1.beam_reserve / 1e8::numeric)
-                / NULLIF(bphr1.other_reserve / power(10::numeric, a1.decimals), 0)
-                * ohb.beam_usd
-             WHEN bphr2.beam_reserve IS NOT NULL AND ohb.beam_usd IS NOT NULL THEN
-               (th.vol2 / power(10::numeric, a2.decimals))
-                * (bphr2.beam_reserve / 1e8::numeric)
-                / NULLIF(bphr2.other_reserve / power(10::numeric, a2.decimals), 0)
-                * ohb.beam_usd
+             WHEN p.aid1 = 0 AND od.beam_usd IS NOT NULL THEN
+               (td.vol1 / 1e8::numeric) * od.beam_usd
+             WHEN bp1.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               (td.vol1 / power(10::numeric, a1.decimals))
+                * (bp1.beam_reserve / 1e8::numeric)
+                / NULLIF(bp1.asset_reserve / power(10::numeric, a1.decimals), 0)
+                * od.beam_usd
+             WHEN bp2.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               (td.vol2 / power(10::numeric, a2.decimals))
+                * (bp2.beam_reserve / 1e8::numeric)
+                / NULLIF(bp2.asset_reserve / power(10::numeric, a2.decimals), 0)
+                * od.beam_usd
            END AS usd_value
-      FROM trade_hourly th
-      JOIN pools  p  ON p.pool_id = th.pool_id
+      FROM trade_daily td
+      JOIN pools  p  ON p.pool_id = td.pool_id
       JOIN assets a1 ON a1.aid = p.aid1
       JOIN assets a2 ON a2.aid = p.aid2
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(
-          (SELECT beam_usd FROM oracle_snapshots os
-            WHERE os.ts <= th.bucket + INTERVAL '1 hour'
-            ORDER BY os.ts DESC LIMIT 1),
-          (SELECT beam_usd FROM oracle_snapshots os
-            WHERE os.ts > th.bucket + INTERVAL '1 hour'
-            ORDER BY os.ts ASC LIMIT 1)
-        ) AS beam_usd
-      ) ohb ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT s.reserve1::numeric AS beam_reserve,
-               s.reserve2::numeric AS other_reserve
-          FROM pools bp
-          JOIN pool_state_snapshots s ON s.pool_id = bp.pool_id
-         WHERE bp.aid1 = 0 AND bp.aid2 = p.aid1
-           AND s.ts <= th.bucket + INTERVAL '1 hour'
-           AND s.reserve1 > 0 AND s.reserve2 > 0
-         ORDER BY s.ts DESC LIMIT 1
-      ) bphr1 ON p.aid1 <> 0
-      LEFT JOIN LATERAL (
-        SELECT s.reserve1::numeric AS beam_reserve,
-               s.reserve2::numeric AS other_reserve
-          FROM pools bp
-          JOIN pool_state_snapshots s ON s.pool_id = bp.pool_id
-         WHERE bp.aid1 = 0 AND bp.aid2 = p.aid2
-           AND s.ts <= th.bucket + INTERVAL '1 hour'
-           AND s.reserve1 > 0 AND s.reserve2 > 0
-         ORDER BY s.ts DESC LIMIT 1
-      ) bphr2 ON p.aid1 <> 0
+      LEFT JOIN oracle_day  od  ON od.day  = td.day
+      LEFT JOIN beam_paired bp1 ON bp1.day = td.day AND bp1.asset_aid = p.aid1
+      LEFT JOIN beam_paired bp2 ON bp2.day = td.day AND bp2.asset_aid = p.aid2
   )
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', bucket))::bigint AS ts,
+  SELECT EXTRACT(epoch FROM day)::bigint AS ts,
          SUM(usd_value)::float8 AS value
     FROM priced
    WHERE usd_value IS NOT NULL
-   GROUP BY time_bucket(INTERVAL '1 day', bucket)
+   GROUP BY day
    ORDER BY 1
 `;
 
@@ -233,48 +233,106 @@ function toSeries(rows: ReadonlyArray<Row>): SeriesPoint[] {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Server-side cache. The underlying SQL touches the full ~3y of block_metrics
+// or pool_state_snapshots — multi-second queries that the frontend fires in
+// parallel on page load. We pre-warm at boot and refresh every 30 min in the
+// background; routes just return the cached series.
+//
+// Stale-while-revalidate: once an entry has data, refresh failures keep the
+// last-known-good series rather than 500ing.
+// ---------------------------------------------------------------------------
+interface ChartDef {
+  name: string;
+  sql: string;
+  /** Browser cache hint (the server-side cache is independent). */
+  maxAgeSec: number;
+}
+
+const CHART_DEFS: ReadonlyArray<ChartDef> = [
+  { name: 'hashrate',   sql: HASHRATE_SQL,   maxAgeSec: 600 },
+  { name: 'kernels',    sql: KERNELS_SQL,    maxAgeSec: 600 },
+  { name: 'assets',     sql: ASSETS_SQL,     maxAgeSec: 600 },
+  { name: 'dex-volume', sql: DEX_VOLUME_SQL, maxAgeSec: 1800 },
+  { name: 'difficulty', sql: DIFFICULTY_SQL, maxAgeSec: 600 },
+  { name: 'block-time', sql: BLOCK_TIME_SQL, maxAgeSec: 600 },
+  { name: 'tvl',        sql: TVL_SQL,        maxAgeSec: 1800 },
+];
+
+const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+
+interface CacheEntry {
+  series: SeriesPoint[] | null;
+  refreshedAt: number;
+  inflight: Promise<SeriesPoint[]> | null;
+}
+
+const cache = new Map<string, CacheEntry>();
+
+async function runQuery(def: ChartDef): Promise<SeriesPoint[]> {
+  const t0 = Date.now();
+  const { rows } = await q<Row>(def.sql);
+  const series = toSeries(rows);
+  // eslint-disable-next-line no-console -- Fastify pino logger is per-request.
+  console.log(`[charts] ${def.name} refreshed: ${series.length} pts in ${Date.now() - t0}ms`);
+  return series;
+}
+
+async function refresh(def: ChartDef): Promise<SeriesPoint[]> {
+  const existing = cache.get(def.name);
+  if (existing?.inflight) return existing.inflight;
+  const inflight = runQuery(def);
+  cache.set(def.name, { series: existing?.series ?? null, refreshedAt: existing?.refreshedAt ?? 0, inflight });
+  try {
+    const series = await inflight;
+    cache.set(def.name, { series, refreshedAt: Date.now(), inflight: null });
+    return series;
+  } catch (err) {
+    cache.set(def.name, { series: existing?.series ?? null, refreshedAt: existing?.refreshedAt ?? 0, inflight: null });
+    throw err;
+  }
+}
+
+async function getSeries(def: ChartDef): Promise<SeriesPoint[]> {
+  const entry = cache.get(def.name);
+  if (entry?.series && !entry.inflight) return entry.series;
+  if (entry?.inflight) {
+    // First-request-after-boot waits for the in-flight pre-warm.
+    return entry.series ?? entry.inflight;
+  }
+  return refresh(def);
+}
+
+/** Kick off pre-warm + periodic refresh. Call once on API startup. */
+export function startChartCacheRefresher(): void {
+  // Serial pre-warm — don't slam Postgres with seven heavy queries at once.
+  void (async () => {
+    for (const def of CHART_DEFS) {
+      await refresh(def).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn(`[charts] pre-warm failed for ${def.name}:`, err instanceof Error ? err.message : err);
+      });
+    }
+  })();
+  // Periodic refresh runs each chart on its own offset to spread DB load.
+  CHART_DEFS.forEach((def, i) => {
+    const offset = (REFRESH_INTERVAL_MS / CHART_DEFS.length) * i;
+    setTimeout(() => {
+      setInterval(() => {
+        refresh(def).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.warn(`[charts] refresh failed for ${def.name}:`, err instanceof Error ? err.message : err);
+        });
+      }, REFRESH_INTERVAL_MS);
+    }, offset);
+  });
+}
+
 export async function chartsRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/charts/hashrate', async (_req, reply) => {
-    const { rows } = await q<Row>(HASHRATE_SQL);
-    void reply.header('cache-control', 'public, max-age=600');
-    return { series: toSeries(rows) };
-  });
-
-  app.get('/charts/kernels', async (_req, reply) => {
-    const { rows } = await q<Row>(KERNELS_SQL);
-    void reply.header('cache-control', 'public, max-age=600');
-    return { series: toSeries(rows) };
-  });
-
-  app.get('/charts/assets', async (_req, reply) => {
-    const { rows } = await q<Row>(ASSETS_SQL);
-    void reply.header('cache-control', 'public, max-age=600');
-    return { series: toSeries(rows) };
-  });
-
-  app.get('/charts/dex-volume', async (_req, reply) => {
-    const { rows } = await q<Row>(DEX_VOLUME_SQL);
-    // Per-day USD valuation reuses the heavy pricing CTE; cache for 30 min.
-    void reply.header('cache-control', 'public, max-age=1800');
-    return { series: toSeries(rows) };
-  });
-
-  app.get('/charts/difficulty', async (_req, reply) => {
-    const { rows } = await q<Row>(DIFFICULTY_SQL);
-    void reply.header('cache-control', 'public, max-age=600');
-    return { series: toSeries(rows) };
-  });
-
-  app.get('/charts/block-time', async (_req, reply) => {
-    const { rows } = await q<Row>(BLOCK_TIME_SQL);
-    void reply.header('cache-control', 'public, max-age=600');
-    return { series: toSeries(rows) };
-  });
-
-  app.get('/charts/tvl', async (_req, reply) => {
-    const { rows } = await q<Row>(TVL_SQL);
-    // Heavy pool-day x oracle-day join; cache for 30 min like dex-volume.
-    void reply.header('cache-control', 'public, max-age=1800');
-    return { series: toSeries(rows) };
-  });
+  for (const def of CHART_DEFS) {
+    app.get(`/charts/${def.name}`, async (_req, reply) => {
+      void reply.header('cache-control', `public, max-age=${def.maxAgeSec}`);
+      return { series: await getSeries(def) };
+    });
+  }
 }
