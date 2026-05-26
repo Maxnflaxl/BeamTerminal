@@ -1296,7 +1296,10 @@ function extractHdrsRows(data: any, colCodes: string): HdrsRow[] {
 
 const ChartHost = styled.div`
   width: 100%;
-  height: 220px;
+  height: 360px;
+  min-height: 240px;
+  resize: vertical;
+  overflow: hidden;
   background: ${theme.color.surface};
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 6px;
@@ -1307,6 +1310,67 @@ const ChartHost = styled.div`
 const ChartHostInner = styled.div`
   position: absolute;
   inset: 36px 8px 8px 8px;
+`;
+
+const HdrsTableWrap = styled.div`
+  /* Vertical column separators for the hdrs data grid, scoped so other
+     explorer pages keep their borderless look. */
+  table th, table td {
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  table th:last-child, table td:last-child {
+    border-right: none;
+  }
+`;
+
+const ColumnGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 4px 12px;
+  margin-top: 6px;
+`;
+
+const ColumnChip = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: ${theme.color.muted};
+
+  &:hover { color: ${theme.color.text}; background: rgba(255, 255, 255, 0.03); }
+  & > input { margin: 0; cursor: pointer; }
+  & > input:disabled { cursor: default; }
+  &[data-active="true"] { color: ${theme.color.text}; }
+`;
+
+const ColorSwatch = styled.span<{ color?: string }>`
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: ${(p) => p.color ?? 'transparent'};
+  border: ${(p) => (p.color ? 'none' : '1px solid rgba(255,255,255,0.2)')};
+`;
+
+const ColumnPresets = styled.div`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: ${theme.color.muted};
+  flex-wrap: wrap;
+  margin-top: 6px;
+`;
+
+const PresetLink = styled.a`
+  cursor: pointer;
+  color: ${theme.color.accent};
+  text-decoration: none;
+  &:hover { text-decoration: underline; }
 `;
 
 const ChartControls = styled.div`
@@ -1436,15 +1500,50 @@ function HdrsView(
   const [nMaxDraft, setNMaxDraft] = useState(view.nMax || '100');
   const [hMaxDraft, setHMaxDraft] = useState(view.hMax || '');
 
-  const apply = (): void => {
-    ctx.go({
-      type: 'hdrs',
-      cols: colsDraft,
-      nMax: nMaxDraft,
-      hMax: hMaxDraft || undefined,
-      dh: view.dh || '1',
+  // Keep the local draft synced with the URL view (e.g. when navigating
+  // older/newer or following a special-block link that sets cols).
+  useEffect(() => {
+    setColsDraft(view.cols || COLUMN_DEFAULT_DISPLAY);
+    setNMaxDraft(view.nMax || '100');
+    setHMaxDraft(view.hMax || '');
+  }, [view.cols, view.nMax, view.hMax]);
+
+  const apply = useCallback(
+    (overrides?: { cols?: string; nMax?: string; hMax?: string }): void => {
+      ctx.go({
+        type: 'hdrs',
+        cols:  overrides?.cols  ?? colsDraft,
+        nMax:  overrides?.nMax  ?? nMaxDraft,
+        hMax: (overrides?.hMax  ?? hMaxDraft) || undefined,
+        dh: view.dh || '1',
+      });
+    },
+    [ctx, colsDraft, nMaxDraft, hMaxDraft, view.dh],
+  );
+
+  const toggleColumn = useCallback((code: string): void => {
+    if (code === 'h') return; // Height is mandatory.
+    setColsDraft((prev) => {
+      const order = Object.keys(columnHeaders);
+      const present = new Set(prev.split(''));
+      if (present.has(code)) present.delete(code);
+      else present.add(code);
+      // Re-emit in the canonical order so URLs stay stable across toggles.
+      const next = order.filter((k) => k !== 'h' && present.has(k)).join('');
+      // Auto-apply so the table updates without a separate button.
+      apply({ cols: next });
+      return next;
     });
-  };
+  }, [apply]);
+
+  const setPreset = useCallback((preset: 'current' | 'default' | 'all') => {
+    let next = colsDraft;
+    if (preset === 'current') next = view.cols || COLUMN_DEFAULT_DISPLAY;
+    else if (preset === 'default') next = COLUMN_DEFAULT_DISPLAY.replace(/h/g, '');
+    else if (preset === 'all') next = Object.keys(columnHeaders).filter((k) => k !== 'h').join('');
+    setColsDraft(next);
+    apply({ cols: next });
+  }, [apply, colsDraft, view.cols]);
 
   const olderMore = data?.more;
   const newerHMax = olderMore?.hMax !== undefined
@@ -1468,15 +1567,6 @@ function HdrsView(
           }}
         >
           <label>
-            Columns:{' '}
-            <Input
-              style={{ width: 240, display: 'inline-block' }}
-              value={colsDraft}
-              onChange={(e) => setColsDraft(e.target.value)}
-              title="Single-letter column codes — see the legend below"
-            />
-          </label>
-          <label>
             Max rows:{' '}
             <Input
               style={{ width: 80, display: 'inline-block' }}
@@ -1495,20 +1585,53 @@ function HdrsView(
               placeholder="latest"
             />
           </label>
-          <Btn onClick={apply}>Apply</Btn>
+          <Btn onClick={() => apply()}>Apply</Btn>
         </div>
-        <div style={{ fontSize: 12, color: theme.color.muted }}>
-          Available columns:{' '}
-          {Object.keys(columnHeaders).map((k) => (
-            <span key={k} title={columnHeaders[k].description} style={{ marginRight: 6 }}>
-              <Pill>{k}</Pill> {columnHeaders[k].title}
-            </span>
-          ))}
-        </div>
+
+        <ColumnPresets>
+          <span>Columns:</span>
+          <PresetLink onClick={() => setPreset('current')} title="Reset to the URL's columns">current</PresetLink>
+          <span>|</span>
+          <PresetLink onClick={() => setPreset('default')} title="Default column set">default</PresetLink>
+          <span>|</span>
+          <PresetLink onClick={() => setPreset('all')} title="Show every column">all</PresetLink>
+          <Input
+            value={colsDraft}
+            onChange={(e) => setColsDraft(e.target.value)}
+            onBlur={() => apply()}
+            onKeyDown={(e) => { if (e.key === 'Enter') apply(); }}
+            style={{ width: 200, display: 'inline-block', marginLeft: 8 }}
+            title="Raw cols code string"
+          />
+        </ColumnPresets>
+
+        <ColumnGrid>
+          {Object.keys(columnHeaders).map((k) => {
+            const checked = colsDraft.includes(k) || k === 'h';
+            return (
+              <ColumnChip
+                key={k}
+                data-active={checked ? 'true' : 'false'}
+                title={columnHeaders[k]!.description}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={k === 'h'}
+                  onChange={() => toggleColumn(k)}
+                />
+                <ColorSwatch color={columnHeaders[k]!.color ?? undefined} />
+                <span>{columnHeaders[k]!.title}</span>
+              </ColumnChip>
+            );
+          })}
+        </ColumnGrid>
       </Collapsible>
       <HdrsChart rows={extractHdrsRows(data, view.cols || COLUMN_DEFAULT_DISPLAY)} colCodes={view.cols || COLUMN_DEFAULT_DISPLAY} />
       <Card>
-        <RenderValue value={data} ctx={ctx} />
+        <HdrsTableWrap>
+          <RenderValue value={data} ctx={ctx} />
+        </HdrsTableWrap>
       </Card>
     </>
   );
