@@ -551,13 +551,9 @@ export const NetworkCharts: React.FC = () => {
                     if (!expanded.state.data) return;
                     const filtered = filterByTimeframe(expanded.state.data.series, timeframe);
                     const svg = toSvg(filtered, expanded.title, expanded.formatter, expanded.scale ?? 1);
-                    if (navigator.clipboard && window.isSecureContext) {
-                      void navigator.clipboard.writeText(svg);
-                    } else {
-                      downloadBlob(svg, `${expanded.key}-${timeframe}.svg`, 'image/svg+xml');
-                    }
+                    downloadBlob(svg, `${expanded.key}-${timeframe}.svg`, 'image/svg+xml');
                   }}
-                  title="Copy chart as SVG (falls back to download on insecure contexts)"
+                  title="Download chart as SVG"
                 >
                   SVG
                 </TfButton>
@@ -587,7 +583,6 @@ export const NetworkCharts: React.FC = () => {
           </ModalContent>
         </ModalBackdrop>
       )}
-      <IndexerStatusBadge />
     </Page>
   );
 };
@@ -601,85 +596,6 @@ const ExpandedChart: React.FC<Omit<ChartCellProps, 'onExpand'>> = ({ state, titl
   return <SimpleChart series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} />;
 };
 
-// ---------------------------------------------------------------------------
-// Indexer status — small badge in the bottom-right of the page that polls
-// /api/health every 30s. Renders "synced · 3,877,500" when caught up, or
-// "syncing · N behind" otherwise. Goes amber after 5 min of staleness.
-// ---------------------------------------------------------------------------
-
-interface HealthResp {
-  status:              string;
-  last_indexed_height: number;
-  chain_head:          number | null;
-  blocks_behind:       number | null;
-  lag_seconds:         number;
-}
-
-const Badge = styled.div<{ tone: 'ok' | 'lag' | 'err' }>`
-  position: fixed;
-  bottom: 12px;
-  right: 12px;
-  z-index: 50;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 11px;
-  color: ${(p) =>
-    p.tone === 'ok'  ? '#00f6d2'
-  : p.tone === 'lag' ? '#f0c14b'
-  : '#ff7676'};
-  background: rgba(4, 37, 72, 0.85);
-  backdrop-filter: blur(4px);
-  border: 1px solid ${(p) =>
-    p.tone === 'ok'  ? 'rgba(0, 246, 210, 0.4)'
-  : p.tone === 'lag' ? 'rgba(240, 193, 75, 0.5)'
-  : 'rgba(255, 118, 118, 0.5)'};
-`;
-
-const BadgeDot = styled.span<{ tone: 'ok' | 'lag' | 'err' }>`
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 6px currentColor;
-`;
-
-const IndexerStatusBadge: React.FC = () => {
-  const [health, setHealth] = useState<HealthResp | null>(null);
-  const [errored, setErrored] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchHealth = (): void => {
-      api.health()
-        .then((h) => { if (!cancelled) { setHealth(h as HealthResp); setErrored(false); } })
-        .catch(() => { if (!cancelled) setErrored(true); });
-    };
-    fetchHealth();
-    const t = setInterval(fetchHealth, 30_000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, []);
-
-  if (errored && !health) return <Badge tone="err"><BadgeDot tone="err" />indexer · unreachable</Badge>;
-  if (!health) return null;
-
-  const behind = health.blocks_behind ?? 0;
-  const lagSec = health.lag_seconds ?? 0;
-  const tone: 'ok' | 'lag' | 'err' = lagSec > 300 ? 'lag' : behind > 5 ? 'lag' : 'ok';
-  const label =
-    behind > 0
-      ? `syncing · ${behind.toLocaleString()} block${behind === 1 ? '' : 's'} behind`
-      : `synced · ${health.last_indexed_height.toLocaleString()}`;
-
-  return (
-    <Badge tone={tone} title={`tick ${lagSec}s ago · chain head ${health.chain_head?.toLocaleString() ?? '?'}`}>
-      <BadgeDot tone={tone} />
-      {label}
-    </Badge>
-  );
-};
+// IndexerStatusBadge lives in the global Footer (components/Footer.tsx) now.
 
 export default NetworkCharts;

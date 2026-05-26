@@ -82,10 +82,7 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
         vertLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: 0, labelBackgroundColor: '#00f6d2' },
         horzLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: 0, labelBackgroundColor: '#00f6d2' },
       },
-      rightPriceScale: {
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
-      },
+      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)' },
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.1)',
         timeVisible: false,
@@ -106,9 +103,19 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
       chartRef.current = null;
       seriesRef.current = null;
     };
-    // Formatter / price-scale mode are only honoured at construction time —
-    // re-create the chart when either changes.
-  }, [formatter, logScale]);
+    // Formatter is only honoured at construction time — re-create on change.
+    // logScale is applied via the dedicated effect below so we don't lose
+    // the data on every toggle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formatter]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale('right').applyOptions({
+      mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+    });
+  }, [logScale]);
 
   useEffect(() => {
     const s = seriesRef.current;
