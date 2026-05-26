@@ -135,6 +135,31 @@ const ExpandButton = styled.button`
   }
 `;
 
+const ScaleToggle = styled.button<{ active?: boolean }>`
+  position: absolute;
+  top: 8px;
+  right: 40px;
+  z-index: 20;
+  height: 24px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: ${(p) => (p.active ? 'rgba(0, 246, 210, 0.18)' : 'rgba(0, 0, 0, 0.25)')};
+  color: ${(p) => (p.active ? '#00f6d2' : 'rgba(255, 255, 255, 0.6)')};
+  border: 1px solid ${(p) => (p.active ? 'rgba(0, 246, 210, 0.5)' : 'rgba(255, 255, 255, 0.12)')};
+  border-radius: 4px;
+  font-family: 'SFProDisplay', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+
+  &:hover {
+    color: #00f6d2;
+    border-color: rgba(0, 246, 210, 0.5);
+  }
+`;
+
 const ExpandIcon: React.FC = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="7 1 11 1 11 5" />
@@ -171,10 +196,17 @@ const ModalContent = styled.div`
 
 const ModalToolbar = styled.div`
   display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 12px;
   padding-right: 36px;
+  flex-wrap: wrap;
+`;
+
+const ModalActionGroup = styled.div`
+  display: flex;
+  gap: 6px;
 `;
 
 const ModalBody = styled.div`
@@ -271,27 +303,101 @@ function fmtInt(v: number): string {
   return v.toFixed(0);
 }
 
+function toCsv(series: ReadonlyArray<ApiChartPoint>, title: string): string {
+  const lines = [`# ${title}`, 'timestamp_iso,timestamp_unix,value'];
+  for (const p of series) {
+    lines.push(`${new Date(p.ts * 1000).toISOString()},${p.ts},${p.value}`);
+  }
+  return lines.join('\n') + '\n';
+}
+
+function downloadBlob(content: string, filename: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function toSvg(
+  series: ReadonlyArray<ApiChartPoint>,
+  title: string,
+  formatter: (v: number) => string,
+  scale: number,
+): string {
+  const W = 720;
+  const H = 360;
+  const pad = { l: 64, r: 16, t: 32, b: 32 };
+  const innerW = W - pad.l - pad.r;
+  const innerH = H - pad.t - pad.b;
+  if (series.length === 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#888" font-family="sans-serif">No data</text></svg>`;
+  }
+  const xs = series.map((p) => p.ts);
+  const ys = series.map((p) => p.value * scale);
+  const xMin = xs[0]!;
+  const xMax = xs[xs.length - 1]!;
+  const yMin = Math.min(...ys);
+  const yMax = Math.max(...ys);
+  const xRange = Math.max(1, xMax - xMin);
+  const yRange = Math.max(Number.EPSILON, yMax - yMin);
+  const path = series
+    .map((p, i) => {
+      const x = pad.l + ((p.ts - xMin) / xRange) * innerW;
+      const y = pad.t + innerH - ((p.value * scale - yMin) / yRange) * innerH;
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+  const fmt = (v: number): string => formatter(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const yTop = fmt(yMax);
+  const yBot = fmt(yMin);
+  const xL = new Date(xMin * 1000).toISOString().slice(0, 10);
+  const xR = new Date(xMax * 1000).toISOString().slice(0, 10);
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="sans-serif" font-size="11">`,
+    `<rect width="${W}" height="${H}" fill="#042548"/>`,
+    `<text x="${pad.l}" y="20" fill="rgba(255,255,255,0.7)" font-size="13">${title.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</text>`,
+    `<rect x="${pad.l}" y="${pad.t}" width="${innerW}" height="${innerH}" fill="none" stroke="rgba(255,255,255,0.1)"/>`,
+    `<path d="${path}" fill="none" stroke="#00f6d2" stroke-width="2"/>`,
+    `<text x="${pad.l - 6}" y="${pad.t + 4}" text-anchor="end" fill="rgba(255,255,255,0.6)">${yTop}</text>`,
+    `<text x="${pad.l - 6}" y="${pad.t + innerH}" text-anchor="end" fill="rgba(255,255,255,0.6)">${yBot}</text>`,
+    `<text x="${pad.l}" y="${pad.t + innerH + 18}" fill="rgba(255,255,255,0.6)">${xL}</text>`,
+    `<text x="${pad.l + innerW}" y="${pad.t + innerH + 18}" text-anchor="end" fill="rgba(255,255,255,0.6)">${xR}</text>`,
+    `</svg>`,
+  ].join('');
+}
+
 interface ChartCellProps {
   state: FetchState<ApiChartSeries>;
   title: string;
   timeframe: Timeframe;
   scale?: number;
   formatter?: (v: number) => string;
+  logScale?: boolean;
   onExpand: () => void;
 }
 
-const ChartCell: React.FC<ChartCellProps> = ({ state, title, timeframe, scale, formatter, onExpand }) => {
+const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
+  { state, title, timeframe, scale, formatter, logScale, onExpand, onToggleLog },
+) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
   return (
     <Cell>
+      <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
+        {logScale ? 'log' : 'lin'}
+      </ScaleToggle>
       <ExpandButton onClick={onExpand} title="Expand chart" aria-label="Expand chart">
         <ExpandIcon />
       </ExpandButton>
       {filtered ? (
-        <SimpleChart series={filtered} title={title} scale={scale} formatter={formatter} />
+        <SimpleChart series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} />
       ) : (
         <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
       )}
@@ -331,8 +437,10 @@ export const NetworkCharts: React.FC = () => {
 
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
-
   const [category, setCategory] = useState<Category>('blockchain');
+  const [logPerKey, setLogPerKey] = useState<Record<string, boolean>>({});
+  const toggleLog = (k: string): void =>
+    setLogPerKey((m) => ({ ...m, [k]: !m[k] }));
 
   const allCharts: ReadonlyArray<ChartSpec & { category: Category }> = [
     // Blockchain
@@ -405,7 +513,9 @@ export const NetworkCharts: React.FC = () => {
             timeframe={timeframe}
             scale={c.scale}
             formatter={c.formatter}
+            logScale={!!logPerKey[c.key]}
             onExpand={() => setExpandedKey(c.key)}
+            onToggleLog={() => toggleLog(c.key)}
           />
         ))}
       </Grid>
@@ -414,15 +524,55 @@ export const NetworkCharts: React.FC = () => {
           <ModalContent onClick={(e) => e.stopPropagation()}>
             <CloseButton onClick={() => setExpandedKey(null)} aria-label="Close">×</CloseButton>
             <ModalToolbar>
-              {TIMEFRAMES.map((tf) => (
+              <ModalActionGroup>
                 <TfButton
-                  key={tf}
-                  active={timeframe === tf}
-                  onClick={() => setTimeframe(tf)}
+                  active={!!logPerKey[expanded.key]}
+                  onClick={() => toggleLog(expanded.key)}
+                  title="Toggle linear / logarithmic Y axis"
                 >
-                  {tf}
+                  {logPerKey[expanded.key] ? 'log' : 'lin'}
                 </TfButton>
-              ))}
+                <TfButton
+                  onClick={() => {
+                    if (!expanded.state.data) return;
+                    const filtered = filterByTimeframe(expanded.state.data.series, timeframe);
+                    downloadBlob(
+                      toCsv(filtered, expanded.title),
+                      `${expanded.key}-${timeframe}.csv`,
+                      'text/csv;charset=utf-8',
+                    );
+                  }}
+                  title="Download visible series as CSV"
+                >
+                  CSV
+                </TfButton>
+                <TfButton
+                  onClick={() => {
+                    if (!expanded.state.data) return;
+                    const filtered = filterByTimeframe(expanded.state.data.series, timeframe);
+                    const svg = toSvg(filtered, expanded.title, expanded.formatter, expanded.scale ?? 1);
+                    if (navigator.clipboard && window.isSecureContext) {
+                      void navigator.clipboard.writeText(svg);
+                    } else {
+                      downloadBlob(svg, `${expanded.key}-${timeframe}.svg`, 'image/svg+xml');
+                    }
+                  }}
+                  title="Copy chart as SVG (falls back to download on insecure contexts)"
+                >
+                  SVG
+                </TfButton>
+              </ModalActionGroup>
+              <TimeframeGroup>
+                {TIMEFRAMES.map((tf) => (
+                  <TfButton
+                    key={tf}
+                    active={timeframe === tf}
+                    onClick={() => setTimeframe(tf)}
+                  >
+                    {tf}
+                  </TfButton>
+                ))}
+              </TimeframeGroup>
             </ModalToolbar>
             <ModalBody>
               <ExpandedChart
@@ -431,22 +581,105 @@ export const NetworkCharts: React.FC = () => {
                 timeframe={timeframe}
                 scale={expanded.scale}
                 formatter={expanded.formatter}
+                logScale={!!logPerKey[expanded.key]}
               />
             </ModalBody>
           </ModalContent>
         </ModalBackdrop>
       )}
+      <IndexerStatusBadge />
     </Page>
   );
 };
 
-const ExpandedChart: React.FC<Omit<ChartCellProps, 'onExpand'>> = ({ state, title, timeframe, scale, formatter }) => {
+const ExpandedChart: React.FC<Omit<ChartCellProps, 'onExpand'>> = ({ state, title, timeframe, scale, formatter, logScale }) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
   if (!filtered) return <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>;
-  return <SimpleChart series={filtered} title={title} scale={scale} formatter={formatter} />;
+  return <SimpleChart series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} />;
+};
+
+// ---------------------------------------------------------------------------
+// Indexer status — small badge in the bottom-right of the page that polls
+// /api/health every 30s. Renders "synced · 3,877,500" when caught up, or
+// "syncing · N behind" otherwise. Goes amber after 5 min of staleness.
+// ---------------------------------------------------------------------------
+
+interface HealthResp {
+  status:              string;
+  last_indexed_height: number;
+  chain_head:          number | null;
+  blocks_behind:       number | null;
+  lag_seconds:         number;
+}
+
+const Badge = styled.div<{ tone: 'ok' | 'lag' | 'err' }>`
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-family: 'SFProDisplay', monospace;
+  font-size: 11px;
+  color: ${(p) =>
+    p.tone === 'ok'  ? '#00f6d2'
+  : p.tone === 'lag' ? '#f0c14b'
+  : '#ff7676'};
+  background: rgba(4, 37, 72, 0.85);
+  backdrop-filter: blur(4px);
+  border: 1px solid ${(p) =>
+    p.tone === 'ok'  ? 'rgba(0, 246, 210, 0.4)'
+  : p.tone === 'lag' ? 'rgba(240, 193, 75, 0.5)'
+  : 'rgba(255, 118, 118, 0.5)'};
+`;
+
+const BadgeDot = styled.span<{ tone: 'ok' | 'lag' | 'err' }>`
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+`;
+
+const IndexerStatusBadge: React.FC = () => {
+  const [health, setHealth] = useState<HealthResp | null>(null);
+  const [errored, setErrored] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchHealth = (): void => {
+      api.health()
+        .then((h) => { if (!cancelled) { setHealth(h as HealthResp); setErrored(false); } })
+        .catch(() => { if (!cancelled) setErrored(true); });
+    };
+    fetchHealth();
+    const t = setInterval(fetchHealth, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  if (errored && !health) return <Badge tone="err"><BadgeDot tone="err" />indexer · unreachable</Badge>;
+  if (!health) return null;
+
+  const behind = health.blocks_behind ?? 0;
+  const lagSec = health.lag_seconds ?? 0;
+  const tone: 'ok' | 'lag' | 'err' = lagSec > 300 ? 'lag' : behind > 5 ? 'lag' : 'ok';
+  const label =
+    behind > 0
+      ? `syncing · ${behind.toLocaleString()} block${behind === 1 ? '' : 's'} behind`
+      : `synced · ${health.last_indexed_height.toLocaleString()}`;
+
+  return (
+    <Badge tone={tone} title={`tick ${lagSec}s ago · chain head ${health.chain_head?.toLocaleString() ?? '?'}`}>
+      <BadgeDot tone={tone} />
+      {label}
+    </Badge>
+  );
 };
 
 export default NetworkCharts;

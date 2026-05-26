@@ -332,6 +332,9 @@ async function tick(): Promise<void> {
   await detectAndHealReorg();
 
   const status = await getStatus();
+  // Stamp the observed chain head so /api/health can render a lag badge
+  // without doing its own explorer round-trip.
+  await q('UPDATE cursor SET last_chain_head = $1 WHERE id = 1', [status.height]);
   maybeKickBlockMetricsCatchUp(status.height);
   const headTs = await getBlockTs(status.height);
   // Fetch head block to get the kernel hash for cursor persistence.

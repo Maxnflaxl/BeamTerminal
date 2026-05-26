@@ -4,6 +4,7 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
+  PriceScaleMode,
   type IChartApi,
   type ISeriesApi,
   type LineData,
@@ -42,6 +43,8 @@ interface Props {
   scale?: number;
   /** Tooltip / axis formatter (number → display string). */
   formatter?: (v: number) => string;
+  /** Render the price axis on a base-10 log scale. */
+  logScale?: boolean;
 }
 
 function defaultFormatter(v: number): string {
@@ -55,7 +58,7 @@ function defaultFormatter(v: number): string {
   return '0';
 }
 
-export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter }) => {
+export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter, logScale = false }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
@@ -79,7 +82,10 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
         vertLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: 0, labelBackgroundColor: '#00f6d2' },
         horzLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: 0, labelBackgroundColor: '#00f6d2' },
       },
-      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)' },
+      rightPriceScale: {
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+      },
       timeScale: {
         borderColor: 'rgba(255, 255, 255, 0.1)',
         timeVisible: false,
@@ -100,9 +106,9 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
       chartRef.current = null;
       seriesRef.current = null;
     };
-    // Formatter changes shouldn't rebuild the chart, but lightweight-charts only
-    // takes formatter at series construction. Re-create on change.
-  }, [formatter]);
+    // Formatter / price-scale mode are only honoured at construction time —
+    // re-create the chart when either changes.
+  }, [formatter, logScale]);
 
   useEffect(() => {
     const s = seriesRef.current;

@@ -189,5 +189,10 @@ export interface ApiAssetHistory {
 export interface ApiHealth {
   status: 'ok' | 'degraded';
   last_indexed_height: number;
+  /** Chain head observed on the indexer's last tick. `null` until the
+   *  indexer has stamped at least one tick post-migration 019. */
+  chain_head: number | null;
+  /** `chain_head - last_indexed_height` clamped to ≥0, or null if unknown. */
+  blocks_behind: number | null;
   lag_seconds: number;
 }

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { createHash } from 'node:crypto';
 import { q } from '../../db.js';
 import { fetchNetworkSeries, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
 
@@ -305,11 +306,20 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
 interface CacheEntry {
   series: SeriesPoint[] | null;
+  /** SHA-1 of the JSON body, used to short-circuit If-None-Match requests
+   *  with a 304 once the client has cached this version. */
+  etag: string | null;
   refreshedAt: number;
   inflight: Promise<SeriesPoint[]> | null;
 }
 
 const cache = new Map<string, CacheEntry>();
+
+function computeEtag(series: SeriesPoint[]): string {
+  // Stable JSON of just `{series:[...]}` since that's what the route returns.
+  const body = JSON.stringify({ series });
+  return `"${createHash('sha1').update(body).digest('hex')}"`;
+}
 
 async function runQuery(def: ChartDef): Promise<SeriesPoint[]> {
   const t0 = Date.now();
@@ -331,13 +341,23 @@ async function refresh(def: ChartDef): Promise<SeriesPoint[]> {
   const existing = cache.get(def.name);
   if (existing?.inflight) return existing.inflight;
   const inflight = runQuery(def);
-  cache.set(def.name, { series: existing?.series ?? null, refreshedAt: existing?.refreshedAt ?? 0, inflight });
+  cache.set(def.name, {
+    series: existing?.series ?? null,
+    etag:   existing?.etag   ?? null,
+    refreshedAt: existing?.refreshedAt ?? 0,
+    inflight,
+  });
   try {
     const series = await inflight;
-    cache.set(def.name, { series, refreshedAt: Date.now(), inflight: null });
+    cache.set(def.name, { series, etag: computeEtag(series), refreshedAt: Date.now(), inflight: null });
     return series;
   } catch (err) {
-    cache.set(def.name, { series: existing?.series ?? null, refreshedAt: existing?.refreshedAt ?? 0, inflight: null });
+    cache.set(def.name, {
+      series: existing?.series ?? null,
+      etag:   existing?.etag   ?? null,
+      refreshedAt: existing?.refreshedAt ?? 0,
+      inflight: null,
+    });
     throw err;
   }
 }
@@ -379,9 +399,25 @@ export function startChartCacheRefresher(): void {
 
 export async function chartsRoutes(app: FastifyInstance): Promise<void> {
   for (const def of CHART_DEFS) {
-    app.get(`/charts/${def.name}`, async (_req, reply) => {
+    app.get(`/charts/${def.name}`, async (req, reply) => {
+      const series = await getSeries(def);
+      const entry = cache.get(def.name);
+      const etag = entry?.etag ?? computeEtag(series);
+
       void reply.header('cache-control', `public, max-age=${def.maxAgeSec}`);
-      return { series: await getSeries(def) };
+      void reply.header('etag', etag);
+
+      // If-None-Match: list of quoted ETags or "*". Honour any direct match
+      // and short-circuit with 304 + empty body.
+      const inm = req.headers['if-none-match'];
+      if (typeof inm === 'string') {
+        const candidates = inm.split(',').map((s) => s.trim());
+        if (candidates.includes(etag) || candidates.includes('*')) {
+          void reply.status(304);
+          return null;
+        }
+      }
+      return { series };
     });
   }
 }
