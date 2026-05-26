@@ -80,10 +80,11 @@ export const api = {
   assetHistory: (aid: number, limit = 100): Promise<ApiAssetHistory> => get<ApiAssetHistory>(`/asset/${aid}/history${qs({ limit })}`),
 
   charts: {
-    hashrate: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/hashrate'),
-    kernels: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/kernels'),
-    assets: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/assets'),
-    dexVolume: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/dex-volume'),
+    hashrate:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/hashrate'),
+    kernels:    (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/kernels'),
+    assets:     (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/assets'),
+    dexVolume:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/dex-volume'),
+    difficulty: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/difficulty'),
   },
 };
 

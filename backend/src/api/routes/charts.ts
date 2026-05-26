@@ -23,6 +23,16 @@ const HASHRATE_SQL = `
    ORDER BY 1
 `;
 
+// Per-day average network difficulty (mean across the day's blocks).
+const DIFFICULTY_SQL = `
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
+         AVG(difficulty)::float8 AS value
+    FROM block_metrics
+   WHERE difficulty > 0
+   GROUP BY time_bucket(INTERVAL '1 day', block_ts)
+   ORDER BY 1
+`;
+
 // Kernels per day = sum of per-block kernel counts in the day's blocks.
 const KERNELS_SQL = `
   SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
@@ -168,6 +178,12 @@ export async function chartsRoutes(app: FastifyInstance): Promise<void> {
     const { rows } = await q<Row>(DEX_VOLUME_SQL);
     // Per-day USD valuation reuses the heavy pricing CTE; cache for 30 min.
     void reply.header('cache-control', 'public, max-age=1800');
+    return { series: toSeries(rows) };
+  });
+
+  app.get('/charts/difficulty', async (_req, reply) => {
+    const { rows } = await q<Row>(DIFFICULTY_SQL);
+    void reply.header('cache-control', 'public, max-age=600');
     return { series: toSeries(rows) };
   });
 }

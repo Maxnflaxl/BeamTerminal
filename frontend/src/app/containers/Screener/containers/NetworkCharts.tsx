@@ -219,6 +219,16 @@ function fmtHashrate(v: number): string {
   return fmtSIUnit(v, 'Sol/s');
 }
 
+function fmtDifficulty(v: number): string {
+  if (!Number.isFinite(v)) return '';
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return (v / 1e12).toFixed(2) + 'T';
+  if (abs >= 1e9)  return (v / 1e9).toFixed(2)  + 'G';
+  if (abs >= 1e6)  return (v / 1e6).toFixed(2)  + 'M';
+  if (abs >= 1e3)  return (v / 1e3).toFixed(2)  + 'K';
+  return v.toFixed(0);
+}
+
 function fmtInt(v: number): string {
   if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
   if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k';
@@ -262,19 +272,21 @@ interface ChartSpec {
 }
 
 export const NetworkCharts: React.FC = () => {
-  const hashrate  = useOneShot<ApiChartSeries>(() => api.charts.hashrate());
-  const kernels   = useOneShot<ApiChartSeries>(() => api.charts.kernels());
-  const dexVolume = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
-  const assets    = useOneShot<ApiChartSeries>(() => api.charts.assets());
+  const hashrate   = useOneShot<ApiChartSeries>(() => api.charts.hashrate());
+  const difficulty = useOneShot<ApiChartSeries>(() => api.charts.difficulty());
+  const kernels    = useOneShot<ApiChartSeries>(() => api.charts.kernels());
+  const dexVolume  = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
+  const assets     = useOneShot<ApiChartSeries>(() => api.charts.assets());
 
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const charts: ReadonlyArray<ChartSpec> = [
-    { key: 'hashrate',  title: 'Hashrate (Beamhash III)', state: hashrate,  formatter: fmtHashrate },
-    { key: 'kernels',   title: 'Kernels / day',           state: kernels,   formatter: fmtInt },
-    { key: 'dexVolume', title: 'DEX volume / day',        state: dexVolume, formatter: fmtUsd },
-    { key: 'assets',    title: 'Confidential Assets',     state: assets,    formatter: fmtInt },
+    { key: 'hashrate',   title: 'Hashrate (Beamhash III)', state: hashrate,   formatter: fmtHashrate },
+    { key: 'difficulty', title: 'Difficulty',              state: difficulty, formatter: fmtDifficulty },
+    { key: 'kernels',    title: 'Kernels / day',           state: kernels,    formatter: fmtInt },
+    { key: 'dexVolume',  title: 'DEX volume / day',        state: dexVolume,  formatter: fmtUsd },
+    { key: 'assets',     title: 'Confidential Assets',     state: assets,     formatter: fmtInt },
   ];
 
   const expanded = expandedKey ? charts.find((c) => c.key === expandedKey) ?? null : null;
