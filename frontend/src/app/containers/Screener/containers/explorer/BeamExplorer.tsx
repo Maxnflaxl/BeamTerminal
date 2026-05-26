@@ -3,6 +3,10 @@ import React, {
 } from 'react';
 import { styled } from '@linaria/react';
 import {
+  createChart, ColorType, CrosshairMode,
+  type IChartApi, type ISeriesApi, type LineData, type UTCTimestamp,
+} from 'lightweight-charts';
+import {
   Page, Card, ExplorerHeader, H1, H2, H3,
   Btn, Input, Select, Pill,
   DataTable, ScrollX, ErrorBox, Row, theme,
@@ -1238,6 +1242,193 @@ function ContractStateView(
   );
 }
 
+// Subset of hdrs column codes whose values are numeric and worth charting.
+// 'T' is the timestamp axis, not a series; 'H' is the block hash. Everything
+// else maps to a number after light parsing (comma-separated decimal or a
+// typed-cell wrapper).
+const CHARTABLE_COLS = 'NgGdDfFkKiIoOuUyYzZbBpPcCaA';
+
+function parseHdrsNumber(cell: unknown): number | null {
+  if (cell === null || cell === undefined) return null;
+  if (typeof cell === 'number' && Number.isFinite(cell)) return cell;
+  if (typeof cell === 'string') {
+    const s = cell.replace(/,/g, '').trim();
+    if (s === '') return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (typeof cell === 'object' && cell !== null && 'value' in cell) {
+    const v = (cell as { value: unknown }).value;
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/,/g, '').trim());
+      return Number.isFinite(n) ? n : null;
+    }
+  }
+  return null;
+}
+
+interface HdrsRow { height: number; ts: number | null; cols: Record<string, number | null> }
+
+function extractHdrsRows(data: any, colCodes: string): HdrsRow[] {
+  if (!data || typeof data !== 'object' || data.type !== 'table' || !Array.isArray(data.value)) return [];
+  const dataRows: unknown[][] = (data.value as unknown[]).slice(1).filter(Array.isArray) as unknown[][];
+  // Column order in the response: Height always at index 0, then `colCodes` in order.
+  const out: HdrsRow[] = [];
+  for (const row of dataRows) {
+    const height = parseHdrsNumber(row[0]);
+    if (height === null) continue;
+    const cols: Record<string, number | null> = {};
+    let ts: number | null = null;
+    for (let i = 0; i < colCodes.length; i += 1) {
+      const code = colCodes[i]!;
+      const cell = row[i + 1];
+      if (code === 'T') {
+        ts = parseHdrsNumber(cell);
+      } else {
+        cols[code] = parseHdrsNumber(cell);
+      }
+    }
+    out.push({ height, ts, cols });
+  }
+  return out;
+}
+
+const ChartHost = styled.div`
+  width: 100%;
+  height: 220px;
+  background: ${theme.color.surface};
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  margin: 8px 0 12px;
+  position: relative;
+`;
+
+const ChartHostInner = styled.div`
+  position: absolute;
+  inset: 36px 8px 8px 8px;
+`;
+
+const ChartControls = styled.div`
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+  font-size: 12px;
+  color: ${theme.color.muted};
+`;
+
+function HdrsChart({ rows, colCodes }: { rows: HdrsRow[]; colCodes: string }): JSX.Element | null {
+  const availableCodes = useMemo(
+    () => colCodes.split('').filter((c) => CHARTABLE_COLS.includes(c) && columnHeaders[c] !== undefined),
+    [colCodes],
+  );
+  const [selected, setSelected] = useState<string>(() => availableCodes[0] ?? '');
+
+  // Re-pick a sensible default if the user changes the visible columns and the
+  // current selection is no longer present.
+  useEffect(() => {
+    if (availableCodes.length === 0) return;
+    if (!availableCodes.includes(selected)) setSelected(availableCodes[0]!);
+  }, [availableCodes, selected]);
+
+  const hasT = colCodes.includes('T');
+
+  const data: LineData[] = useMemo(() => {
+    if (!selected || rows.length === 0) return [];
+    // Rows come newest-first; sort ascending by height so the chart draws
+    // left-to-right oldest-to-newest.
+    const sorted = [...rows].sort((a, b) => a.height - b.height);
+    const out: LineData[] = [];
+    for (const r of sorted) {
+      const v = r.cols[selected];
+      if (v === null || v === undefined) continue;
+      const xAxis = hasT && r.ts !== null ? r.ts : r.height;
+      out.push({ time: xAxis as UTCTimestamp, value: v });
+    }
+    return out;
+  }, [rows, selected, hasT]);
+
+  const hostRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el) return undefined;
+    const chart = createChart(el, {
+      autoSize: true,
+      layout: {
+        background: { type: ColorType.Solid, color: theme.color.surface },
+        textColor: theme.color.muted,
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
+      },
+      crosshair: {
+        mode: CrosshairMode.Magnet,
+        vertLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1 },
+        horzLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1 },
+      },
+      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)' },
+      timeScale: {
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        timeVisible: hasT,
+        secondsVisible: false,
+        minBarSpacing: 0.01,
+      },
+    });
+    chartRef.current = chart;
+    seriesRef.current = chart.addLineSeries({
+      color: columnHeaders[selected]?.color ?? '#00f6d2',
+      lineWidth: 2,
+    });
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    };
+    // Re-create when color/axis-type changes so the series picks up the new
+    // colour and the time scale toggles correctly between height/timestamp.
+  }, [selected, hasT]);
+
+  useEffect(() => {
+    const s = seriesRef.current;
+    if (!s) return;
+    s.setData(data);
+    if (data.length > 0) chartRef.current?.timeScale().fitContent();
+  }, [data]);
+
+  if (availableCodes.length === 0 || rows.length === 0) return null;
+
+  return (
+    <ChartHost>
+      <ChartControls>
+        <span>Chart:</span>
+        <Select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          style={{ minWidth: 160 }}
+        >
+          {availableCodes.map((c) => (
+            <option key={c} value={c}>{columnHeaders[c]!.title}</option>
+          ))}
+        </Select>
+        <span style={{ color: 'rgba(255,255,255,0.4)' }}>
+          {data.length} pts · x-axis: {hasT ? 'time' : 'height'}
+        </span>
+      </ChartControls>
+      <ChartHostInner ref={hostRef} />
+    </ChartHost>
+  );
+}
+
 function HdrsView(
   { data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx },
 ): JSX.Element {
@@ -1314,8 +1505,8 @@ function HdrsView(
             </span>
           ))}
         </div>
-        {/* TODO: column drag-to-reorder, configurable line-graph overlay (canvas widgets in the original) not yet ported. */}
       </Collapsible>
+      <HdrsChart rows={extractHdrsRows(data, view.cols || COLUMN_DEFAULT_DISPLAY)} colCodes={view.cols || COLUMN_DEFAULT_DISPLAY} />
       <Card>
         <RenderValue value={data} ctx={ctx} />
       </Card>

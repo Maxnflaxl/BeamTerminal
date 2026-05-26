@@ -41,11 +41,43 @@ function useOneShot<T>(fetcher: () => Promise<T>): FetchState<T> {
   return state;
 }
 
+type Category = 'blockchain' | 'defi';
+const CATEGORIES: ReadonlyArray<{ key: Category; label: string }> = [
+  { key: 'blockchain', label: 'Blockchain' },
+  { key: 'defi',       label: 'DeFi' },
+];
+
 const Page = styled.div`
   width: 100%;
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 16px;
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 16px;
+
+  @media (max-width: 800px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const Sidebar = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: start;
+  position: sticky;
+  top: 16px;
+
+  @media (max-width: 800px) {
+    flex-direction: row;
+    flex-wrap: wrap;
+    position: static;
+  }
+`;
+
+const Main = styled.div`
+  min-width: 0;
 `;
 
 const Toolbar = styled.div`
@@ -288,17 +320,20 @@ export const NetworkCharts: React.FC = () => {
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
-  const charts: ReadonlyArray<ChartSpec> = [
-    { key: 'hashrate',   title: 'Hashrate (Beamhash III)', state: hashrate,   formatter: fmtHashrate },
-    { key: 'difficulty', title: 'Difficulty',              state: difficulty, formatter: fmtDifficulty },
-    { key: 'blockTime',  title: 'Avg block time',          state: blockTime,  formatter: fmtBlockTime },
-    { key: 'kernels',    title: 'Kernels / day',           state: kernels,    formatter: fmtInt },
-    { key: 'tvl',        title: 'DEX TVL',                 state: tvl,        formatter: fmtUsd },
-    { key: 'dexVolume',  title: 'DEX volume / day',        state: dexVolume,  formatter: fmtUsd },
-    { key: 'assets',     title: 'Confidential Assets',     state: assets,     formatter: fmtInt },
+  const [category, setCategory] = useState<Category>('blockchain');
+
+  const allCharts: ReadonlyArray<ChartSpec & { category: Category }> = [
+    { key: 'hashrate',   title: 'Hashrate (Beamhash III)', state: hashrate,   formatter: fmtHashrate,   category: 'blockchain' },
+    { key: 'difficulty', title: 'Difficulty',              state: difficulty, formatter: fmtDifficulty, category: 'blockchain' },
+    { key: 'blockTime',  title: 'Avg block time',          state: blockTime,  formatter: fmtBlockTime,  category: 'blockchain' },
+    { key: 'kernels',    title: 'Kernels / day',           state: kernels,    formatter: fmtInt,        category: 'blockchain' },
+    { key: 'assets',     title: 'Confidential Assets',     state: assets,     formatter: fmtInt,        category: 'blockchain' },
+    { key: 'tvl',        title: 'DEX TVL',                 state: tvl,        formatter: fmtUsd,        category: 'defi' },
+    { key: 'dexVolume',  title: 'DEX volume / day',        state: dexVolume,  formatter: fmtUsd,        category: 'defi' },
   ];
 
-  const expanded = expandedKey ? charts.find((c) => c.key === expandedKey) ?? null : null;
+  const charts = allCharts.filter((c) => c.category === category);
+  const expanded = expandedKey ? allCharts.find((c) => c.key === expandedKey) ?? null : null;
 
   useEffect(() => {
     if (!expanded) return undefined;
@@ -309,30 +344,43 @@ export const NetworkCharts: React.FC = () => {
 
   return (
     <Page>
-      <Toolbar>
-        {TIMEFRAMES.map((tf) => (
+      <Sidebar>
+        {CATEGORIES.map((c) => (
           <TfButton
-            key={tf}
-            active={timeframe === tf}
-            onClick={() => setTimeframe(tf)}
+            key={c.key}
+            active={category === c.key}
+            onClick={() => setCategory(c.key)}
           >
-            {tf}
+            {c.label}
           </TfButton>
         ))}
-      </Toolbar>
-      <Grid>
-        {charts.map((c) => (
-          <ChartCell
-            key={c.key}
-            state={c.state}
-            title={c.title}
-            timeframe={timeframe}
-            scale={c.scale}
-            formatter={c.formatter}
-            onExpand={() => setExpandedKey(c.key)}
-          />
-        ))}
-      </Grid>
+      </Sidebar>
+      <Main>
+        <Toolbar>
+          {TIMEFRAMES.map((tf) => (
+            <TfButton
+              key={tf}
+              active={timeframe === tf}
+              onClick={() => setTimeframe(tf)}
+            >
+              {tf}
+            </TfButton>
+          ))}
+        </Toolbar>
+        <Grid>
+          {charts.map((c) => (
+            <ChartCell
+              key={c.key}
+              state={c.state}
+              title={c.title}
+              timeframe={timeframe}
+              scale={c.scale}
+              formatter={c.formatter}
+              onExpand={() => setExpandedKey(c.key)}
+            />
+          ))}
+        </Grid>
+      </Main>
       {expanded && (
         <ModalBackdrop onClick={() => setExpandedKey(null)}>
           <ModalContent onClick={(e) => e.stopPropagation()}>
