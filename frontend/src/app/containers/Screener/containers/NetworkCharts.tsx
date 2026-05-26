@@ -263,7 +263,7 @@ export const NetworkCharts: React.FC = () => {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const charts: ReadonlyArray<ChartSpec> = [
-    { key: 'hashrate',  title: 'Hashrate (Beamhash III)', state: hashrate,  formatter: fmtHashrate },
+    { key: 'hashrate',  title: 'Hashrate (Beamhash III)', state: hashrate,  scale: 1 / 1e6, formatter: fmtHashrate },
     { key: 'kernels',   title: 'Kernels / day',           state: kernels,   formatter: fmtInt },
     { key: 'dexVolume', title: 'DEX volume / day',        state: dexVolume, formatter: fmtUsd },
     { key: 'assets',    title: 'Confidential Assets',     state: assets,    formatter: fmtInt },
