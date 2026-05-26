@@ -1,106 +1,74 @@
 import { q } from '../db.js';
 import { logger } from '../logger.js';
 
-// All-time cumulative trade volume, point-in-time valued. Trades are bucketed
-// hourly; each bucket is priced with the *nearest* oracle snapshot and
-// BEAM-quoted pool reserves (prefer at-or-before the bucket; fall back to
-// earliest-after when the trade pre-dates available history).
+// All-time cumulative trade volume, point-in-time valued. Daily-bucketed
+// with materialized JOINs — same methodology as /charts/dex-volume, so the
+// header total in /api/stats agrees with the cumulative chart on the page.
 //
-// Mirrors the CTE that used to live in /api/stats — moved here because the
-// query takes long enough on production-size data to exceed CF Tunnel's
-// ~100s edge timeout. Recomputing on an indexer-driven cadence keeps the
-// API response instant.
+// Per asset and per day, the cross-rate uses the BEAM-paired pool with the
+// largest BEAM reserve (less manipulable than "freshest snapshot wins").
 const TOTAL_VOLUME_SQL = `
-  WITH trade_hourly AS (
+  WITH oracle_day AS (
+    SELECT time_bucket(INTERVAL '1 day', ts) AS day,
+           last(beam_usd, ts) AS beam_usd
+      FROM oracle_snapshots
+     GROUP BY day
+  ),
+  pool_day AS (
+    SELECT pool_id,
+           time_bucket(INTERVAL '1 day', ts) AS day,
+           last(reserve1, ts)::numeric AS reserve1,
+           last(reserve2, ts)::numeric AS reserve2
+      FROM pool_state_snapshots
+     GROUP BY pool_id, time_bucket(INTERVAL '1 day', ts)
+  ),
+  beam_paired AS (
+    SELECT DISTINCT ON (pd.day, p.aid2)
+           pd.day,
+           p.aid2 AS asset_aid,
+           pd.reserve1::numeric AS beam_reserve,
+           pd.reserve2::numeric AS asset_reserve
+      FROM pool_day pd
+      JOIN pools p ON p.pool_id = pd.pool_id
+     WHERE p.aid1 = 0 AND pd.reserve1 > 0 AND pd.reserve2 > 0
+     ORDER BY pd.day, p.aid2, pd.reserve1 DESC
+  ),
+  trade_daily AS (
     SELECT t.pool_id,
-           time_bucket(INTERVAL '1 hour', t.block_ts) AS bucket,
+           time_bucket(INTERVAL '1 day', t.block_ts) AS day,
            SUM(t.volume_aid1)::numeric AS vol1,
            SUM(t.volume_aid2)::numeric AS vol2
       FROM trades t
      WHERE t.confirmed = TRUE
-     GROUP BY t.pool_id, time_bucket(INTERVAL '1 hour', t.block_ts)
+     GROUP BY t.pool_id, time_bucket(INTERVAL '1 day', t.block_ts)
+  ),
+  priced AS (
+    SELECT
+      CASE
+        WHEN p.aid1 = 0 AND od.beam_usd IS NOT NULL THEN
+          (td.vol1 / 1e8::numeric) * od.beam_usd
+        WHEN bp1.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+          (td.vol1 / power(10::numeric, a1.decimals))
+           * (bp1.beam_reserve / 1e8::numeric)
+           / NULLIF(bp1.asset_reserve / power(10::numeric, a1.decimals), 0)
+           * od.beam_usd
+        WHEN bp2.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+          (td.vol2 / power(10::numeric, a2.decimals))
+           * (bp2.beam_reserve / 1e8::numeric)
+           / NULLIF(bp2.asset_reserve / power(10::numeric, a2.decimals), 0)
+           * od.beam_usd
+      END AS usd_value
+      FROM trade_daily td
+      JOIN pools  p  ON p.pool_id = td.pool_id
+      JOIN assets a1 ON a1.aid = p.aid1
+      JOIN assets a2 ON a2.aid = p.aid2
+      LEFT JOIN oracle_day  od  ON od.day  = td.day
+      LEFT JOIN beam_paired bp1 ON bp1.day = td.day AND bp1.asset_aid = p.aid1
+      LEFT JOIN beam_paired bp2 ON bp2.day = td.day AND bp2.asset_aid = p.aid2
   )
   SELECT COALESCE(SUM(usd_value), 0)::text AS total_volume_usd,
          BOOL_OR(usd_value IS NOT NULL) AS has_any
-    FROM (
-      SELECT
-        CASE
-          WHEN p.aid1 = 0 AND ohb.beam_usd IS NOT NULL THEN
-            (th.vol1 / 1e8::numeric) * ohb.beam_usd
-          WHEN bphr1.beam_reserve IS NOT NULL AND ohb.beam_usd IS NOT NULL THEN
-            (th.vol1 / power(10::numeric, a1.decimals))
-             * (bphr1.beam_reserve / 1e8::numeric)
-             / NULLIF(bphr1.other_reserve / power(10::numeric, a1.decimals), 0)
-             * ohb.beam_usd
-          WHEN bphr2.beam_reserve IS NOT NULL AND ohb.beam_usd IS NOT NULL THEN
-            (th.vol2 / power(10::numeric, a2.decimals))
-             * (bphr2.beam_reserve / 1e8::numeric)
-             / NULLIF(bphr2.other_reserve / power(10::numeric, a2.decimals), 0)
-             * ohb.beam_usd
-        END AS usd_value
-      FROM trade_hourly th
-      JOIN pools  p  ON p.pool_id = th.pool_id
-      JOIN assets a1 ON a1.aid = p.aid1
-      JOIN assets a2 ON a2.aid = p.aid2
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(
-          (SELECT beam_usd FROM oracle_snapshots os
-            WHERE os.ts <= th.bucket + INTERVAL '1 hour'
-            ORDER BY os.ts DESC LIMIT 1),
-          (SELECT beam_usd FROM oracle_snapshots os
-            WHERE os.ts > th.bucket + INTERVAL '1 hour'
-            ORDER BY os.ts ASC LIMIT 1)
-        ) AS beam_usd
-      ) ohb ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT beam_reserve, other_reserve FROM (
-          (SELECT s.reserve1::numeric AS beam_reserve,
-                  s.reserve2::numeric AS other_reserve,
-                  0 AS pref
-             FROM pools bp
-             JOIN pool_state_snapshots s ON s.pool_id = bp.pool_id
-            WHERE bp.aid1 = 0 AND bp.aid2 = p.aid1
-              AND s.ts <= th.bucket + INTERVAL '1 hour'
-              AND s.reserve1 > 0 AND s.reserve2 > 0
-            ORDER BY s.ts DESC LIMIT 1)
-          UNION ALL
-          (SELECT s.reserve1::numeric AS beam_reserve,
-                  s.reserve2::numeric AS other_reserve,
-                  1 AS pref
-             FROM pools bp
-             JOIN pool_state_snapshots s ON s.pool_id = bp.pool_id
-            WHERE bp.aid1 = 0 AND bp.aid2 = p.aid1
-              AND s.ts > th.bucket + INTERVAL '1 hour'
-              AND s.reserve1 > 0 AND s.reserve2 > 0
-            ORDER BY s.ts ASC LIMIT 1)
-        ) ranked
-        ORDER BY pref LIMIT 1
-      ) bphr1 ON p.aid1 <> 0
-      LEFT JOIN LATERAL (
-        SELECT beam_reserve, other_reserve FROM (
-          (SELECT s.reserve1::numeric AS beam_reserve,
-                  s.reserve2::numeric AS other_reserve,
-                  0 AS pref
-             FROM pools bp
-             JOIN pool_state_snapshots s ON s.pool_id = bp.pool_id
-            WHERE bp.aid1 = 0 AND bp.aid2 = p.aid2
-              AND s.ts <= th.bucket + INTERVAL '1 hour'
-              AND s.reserve1 > 0 AND s.reserve2 > 0
-            ORDER BY s.ts DESC LIMIT 1)
-          UNION ALL
-          (SELECT s.reserve1::numeric AS beam_reserve,
-                  s.reserve2::numeric AS other_reserve,
-                  1 AS pref
-             FROM pools bp
-             JOIN pool_state_snapshots s ON s.pool_id = bp.pool_id
-            WHERE bp.aid1 = 0 AND bp.aid2 = p.aid2
-              AND s.ts > th.bucket + INTERVAL '1 hour'
-              AND s.reserve1 > 0 AND s.reserve2 > 0
-            ORDER BY s.ts ASC LIMIT 1)
-        ) ranked
-        ORDER BY pref LIMIT 1
-      ) bphr2 ON p.aid1 <> 0
-    ) sub
+    FROM priced
 `;
 
 export interface CachedDexStats {
