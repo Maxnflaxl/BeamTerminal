@@ -56,6 +56,92 @@ const TableWrap = styled.div`
   margin: 16px auto;
   padding: 0 20px;
   overflow-x: auto;
+
+  @media (max-width: 640px) {
+    padding: 0 12px;
+    overflow-x: visible;
+  }
+`;
+
+const DesktopOnly = styled.div`
+  @media (max-width: 640px) { display: none; }
+`;
+
+const MobileOnly = styled.div`
+  display: none;
+  @media (max-width: 640px) { display: block; }
+`;
+
+const ACard = styled.div`
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  cursor: pointer;
+  &:hover { background: rgba(255, 255, 255, 0.05); }
+`;
+
+const ACardMain = styled.div`
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const ACardTitleRow = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const ACardTitle = styled.div`
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const ACardSub = styled.div`
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+`;
+
+const ACardDesc = styled.div`
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+`;
+
+const ACardStats = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-family: 'SFProDisplay', monospace;
+  font-size: 12px;
+`;
+
+const ACardStat = styled.div`
+  display: flex;
+  flex-direction: column;
+  color: rgba(255, 255, 255, 0.85);
+
+  & > span:first-child {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
 `;
 
 const Table = styled.table`
@@ -195,6 +281,51 @@ export const AssetsList: React.FC = () => {
         ) : filtered.length === 0 ? (
           <Empty>No assets match.</Empty>
         ) : (
+          <>
+          <MobileOnly>
+            {filtered.map((a) => {
+              const supplyHuman = a.emission
+                ? Number(a.emission) / 10 ** a.decimals
+                : null;
+              const maxSupplyHuman = a.max_supply
+                ? Number(a.max_supply) / 10 ** a.decimals
+                : null;
+              const maxSupplyLabel = maxSupplyHuman !== null
+                ? fmtNum(maxSupplyHuman, 0)
+                : a.minter_cid
+                  ? '∞'
+                  : '—';
+              return (
+                <ACard key={a.aid} onClick={() => navigate(`/asset/${a.aid}`)}>
+                  <RowAssetIcon asset_id={a.aid} />
+                  <ACardMain>
+                    <ACardTitleRow>
+                      <ACardTitle>{a.short_name ?? `aid${a.aid}`}</ACardTitle>
+                      <ACardSub>#{a.aid}</ACardSub>
+                      {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
+                    </ACardTitleRow>
+                    {a.name && <ACardSub>{a.name}</ACardSub>}
+                    {a.description && <ACardDesc>{a.description}</ACardDesc>}
+                    <ACardStats>
+                      <ACardStat>
+                        <span>Emission</span>
+                        <span>{supplyHuman !== null ? fmtNum(supplyHuman, 0) : '—'}</span>
+                      </ACardStat>
+                      <ACardStat>
+                        <span>Max</span>
+                        <span>{maxSupplyLabel}</span>
+                      </ACardStat>
+                      <ACardStat>
+                        <span>Pools</span>
+                        <span>{a.pool_count}</span>
+                      </ACardStat>
+                    </ACardStats>
+                  </ACardMain>
+                </ACard>
+              );
+            })}
+          </MobileOnly>
+          <DesktopOnly>
           <Table>
             <thead>
               <tr>
@@ -253,6 +384,8 @@ export const AssetsList: React.FC = () => {
               })}
             </tbody>
           </Table>
+          </DesktopOnly>
+          </>
         )}
       </TableWrap>
     </Page>

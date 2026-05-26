@@ -53,8 +53,112 @@ const TableWrap = styled.div`
   overflow-x: auto;
 
   @media (max-width: 640px) {
-    padding: 0 4px;
+    padding: 0 12px;
+    overflow-x: visible;
   }
+`;
+
+const DesktopOnly = styled.div`
+  @media (max-width: 640px) { display: none; }
+`;
+
+const MobileOnly = styled.div`
+  display: none;
+  @media (max-width: 640px) { display: block; }
+`;
+
+const SortBar = styled.div`
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+`;
+
+const SortPill = styled.button<{ active?: boolean }>`
+  background: ${(p) => (p.active ? 'rgba(0, 246, 210, 0.18)' : 'transparent')};
+  color: ${(p) => (p.active ? '#00f6d2' : 'rgba(255, 255, 255, 0.7)')};
+  border: 1px solid ${(p) => (p.active ? 'rgba(0, 246, 210, 0.5)' : 'rgba(255, 255, 255, 0.12)')};
+  border-radius: 14px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+`;
+
+const Card = styled.div`
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  cursor: pointer;
+  &:hover { background: rgba(255, 255, 255, 0.05); }
+`;
+
+const CardMain = styled.div`
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const CardTopRow = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const CardTitle = styled.div`
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const CardSub = styled.div`
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+`;
+
+const CardStats = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-family: 'SFProDisplay', monospace;
+  font-size: 12px;
+`;
+
+const CardStat = styled.div`
+  display: flex;
+  justify-content: space-between;
+  color: rgba(255, 255, 255, 0.8);
+
+  & > span:first-child {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 8px;
+  }
+`;
+
+const CardSide = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  font-family: 'SFProDisplay', monospace;
+  font-size: 12px;
+  gap: 6px;
 `;
 
 const Table = styled.table`
@@ -219,6 +323,78 @@ export const PairsList: React.FC = () => {
         ) : pairs.length === 0 ? (
           <Empty>No pairs found.</Empty>
         ) : (
+          <>
+          <MobileOnly>
+            <SortBar>
+              <span>Sort:</span>
+              {([
+                ['tvl_usd', 'Liquidity'],
+                ['volume_24h_usd', 'Volume'],
+                ['price_change_24h', '24h %'],
+                ['trades_24h', 'Txns'],
+              ] as ReadonlyArray<[SortKey, string]>).map(([k, label]) => (
+                <SortPill
+                  key={k}
+                  active={sortBy === k}
+                  onClick={() => onSort(k)}
+                >
+                  {label}
+                  {sortBy === k ? (order === 'desc' ? ' ▼' : ' ▲') : ''}
+                </SortPill>
+              ))}
+            </SortBar>
+            {pairs.map((p, idx) => {
+              const chg = fmtPct(p.price_change_24h);
+              return (
+                <Card
+                  key={p.pair_id}
+                  onClick={() => navigate(`/pair/${pairUrlId(p.aid1, p.aid2, p.kind)}`)}
+                >
+                  <IconsPair aid1={p.aid1} aid2={p.aid2} />
+                  <CardMain>
+                    <CardTopRow>
+                      <CardTitle>
+                        {p.symbol1 ?? `aid${p.aid1}`}/{p.symbol2 ?? `aid${p.aid2}`}
+                      </CardTitle>
+                      <CardSub>#{p.aid2} · #{idx + 1}</CardSub>
+                      <KindBadge kind={p.kind} />
+                    </CardTopRow>
+                    <CardStats>
+                      <CardStat>
+                        <span>Price</span>
+                        <span>{p.price_usd !== null ? fmt$(p.price_usd) : fmtPrice(p.price_native)}</span>
+                      </CardStat>
+                      <CardStat>
+                        <span>24h</span>
+                        <span className={chg.cls}>{chg.text}</span>
+                      </CardStat>
+                      <CardStat>
+                        <span>Vol</span>
+                        <span>{fmt$(p.volume_24h_usd)}</span>
+                      </CardStat>
+                      <CardStat>
+                        <span>Liq</span>
+                        <span>{fmt$(p.tvl_usd)}</span>
+                      </CardStat>
+                      <CardStat>
+                        <span>Txns</span>
+                        <span>
+                          {p.trades_24h}{' '}
+                          <span className="positive" style={{ color: 'var(--color-green)' }}>{p.buys_24h}</span>
+                          /
+                          <span className="negative" style={{ color: 'var(--color-red)' }}>{p.sells_24h}</span>
+                        </span>
+                      </CardStat>
+                    </CardStats>
+                  </CardMain>
+                  <CardSide>
+                    <Sparkline values={(p.sparkline_7d ?? []).map((v) => (v > 0 ? 1 / v : 0))} />
+                  </CardSide>
+                </Card>
+              );
+            })}
+          </MobileOnly>
+          <DesktopOnly>
           <Table>
             <thead>
               <tr>
@@ -292,6 +468,8 @@ export const PairsList: React.FC = () => {
               })}
             </tbody>
           </Table>
+          </DesktopOnly>
+          </>
         )}
       </TableWrap>
     </Page>
