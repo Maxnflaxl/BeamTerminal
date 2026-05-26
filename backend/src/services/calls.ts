@@ -167,13 +167,14 @@ async function writeCall(call: AmmCall, blockTs: Date): Promise<WriteOutcome> {
       await q(
         `INSERT INTO trades (
            pool_id, height, block_ts, aid_in, aid_out,
-           amount_in, amount_out,
+           amount_in, amount_out, fee_groth,
            volume_aid1, volume_aid2, price_native,
            confirmed
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE)
          ON CONFLICT (pool_id, height, aid_in, aid_out, amount_in, amount_out, block_ts)
-         DO NOTHING`,
+         DO UPDATE SET fee_groth = EXCLUDED.fee_groth
+                 WHERE trades.fee_groth IS NULL`,
         [
           poolId,
           call.height,
@@ -182,6 +183,7 @@ async function writeCall(call: AmmCall, blockTs: Date): Promise<WriteOutcome> {
           call.aid_out,
           call.amount_in.toString(),
           call.amount_out.toString(),
+          call.fee_groth !== null ? call.fee_groth.toString() : null,
           volumeAid1.toString(),
           volumeAid2.toString(),
           priceNative,

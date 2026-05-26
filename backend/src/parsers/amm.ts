@@ -122,6 +122,10 @@ export interface TradeCall extends AmmCallBase {
   amount_in: bigint;
   /** Magnitude received out. Always positive. */
   amount_out: bigint;
+  /** DaoVault fee skim, in groths of `aid_in`. `null` when the group has no
+   *  nested Deposit (e.g. fees disabled or test pools). The pool's reserve of
+   *  `aid_in` therefore grows by `amount_in - fee_groth` after the trade. */
+  fee_groth: bigint | null;
 }
 
 export interface LpCall extends AmmCallBase {
@@ -148,13 +152,17 @@ export function parseCallsHistory(resp: ContractResponse): AmmCall[] {
 
   const out: AmmCall[] = [];
   for (const entry of tbl.value.slice(1)) {
-    const primary = isGroupRow(entry) ? entry.value[0] : (entry as Row);
+    const group = isGroupRow(entry);
+    const primary = group ? entry.value[0] : (entry as Row);
+    const nested = group ? entry.value.slice(1) : EMPTY_NESTED;
     if (!primary) continue;
-    const call = parseCallRow(primary);
+    const call = parseCallRow(primary, nested);
     if (call) out.push(call);
   }
   return out;
 }
+
+const EMPTY_NESTED: ReadonlyArray<Row> = [];
 
 function isGroupRow(x: unknown): x is GroupRow {
   return (
@@ -165,7 +173,7 @@ function isGroupRow(x: unknown): x is GroupRow {
   );
 }
 
-function parseCallRow(row: Row): AmmCall | null {
+function parseCallRow(row: Row, nested: ReadonlyArray<Row>): AmmCall | null {
   if (!Array.isArray(row) || row.length < 7) return null;
 
   // Reject nested invocations: a primary AMM call has Cid="" and Kind="" or "DEX v0".
@@ -210,6 +218,7 @@ function parseCallRow(row: Row): AmmCall | null {
       const paidIn = funds.find((f) => f.amount > 0n);
       const recvOut = funds.find((f) => f.amount < 0n);
       if (!paidIn || !recvOut) return null;
+      const fee_groth = extractTradeFee(nested, paidIn.aid);
       return {
         ...base,
         method: 'Trade',
@@ -217,6 +226,7 @@ function parseCallRow(row: Row): AmmCall | null {
         aid_out: recvOut.aid,
         amount_in: paidIn.amount,
         amount_out: -recvOut.amount,
+        fee_groth,
       } satisfies TradeCall;
     }
 
@@ -258,6 +268,22 @@ interface SignedFund {
   aid: number;
   /** Signed groths: positive = into pool, negative = out of pool. */
   amount: bigint;
+}
+
+/**
+ * For a Trade group, the DaoVault fee skim sits as a nested Deposit call. Its
+ * Funds table has one positive-amount entry on the input asset — that magnitude
+ * is the fee paid into DaoVault from the pool's `aid_in` reserve.
+ */
+function extractTradeFee(nested: ReadonlyArray<Row>, feeAid: number): bigint | null {
+  for (const r of nested) {
+    if (!Array.isArray(r) || r.length < 6) continue;
+    if (pickString(r[3]) !== 'Deposit') continue;
+    const funds = parseFundsTable(r[5]);
+    const match = funds.find((f) => f.aid === feeAid && f.amount > 0n);
+    if (match) return match.amount;
+  }
+  return null;
 }
 
 function parseFundsTable(cell: unknown): SignedFund[] {
