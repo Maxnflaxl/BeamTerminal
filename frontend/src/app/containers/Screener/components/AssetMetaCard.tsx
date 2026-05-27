@@ -73,7 +73,7 @@ export const AssetMetaCard: React.FC<Props> = ({
   return (
     <Card>
       <Head>
-        <AssetIcon className="icon" asset_id={asset.aid} color={asset.color} />
+        <AssetIcon className="icon" asset_id={asset.aid} color={asset.color} logoUrl={asset.logo_url} />
         <span className="name">{asset.name ?? `Asset #${asset.aid}`}</span>
       </Head>
       <Grid>

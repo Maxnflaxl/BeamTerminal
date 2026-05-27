@@ -24,6 +24,16 @@ export function normalizeOptColor(raw: string | undefined | null): string | null
   return `#${hex.toLowerCase()}`;
 }
 
+// OPT_LOGO_URL from on-chain metadata is attacker-controlled, so only accept
+// plain http(s) URLs — never `javascript:`/`data:` schemes. Rendered through an
+// <img> regardless, so even an SVG logo can't execute scripts.
+export function normalizeLogoUrl(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  return trimmed;
+}
+
 export interface AssetIconProps {
   asset_id?: number;
   className?: string;
@@ -35,6 +45,10 @@ export interface AssetIconProps {
    *  on-chain assets list isn't loaded). Takes precedence over the Redux
    *  metadata colour and the palette fallback. */
   color?: string | null;
+  /** Logo URL (OPT_LOGO_URL). When it's a valid http(s) URL and the image
+   *  loads, the real logo replaces the generated glyph; on a bad URL or load
+   *  error we fall back to the glyph. */
+  logoUrl?: string | null;
 }
 
 // Per-instance gradient id counter. The shared SVGR icons bake a single
@@ -119,6 +133,13 @@ const ContainerStyled = styled.div<ContainerStyledProps>`
     width: 100%;
     height: 100%;
   }
+  & img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 50%;
+  }
 `;
 
 // Asset id → branded glyph. Declared here (after the glyph components) so the
@@ -134,17 +155,27 @@ function paletteColor(asset_id: number): string {
 }
 
 const AssetIcon: React.FC<AssetIconProps> = ({
-  asset_id = 0, className, size = 22, color,
+  asset_id = 0, className, size = 22, color, logoUrl,
 }) => {
   const assets = useSelector(selectAssetsList()) as IAsset[];
   const asset = assets?.find((a) => (a.asset_id ?? a.aid) === asset_id);
   const metadataColor = normalizeOptColor(color) ?? normalizeOptColor(asset?.parsedMetadata?.OPT_COLOR);
   const resolvedColor = metadataColor ?? paletteColor(asset_id);
 
+  // Track which logo URL failed so a fresh URL re-attempts the image rather
+  // than staying on the glyph fallback.
+  const [erroredUrl, setErroredUrl] = React.useState<string | null>(null);
+  const logo = normalizeLogoUrl(logoUrl);
+  const showLogo = logo !== null && logo !== erroredUrl;
+
   const BrandedIcon = ICON_BY_ASSET_ID[asset_id];
   return (
     <ContainerStyled resolvedColor={resolvedColor} size={size} className={className}>
-      {BrandedIcon ? <BrandedIcon /> : <GenericAssetGlyph />}
+      {showLogo ? (
+        <img src={logo as string} alt="" onError={() => setErroredUrl(logo)} />
+      ) : (
+        BrandedIcon ? <BrandedIcon /> : <GenericAssetGlyph />
+      )}
     </ContainerStyled>
   );
 };

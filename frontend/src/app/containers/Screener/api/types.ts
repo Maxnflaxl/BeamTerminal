@@ -278,6 +278,8 @@ export interface ApiAsset {
   max_supply: string | null;
   /** Brand colour from the OPT_COLOR metadata key (hex). Null when undefined. */
   color: string | null;
+  /** Logo URL from the OPT_LOGO_URL metadata key (SVG vector). Null when undefined. */
+  logo_url: string | null;
   pools: Array<{ pair_id: number; aid1: number; aid2: number; kind: number; tvl_usd: number | null }>;
 }
 
@@ -295,6 +297,7 @@ export interface ApiAssetListEntry {
   minter_cid: string | null;
   max_supply: string | null;
   color: string | null;
+  logo_url: string | null;
   pool_count: number;
 }
 

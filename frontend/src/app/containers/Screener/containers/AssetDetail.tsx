@@ -242,7 +242,7 @@ export const AssetDetail: React.FC = () => {
 
       <Card>
         <HeaderRow>
-          <HeaderAssetIcon asset_id={asset.aid} color={asset.color} />
+          <HeaderAssetIcon asset_id={asset.aid} color={asset.color} logoUrl={asset.logo_url} />
           <NameCol>
             <FullName>
               {asset.name ?? `Asset #${asset.aid}`}
