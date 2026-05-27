@@ -283,7 +283,11 @@ export const AssetDetail: React.FC = () => {
           </InfoCell>
           <InfoCell>
             <div className="lbl">First seen</div>
-            <div className="val">{asset.first_seen_height !== null ? `block #${asset.first_seen_height}` : '—'}</div>
+            <div className="val">
+              {asset.aid === 0
+                ? 'block #1'
+                : asset.first_seen_height !== null ? `block #${asset.first_seen_height}` : '—'}
+            </div>
           </InfoCell>
           <InfoCell>
             <div className="lbl">Unit name</div>
