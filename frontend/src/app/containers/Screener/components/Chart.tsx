@@ -199,13 +199,17 @@ export const Chart: React.FC<Props> = ({
       row.appendChild(vol);
       row.appendChild(document.createTextNode(' '));
       row.appendChild(volSym);
+      const tradesLbl = make('lbl', '  T ');
+      const trades = make('val', '');
+      row.appendChild(tradesLbl);
+      row.appendChild(trades);
       lg.appendChild(row);
       nodes = {
         oLbl: refs[0]!, o: refs[1]!,
         hLbl: refs[2]!, h: refs[3]!,
         lLbl: refs[4]!, l: refs[5]!,
         cLbl: refs[6]!, c: refs[7]!,
-        chg, denom, vol, volSym,
+        chg, denom, vol, volSym, trades,
       };
     }
 
@@ -219,6 +223,7 @@ export const Chart: React.FC<Props> = ({
         nodes.chg.textContent = '';
         nodes.chg.className = 'chg';
         nodes.vol.textContent = '';
+        nodes.trades.textContent = '';
         return;
       }
       const c = candlesRef.current.find((cd) => (cd.time as UTCTimestamp) === param.time);
@@ -234,6 +239,7 @@ export const Chart: React.FC<Props> = ({
       // Volume groths of aid1 → display units. BigInt avoids overflow.
       const volNum = Number(BigInt(c.volume)) / 10 ** volumeDecimalsRef.current;
       nodes.vol.textContent = fmtNum(volNum);
+      nodes.trades.textContent = String(c.trade_count ?? 0);
     });
 
     // Fire `onReachStart` when the user pans/zooms within ~10 bars of the
