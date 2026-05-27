@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
 import { styled } from '@linaria/react';
-import { useAsset, useAssetHistory } from '../hooks';
+import { useAsset, useAssetHistory, useStats } from '../hooks';
 import type { ApiAssetHistoryItem } from '../api/types';
 import { IconsPair } from './IconsPair';
 import { AssetMetaCard } from './AssetMetaCard';
+
+// Beam mainnet launched 2019-01-03, ~1 block/minute (same genesis the explorer
+// supply math uses). BEAM has no asset-history events, so block 1 is its
+// "since" and it changes every block — last change is the chain tip.
+const BEAM_GENESIS_TS = Math.floor(Date.UTC(2019, 0, 3, 0, 0, 0) / 1000);
 
 const Banner = styled.div`
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -102,12 +107,23 @@ export const AssetMetaBanner: React.FC<Props> = ({
   // BEAM (aid 0) has no /history endpoint — skip it.
   const { data: hist1 } = useAssetHistory(aid1 > 0 ? aid1 : undefined);
   const { data: hist2 } = useAssetHistory(aid2 > 0 ? aid2 : undefined);
+  const { data: stats } = useStats();
 
   const name1 = asset1?.name ?? sym1;
   const name2 = asset2?.name ?? sym2;
 
+  const activeAid = tab === 1 ? aid1 : aid2;
   const activeAsset = tab === 1 ? asset1 : asset2;
-  const activeDates = deriveDates((tab === 1 ? hist1 : hist2)?.history);
+  // BEAM is mined from genesis and changes every block, so it has no history
+  // rows: its "since" is block 1 and its "last change" is the chain tip.
+  const activeDates = activeAid === 0
+    ? {
+      createdTs: BEAM_GENESIS_TS,
+      createdHeight: 1,
+      lastTs: stats?.block_ts ?? null,
+      lastHeight: stats?.last_indexed_height ?? null,
+    }
+    : deriveDates((tab === 1 ? hist1 : hist2)?.history);
 
   return (
     <Banner>

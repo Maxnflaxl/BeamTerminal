@@ -168,6 +168,9 @@ function human(amount: string | null | undefined, decimals: number): number {
   return Number(amount) / 10 ** decimals;
 }
 
+// BEAM (aid 0) is mined, every other asset is minted.
+const supplyWord = (aid: number): string => (aid === 0 ? 'mined' : 'minted');
+
 interface Props {
   id: string;
   pair: ApiPair;
@@ -296,7 +299,7 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
               {fmtNum(p.reserve1_human, 0)}
               {pct1 != null && (
                 <span className="pct">
-                  {` (${pct1.toFixed(pct1 < 1 ? 3 : 1)}% of minted supply)`}
+                  {` (${pct1.toFixed(pct1 < 1 ? 3 : 1)}% of ${supplyWord(p.aid1)} supply)`}
                 </span>
               )}
             </div>
@@ -305,7 +308,7 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
               {fmtNum(p.reserve2_human, 0)}
               {pct2 != null && (
                 <span className="pct">
-                  {` (${pct2.toFixed(pct2 < 1 ? 3 : 1)}% of minted supply)`}
+                  {` (${pct2.toFixed(pct2 < 1 ? 3 : 1)}% of ${supplyWord(p.aid2)} supply)`}
                 </span>
               )}
             </div>

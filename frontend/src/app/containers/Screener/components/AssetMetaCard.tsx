@@ -80,7 +80,7 @@ export const AssetMetaCard: React.FC<Props> = ({
         <Cell><span className="lbl">Asset ID:</span><span className="val">{asset.aid}</span></Cell>
         <Cell><span className="lbl">Short name:</span><span className="val">{asset.short_name ?? '—'}</span></Cell>
         <Cell>
-          <span className="lbl">Minted supply:</span>
+          <span className="lbl">{asset.aid === 0 ? 'Mined supply:' : 'Minted supply:'}</span>
           <span className="val">
             {supplyHuman !== null ? `${fmtNum(supplyHuman, 0)} ${sym}` : '—'}
           </span>
