@@ -4,7 +4,6 @@ import { useSelector } from 'react-redux';
 import {
   BeamIcon as BeamIconSvg,
   BeamXIcon as BeamXIconSvg,
-  AssetIcon as AssetIconSvg,
   IconNPHAsset,
 } from '@app/shared/icons';
 
@@ -41,6 +40,42 @@ const ICON_BY_ASSET_ID: Partial<Record<number, typeof BeamIconSvg>> = {
   [NPH_ID]: IconNPHAsset,
 };
 
+// Generic glyph for every non-branded asset. Rendered inline (not via the
+// shared SVGR import) with a PER-INSTANCE gradient id, because a single
+// hardcoded id duplicated across 100+ list rows makes `url(#id)` resolve to
+// the first copy — and when that first copy's owner SVG has a 0×0 box (as it
+// does on list pages) Blink fails to paint the objectBoundingBox gradient for
+// every icon, flattening them. Unique ids sidestep the shared resolution
+// entirely. React 17 has no useId, so a module counter does the job.
+let glyphSeq = 0;
+
+const GenericAssetGlyph: React.FC = () => {
+  const gradId = React.useMemo(() => {
+    glyphSeq += 1;
+    return `assetGlyphGrad${glyphSeq}`;
+  }, []);
+  return (
+    <svg viewBox="0 0 26 26" width="100%" height="100%">
+      <defs>
+        <radialGradient id={gradId} cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+          <stop offset="0%" stopColor="black" stopOpacity="0" />
+          <stop offset="100%" stopColor="black" stopOpacity="0.55" />
+        </radialGradient>
+      </defs>
+      <g fill="none" fillRule="evenodd">
+        <circle cx="13" cy="13" r="11.636" fill="currentColor" />
+        <circle cx="13" cy="13" r="11.636" fill={`url(#${gradId})`} stroke="currentColor" strokeWidth="2" />
+        <g fill="#fff">
+          <path
+            d="M5.44 0l5.438 8.962H0L5.438 0v2.817L2.664 7.466l2.775-.001 2.776.001L5.44 2.817V0zM3.72 6.923l1.72-2.952 1.72 2.952-1.72-.003-1.72.003z"
+            transform="translate(7.150000, 7.540000)"
+          />
+        </g>
+      </g>
+    </svg>
+  );
+};
+
 interface ContainerStyledProps {
   resolvedColor: string;
   size: number;
@@ -73,10 +108,10 @@ const AssetIcon: React.FC<AssetIconProps> = ({ asset_id = 0, className, size = 2
   const metadataColor = normalizeOptColor(asset?.parsedMetadata?.OPT_COLOR);
   const resolvedColor = metadataColor ?? paletteColor(asset_id);
 
-  const IconComponent = ICON_BY_ASSET_ID[asset_id] ?? AssetIconSvg;
+  const BrandedIcon = ICON_BY_ASSET_ID[asset_id];
   return (
     <ContainerStyled resolvedColor={resolvedColor} size={size} className={className}>
-      <IconComponent />
+      {BrandedIcon ? <BrandedIcon /> : <GenericAssetGlyph />}
     </ContainerStyled>
   );
 };
