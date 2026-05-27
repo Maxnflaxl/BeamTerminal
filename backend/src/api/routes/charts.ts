@@ -221,6 +221,128 @@ const DEX_VOLUME_SQL = `
    ORDER BY 1
 `;
 
+// Per-day BEAM volatility index: 30-day rolling, annualized standard deviation
+// of daily BEAM/USD log returns, in percent. No options market exists on the
+// DEX, so this is *realized* volatility — the faithful analog of a VIX. The
+// 30-day window mirrors the VIX's 30-day horizon; we annualize with √365 since
+// the DEX trades 24/7 (calendar days, not 252 trading days). A point is emitted
+// only once the window holds a full 30 returns, so the line doesn't mislead at
+// the series start.
+const BEAM_VOL_SQL = `
+  WITH daily AS (
+    SELECT time_bucket(INTERVAL '1 day', ts) AS day,
+           last(beam_usd, ts)::float8 AS close
+      FROM oracle_snapshots
+     GROUP BY day
+  ),
+  returns AS (
+    SELECT day,
+           ln(close / NULLIF(lag(close) OVER (ORDER BY day), 0)) AS r
+      FROM daily
+     WHERE close > 0
+  ),
+  rolled AS (
+    SELECT day,
+           stddev_samp(r) OVER w AS sd,
+           count(r)       OVER w AS n
+      FROM returns
+    WINDOW w AS (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+  )
+  SELECT EXTRACT(epoch FROM day)::bigint AS ts,
+         (sd * sqrt(365) * 100)::float8 AS value
+    FROM rolled
+   WHERE n >= 30 AND sd IS NOT NULL
+   ORDER BY day
+`;
+
+// Per-day DEX-wide volatility index: TVL-weighted average of per-pool realized
+// volatility across all pairs, in percent. Per-pool daily closes come from
+// candles_1d; each pool's 30-day rolling annualized vol is weighted by that
+// pool's end-of-day USD TVL (same cross-rate pricing as TVL_SQL — BEAM oracle
+// for BEAM-quoted pools, best BEAM-paired pool's reserve ratio otherwise).
+// Dust pools (TVL < $100) and pools without a full 30-return window are
+// excluded so thin/new markets don't spike the index.
+const DEX_VOL_SQL = `
+  WITH oracle_day AS (
+    SELECT time_bucket(INTERVAL '1 day', ts) AS day,
+           last(beam_usd, ts) AS beam_usd
+      FROM oracle_snapshots
+     GROUP BY day
+  ),
+  pool_day AS (
+    SELECT pool_id,
+           time_bucket(INTERVAL '1 day', ts) AS day,
+           last(reserve1, ts)::numeric AS reserve1,
+           last(reserve2, ts)::numeric AS reserve2
+      FROM pool_state_snapshots
+     GROUP BY pool_id, time_bucket(INTERVAL '1 day', ts)
+  ),
+  beam_paired AS (
+    SELECT DISTINCT ON (pd.day, p.aid2)
+           pd.day,
+           p.aid2 AS asset_aid,
+           pd.reserve1::numeric AS beam_reserve,
+           pd.reserve2::numeric AS asset_reserve
+      FROM pool_day pd
+      JOIN pools p ON p.pool_id = pd.pool_id
+     WHERE p.aid1 = 0 AND pd.reserve1 > 0 AND pd.reserve2 > 0
+     ORDER BY pd.day, p.aid2, pd.reserve1 DESC
+  ),
+  pool_tvl AS (
+    SELECT pd.pool_id,
+           pd.day,
+           CASE
+             WHEN p.aid1 = 0 AND od.beam_usd IS NOT NULL THEN
+               2 * (pd.reserve1 / 1e8::numeric) * od.beam_usd
+             WHEN bp1.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               2 * (pd.reserve1 / power(10::numeric, a1.decimals))
+                 * (bp1.beam_reserve / 1e8::numeric)
+                 / NULLIF(bp1.asset_reserve / power(10::numeric, a1.decimals), 0)
+                 * od.beam_usd
+             WHEN bp2.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               2 * (pd.reserve2 / power(10::numeric, a2.decimals))
+                 * (bp2.beam_reserve / 1e8::numeric)
+                 / NULLIF(bp2.asset_reserve / power(10::numeric, a2.decimals), 0)
+                 * od.beam_usd
+           END AS tvl_usd
+      FROM pool_day pd
+      JOIN pools  p  ON p.pool_id = pd.pool_id
+      JOIN assets a1 ON a1.aid = p.aid1
+      JOIN assets a2 ON a2.aid = p.aid2
+      LEFT JOIN oracle_day  od  ON od.day  = pd.day
+      LEFT JOIN beam_paired bp1 ON bp1.day = pd.day AND bp1.asset_aid = p.aid1
+      LEFT JOIN beam_paired bp2 ON bp2.day = pd.day AND bp2.asset_aid = p.aid2
+  ),
+  pool_close AS (
+    SELECT pool_id,
+           time_bucket(INTERVAL '1 day', bucket) AS day,
+           last(close, bucket)::float8 AS close
+      FROM candles_1d
+     GROUP BY pool_id, time_bucket(INTERVAL '1 day', bucket)
+  ),
+  pool_returns AS (
+    SELECT pool_id, day,
+           ln(close / NULLIF(lag(close) OVER (PARTITION BY pool_id ORDER BY day), 0)) AS r
+      FROM pool_close
+     WHERE close > 0
+  ),
+  pool_vol AS (
+    SELECT pool_id, day,
+           stddev_samp(r) OVER w * sqrt(365) * 100 AS vol,
+           count(r)       OVER w AS n
+      FROM pool_returns
+    WINDOW w AS (PARTITION BY pool_id ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+  )
+  SELECT EXTRACT(epoch FROM pv.day)::bigint AS ts,
+         (SUM(pv.vol * pt.tvl_usd) / NULLIF(SUM(pt.tvl_usd), 0))::float8 AS value
+    FROM pool_vol pv
+    JOIN pool_tvl pt ON pt.pool_id = pv.pool_id AND pt.day = pv.day
+   WHERE pv.n >= 30 AND pv.vol IS NOT NULL
+     AND pt.tvl_usd IS NOT NULL AND pt.tvl_usd >= 100
+   GROUP BY pv.day
+   ORDER BY pv.day
+`;
+
 interface Row {
   ts: string | number;
   value: string | number | null;
@@ -286,6 +408,8 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'difficulty', sql: DIFFICULTY_SQL, maxAgeSec: 600 },
   { name: 'block-time', sql: BLOCK_TIME_SQL, maxAgeSec: 600 },
   { name: 'tvl',        sql: TVL_SQL,        maxAgeSec: 1800 },
+  { name: 'beam-vol',   sql: BEAM_VOL_SQL,   maxAgeSec: 1800 },
+  { name: 'dex-vol',    sql: DEX_VOL_SQL,    maxAgeSec: 1800 },
   // From the explorer's /hdrs endpoint (one fetch yields all ten).
   { name: 'transactions-daily',  fetch: netFetcher('daily_txs'),             maxAgeSec: 600 },
   { name: 'transactions-total',  fetch: netFetcher('total_txs'),             maxAgeSec: 600 },

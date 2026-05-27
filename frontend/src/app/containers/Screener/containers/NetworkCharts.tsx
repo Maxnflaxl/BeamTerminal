@@ -303,6 +303,11 @@ function fmtInt(v: number): string {
   return v.toFixed(0);
 }
 
+function fmtVol(v: number): string {
+  if (!Number.isFinite(v)) return '';
+  return v.toFixed(v >= 100 ? 0 : 1) + '%';
+}
+
 function toCsv(series: ReadonlyArray<ApiChartPoint>, title: string): string {
   const lines = [`# ${title}`, 'timestamp_iso,timestamp_unix,value'];
   for (const p of series) {
@@ -420,6 +425,8 @@ export const NetworkCharts: React.FC = () => {
   const kernels            = useOneShot<ApiChartSeries>(() => api.charts.kernels());
   const tvl                = useOneShot<ApiChartSeries>(() => api.charts.tvl());
   const dexVolume          = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
+  const beamVol            = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
+  const dexVol             = useOneShot<ApiChartSeries>(() => api.charts.dexVol());
 
   // Cumulative DEX volume derived from the daily series — running sum.
   // Avoids a second backend round-trip and stays in lock-step with the
@@ -482,6 +489,8 @@ export const NetworkCharts: React.FC = () => {
     { key: 'tvl',                title: 'DEX TVL',                state: tvl,                formatter: fmtUsd, category: 'defi' },
     { key: 'dexVolume',          title: 'DEX volume / day',       state: dexVolume,          formatter: fmtUsd, category: 'defi' },
     { key: 'dexVolumeCumulative',title: 'DEX volume (total)',     state: dexVolumeCumulative,formatter: fmtUsd, category: 'defi' },
+    { key: 'beamVol',            title: 'BEAM Volatility Index (30d)', state: beamVol,       formatter: fmtVol, category: 'defi' },
+    { key: 'dexVol',             title: 'DEX Volatility Index (30d)',  state: dexVol,        formatter: fmtVol, category: 'defi' },
   ];
 
   const charts = allCharts.filter((c) => c.category === category);
