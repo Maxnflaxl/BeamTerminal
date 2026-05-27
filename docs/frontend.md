@@ -56,14 +56,24 @@ const routes = [
 
 ### `PairsList` — `/pairs` (the home)
 
-Sortable table of every active non-imposter pair. Columns: pair (icons + symbols + AID hint), Price (with kind badge), 24h%, Liquidity, Volume, Trades.
+Sortable table of every active non-imposter pair, **listed once per pair** (fee
+tiers combined via `/api/pairs?group=pair`). Columns: pair (icons + symbols +
+AID hint), Tier (a `TiersBadge` — fee pill for one tier, colour-coded dots when
+several), 24h%, Liquidity, Volume, Trades — all aggregated across tiers.
 
 * `<Search>` box live-filters via `/api/pairs?search=…` (split on `/` so `BEAM/USDT` narrows to both sides).
-* Sort headers toggle `sort_by` + `order`. App-side sort kicks in for `tvl_usd` / `volume_24h_usd` (see [api.md §Sort routing](api.md#sort-routing)).
+* Sort headers toggle `sort_by` + `order`. With `group=pair` the sort/slice runs app-side after the tier merge (see [api.md §Grouped mode](api.md#grouped-mode-grouppair)).
 * Imposter pairs hidden by default; `?include_imposters=true` exposes them.
-* Click a row → `navigate('/pair/0-31-1')`.
+* Click a row → `navigate('/pair/0_31')` (combined-pair form, no kind).
 
 ### `PairDetail` — `/pair/:id`
+
+Default `id` is the combined-pair form (`aid1_aid2`), so the page opens on the
+whole pair. A **tier switcher** (`Auto · Low · Medium · High`, shown only when
+the pair has >1 tier) drives the data source: `Auto` charts the combined pair
+(reference-tier price + summed volume) and lets the swap auto-route; picking a
+tier re-fetches `aid1_aid2_kind` so the chart, trades, reserves and swap all
+pin to that single pool.
 
 Two-column grid (`1fr 320px`) that collapses to a single column at `≤960px`.
 
@@ -144,11 +154,15 @@ export async function invokeTrade(args: TradeArgs): Promise<TradeResult> {
 
 ### Swap flow
 
-`SwapPanel.tsx` (476 lines). State machine for one input field:
+`SwapPanel.tsx`. State machine for one input field, with **best-pool routing**
+across fee tiers (the `tiers` prop, supplied by `PairDetail` in `Auto`). It
+ports dex-app's `findBestPool`: when several tiers exist it quotes each and
+keeps the highest output, executing against the winning `kind`. With a single
+tier (or a tier-pinned view) it behaves as before against `pair.kind`.
 
-1. **User types `amountIn`** — `useEffect` updates `estimatedOut` synchronously using the local constant-product estimate `dy = r2·dx / (r1+dx) · (1-fee)` against the latest `reserve1_human` / `reserve2_human` from `/api/pairs/{id}`. This gives a "You receive" preview even before the wallet is connected.
-2. **400 ms debounce** — if a wallet is reachable (`!headless`), a debounced authoritative quote fires `invokeTrade({ ..., bPredictOnly: 1 })`. The shader returns `{ res: { buy, pay, fee_dao, fee_pool } }`; we replace the estimate with `confirmedQuote` and display the AMM's exact `buy` value plus DAO + LP fee breakdowns.
-3. **User clicks Swap** — `invokeTrade({ ..., bPredictOnly: 0 })`. The wallet prompts; on success we get `{ txid }` and surface a "Swap submitted" toast on the button itself.
+1. **User types `amountIn`** — `useEffect` runs the local constant-product estimate `dy = r2·dx / (r1+dx) · (1-fee)` against **each tier's** `reserve1_human` / `reserve2_human` and keeps the best output (`localBestKind`). Gives a "You receive" preview, and picks a routing tier, even before the wallet connects.
+2. **400 ms debounce** — if a wallet is reachable (`!headless`), a debounced quote fires `invokeTrade({ ..., kind, bPredictOnly: 1 })` for **every tier in parallel** (`Promise.all`); the highest `buy` wins (`confirmedQuote.kind`). We display the AMM's exact `buy` plus DAO + LP fee breakdowns and label the routed tier ("Fee tier (best)").
+3. **User clicks Swap** — `invokeTrade({ ..., kind: execKind, bPredictOnly: 0 })` against the routed tier. The wallet prompts; on success we get `{ txid }` and surface a "Swap submitted" toast on the button itself.
 
 Shader convention (from BeamScreener line 1547, kept identical so the existing shader work):
 

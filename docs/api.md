@@ -72,6 +72,19 @@ Query params:
 | `search` | string | — | Substring match on `short_name` or exact AID. Splits on `/` so `BEAM/USDT` narrows to both sides. |
 | `kind` | `0 \| 1 \| 2` | — | Filter to one volatility tier. |
 | `include_imposters` | bool | false | If true, includes pools where either side has `is_imposter = TRUE`. |
+| `group` | `tier \| pair` | `tier` | `pair` collapses fee tiers into one combined row per `(aid1, aid2)`. |
+
+### Grouped mode (`group=pair`)
+
+The screener lists each pair once instead of once per fee tier. Reserves,
+`volume_24h_*`, `trades_24h`/`buys_24h`/`sells_24h` and `tvl_usd` are **summed**
+across tiers; `price_native`/`price_usd`/`price_change_24h`/`sparkline_7d` and
+the identity fields (`pair_id`, `kind`, `lp_token`) come from the **reference
+(deepest) tier** — the pool with the largest `reserve1`, matching the
+USD-valuation convention. Each grouped row adds a `tiers[]` array (one entry per
+fee tier, deepest first) carrying `{ pool_id, kind, kind_label, lp_token,
+tvl_usd, volume_24h_usd, reserve1_human, reserve2_human, price_native }`. Sorting
+and slicing happen app-side after the merge.
 
 Response shape (one entry shown — see `frontend/src/app/containers/Screener/api/types.ts` for the canonical TS type):
 
@@ -128,10 +141,15 @@ This matters because a tiny pool with huge raw-groth reserves but only ~\$37 of 
 
 Single pair, same fields as a row in `/api/pairs`.
 
-`id` is either:
+`id` is one of:
 
-* A numeric `pool_id` (`/api/pairs/17`), or
-* A canonical tuple `<aid1>-<aid2>-<kind>` (`/api/pairs/0-31-1`) — stable across DB recreations, suitable for bookmarkable URLs.
+* A numeric LP-token aid (`/api/pairs/12345`) — a single tier.
+* A canonical tier tuple `<aid1>_<aid2>_<kind>` (`/api/pairs/0_31_1`; legacy `-`
+  separators also accepted) — a single tier, stable across DB recreations and
+  suitable for bookmarkable URLs.
+* A **combined-pair** tuple `<aid1>_<aid2>` (`/api/pairs/0_31`) — returns the
+  grouped row across all fee tiers (summed stats + `tiers[]`, reference-tier
+  price), the same shape as a `group=pair` list entry.
 
 404 (`PAIR_NOT_FOUND`) when no matching pool exists.
 
@@ -184,7 +202,12 @@ client-side from this plus `/api/pairs/{id}`.
 
 ## `GET /api/pairs/{id}/ohlcv`
 
-Chart candles.
+Chart candles. Accepts any `id` form from `/api/pairs/{id}`. For a **combined
+pair** (`<aid1>_<aid2>`) the price OHLC is taken from the reference (deepest)
+tier while `volume`/`trade_count` are **summed across all tiers** over the
+reference tier's bucket window. (Buckets where only a thinner tier traded — and
+the reference tier did not — are not drawn.) Single-tier ids return that pool's
+series unchanged.
 
 Query params:
 
@@ -224,7 +247,9 @@ USD conversion details:
 
 ## `GET /api/pairs/{id}/trades`
 
-Recent trades or LP events for one pair.
+Recent trades or LP events for one pair. A **combined-pair** id
+(`<aid1>_<aid2>`) interleaves rows across every fee tier; a single-tier id
+returns just that pool's rows.
 
 Query params:
 
@@ -232,8 +257,12 @@ Query params:
 |---|---|---|---|
 | `kind` | `Trade \| lp` | `Trade` | `lp` returns Deposit + Withdraw events. |
 | `limit` | int, 1..200 | 50 | |
-| `before` | int (unix seconds) | `now` | For "load more" pagination. |
+| `before` | int (unix seconds) | `now` | Cursor mode — "load more" pagination. |
+| `offset` | int ≥ 0 | — | Numbered pagination. When present, overrides `before`. |
+| `count` | bool | false | Also return `total` (pool's full row count) for "Showing X to Y of N". |
 | `include_unconfirmed` | bool | true | UI shows unconfirmed with a marker; CG endpoints always exclude. |
+
+In offset mode the response echoes `offset` and `limit`, and (when `count=true`) `total`; `before` is `null`.
 
 Trade response:
 
@@ -272,6 +301,7 @@ LP-event response (`kind=lp`):
       "amount1": "10000000000",
       "amount2": "352115210000",
       "amount_ctl": "1095445115",
+      "liquidity_pct": 0.18,           // signed share of the pool this event added/removed (Withdraw < 0)
       "confirmed": true
     }
   ],
@@ -280,6 +310,33 @@ LP-event response (`kind=lp`):
 ```
 
 `Cache-Control: public, max-age=15`.
+
+## `GET /api/pairs/{id}/liquidity`
+
+Pooled-amount time series for one pool, decomposed by the source of the reserve changes. Drives the trade page's Pool History chart (two series: pooled aid1 + pooled aid2). A **combined-pair** id (`<aid1>_<aid2>`) sums the series across every fee tier per bucket (so it matches the grouped `tvl_usd` / pooled totals); a single-tier id returns that pool's series.
+
+Query params:
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `source` | `total \| lp \| trades` | `total` | `total` = actual pooled reserves; `lp` = cumulative net deposits; `trades` = cumulative reserve change from swaps. `total ≈ lp + trades`. |
+| `interval` | `1h \| 1d` | `1d` | Bucket width. |
+| `from` | int (unix seconds) | — | Trim returned buckets (cumulative series stay correct at the left edge). |
+| `to` | int (unix seconds) | — | |
+
+Response (`amount*` are groths of aid1/aid2; divide by `10^decimalsN`):
+
+```json
+{
+  "series": [
+    { "ts": 1700000000, "amount1": "545527910000000", "amount2": "82055439000000" }
+  ],
+  "decimals1": 8,
+  "decimals2": 8
+}
+```
+
+`Cache-Control: public, max-age=30`.
 
 ## `GET /api/assets`
 
