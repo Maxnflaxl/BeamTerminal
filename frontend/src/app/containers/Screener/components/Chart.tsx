@@ -60,19 +60,13 @@ interface Props {
   onReachStart?: () => void;
   /**
    * Optional live trade overlay. When the user types an amount into the swap
-   * panel we draw two horizontal lines:
-   *   - the pool *spot* (mid) rate as a faint reference — the price the trade's
-   *     cost is measured against;
-   *   - the *effective* rate of the simulated trade, labelled with the total
-   *     move vs spot so the drawn gap matches the number.
-   * Both values are in the same units as the chart's Y axis (aid2 per aid1).
-   * Pass `null` to clear.
+   * panel we draw a single horizontal line at the *effective* rate of the
+   * simulated trade, labelled with the price-impact %. The value is in the
+   * same units as the chart's Y axis (aid2 per aid1). Pass `null` to clear.
    */
   tradePreview?: {
-    spotRate: number;
     effectiveRate: number;
-    /** Signed total move vs spot (fee + impact); drives the label + colour. */
-    totalVsSpotPct: number;
+    impactPct: number;
     label: string;
   } | null;
 }
@@ -98,9 +92,8 @@ export const Chart: React.FC<Props> = ({
   // First-time data load should `fitContent`; subsequent updates (appends,
   // pagination, polling) must NOT, or the user's pan/zoom gets stomped.
   const didFitRef = useRef(false);
-  // Mutable handles to the two preview price lines so we can update them
+  // Mutable handle to the effective-rate preview line so we can update it
   // in place rather than ripping+rebuilding on every keystroke.
-  const previewSpotRef = useRef<IPriceLine | null>(null);
   const previewEffRef = useRef<IPriceLine | null>(null);
 
   // Build / rebuild the chart whenever the rendering style changes.
@@ -310,23 +303,18 @@ export const Chart: React.FC<Props> = ({
     const s = seriesRef.current;
     if (!s) return;
     // Always tear down on change; re-create when there's something to show.
-    if (previewSpotRef.current) { s.removePriceLine(previewSpotRef.current); previewSpotRef.current = null; }
     if (previewEffRef.current)  { s.removePriceLine(previewEffRef.current);  previewEffRef.current  = null; }
     if (!tradePreview) return;
-    if (!Number.isFinite(tradePreview.spotRate) || !Number.isFinite(tradePreview.effectiveRate)) return;
+    if (!Number.isFinite(tradePreview.effectiveRate)) return;
 
-    previewSpotRef.current = s.createPriceLine({
-      price: tradePreview.spotRate,
-      color: 'rgba(255, 255, 255, 0.45)',
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: true,
-      title: 'spot',
-    });
-    const isWorseThanSpot = Math.abs(tradePreview.totalVsSpotPct) > 0;
+    // Colour by impact severity, matching the swap panel's thresholds:
+    // <1% neutral, 1–5% amber, ≥5% red. Neutral (not teal) so the line stays
+    // distinct from the teal price series / last-value marker.
+    const sev = Math.abs(tradePreview.impactPct);
+    const color = sev < 1 ? 'rgba(255, 255, 255, 0.7)' : sev < 5 ? '#f0c14b' : '#f25f5b';
     previewEffRef.current = s.createPriceLine({
       price: tradePreview.effectiveRate,
-      color: isWorseThanSpot ? '#f0c14b' : '#00f6d2',
+      color,
       lineWidth: 2,
       lineStyle: LineStyle.Solid,
       axisLabelVisible: true,

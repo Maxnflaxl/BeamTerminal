@@ -548,16 +548,15 @@ export const PairDetail: React.FC = () => {
               onReachStart={chartHasMore ? loadOlder : undefined}
               tradePreview={(() => {
                 if (!tradePreview || metric !== 'price' || effectiveDenom !== 'native') return null;
-                // Project rates + the signed total-vs-spot move into the
-                // chart's Y-axis. SwapPanel gives us the value in the canonical
+                // Project the effective rate + signed impact into the chart's
+                // Y-axis. SwapPanel gives us the impact in the canonical
                 // aid1/aid2 frame; when the chart is showing aid2/aid1
                 // (chartFlipped === false) the sign flips along with the
                 // visible direction of the effective-rate line.
-                const spotChart = chartFlipped ? 1 / tradePreview.spotRate      : tradePreview.spotRate;
                 const effChart  = chartFlipped ? 1 / tradePreview.effectiveRate : tradePreview.effectiveRate;
-                const totalPct  = chartFlipped ? tradePreview.totalVsSpotPct    : -tradePreview.totalVsSpotPct;
-                const label = `${fmtPriceImpact(totalPct)} · ${tradePreview.directionLabel}`;
-                return { spotRate: spotChart, effectiveRate: effChart, totalVsSpotPct: totalPct, label };
+                const impactPct = chartFlipped ? tradePreview.impactPct         : -tradePreview.impactPct;
+                const label = fmtPriceImpact(impactPct);
+                return { effectiveRate: effChart, impactPct, label };
               })()}
             />
           </ChartContainer>
