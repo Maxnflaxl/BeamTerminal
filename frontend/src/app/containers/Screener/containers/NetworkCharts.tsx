@@ -316,16 +316,48 @@ function toCsv(series: ReadonlyArray<ApiChartPoint>, title: string): string {
   return lines.join('\n') + '\n';
 }
 
-function downloadBlob(content: string, filename: string, mime: string): void {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
+function triggerDownload(url: string, filename: string): void {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+function downloadBlob(content: BlobPart, filename: string, mime: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  triggerDownload(url, filename);
   URL.revokeObjectURL(url);
+}
+
+// Rasterise an SVG string to a PNG at `scale`× the intrinsic size, then save it.
+function downloadSvgAsPng(svg: string, filename: string, scale = 2): void {
+  const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width * scale;
+    canvas.height = img.height * scale;
+    const ctx = canvas.getContext('2d');
+    URL.revokeObjectURL(svgUrl);
+    if (!ctx) return;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((b) => {
+      if (!b) return;
+      const url = URL.createObjectURL(b);
+      triggerDownload(url, filename);
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  };
+  img.src = svgUrl;
+}
+
+const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+// `count` evenly-spaced values across [min, max], inclusive of both ends.
+function axisTicks(min: number, max: number, count: number): number[] {
+  return Array.from({ length: count }, (_, i) => min + ((max - min) * i) / (count - 1));
 }
 
 function toSvg(
@@ -350,28 +382,38 @@ function toSvg(
   const yMax = Math.max(...ys);
   const xRange = Math.max(1, xMax - xMin);
   const yRange = Math.max(Number.EPSILON, yMax - yMin);
+  const px = (t: number): number => pad.l + ((t - xMin) / xRange) * innerW;
+  const py = (v: number): number => pad.t + innerH - ((v - yMin) / yRange) * innerH;
+  const grid = 'rgba(255,255,255,0.06)';
+  const label = 'rgba(255,255,255,0.6)';
+
+  const yGrid = axisTicks(yMin, yMax, 5).map((v) => {
+    const y = py(v).toFixed(1);
+    return (
+      `<line x1="${pad.l}" y1="${y}" x2="${pad.l + innerW}" y2="${y}" stroke="${grid}"/>` +
+      `<text x="${pad.l - 6}" y="${py(v) + 3}" text-anchor="end" fill="${label}">${escapeXml(formatter(v))}</text>`
+    );
+  });
+  const xGrid = axisTicks(xMin, xMax, 5).map((t, i, arr) => {
+    const x = px(t);
+    const anchor = i === 0 ? 'start' : i === arr.length - 1 ? 'end' : 'middle';
+    const day = new Date(t * 1000).toISOString().slice(0, 10);
+    return (
+      `<line x1="${x.toFixed(1)}" y1="${pad.t}" x2="${x.toFixed(1)}" y2="${pad.t + innerH}" stroke="${grid}"/>` +
+      `<text x="${x.toFixed(1)}" y="${pad.t + innerH + 18}" text-anchor="${anchor}" fill="${label}">${day}</text>`
+    );
+  });
   const path = series
-    .map((p, i) => {
-      const x = pad.l + ((p.ts - xMin) / xRange) * innerW;
-      const y = pad.t + innerH - ((p.value * scale - yMin) / yRange) * innerH;
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.ts).toFixed(1)},${py(p.value * scale).toFixed(1)}`)
     .join(' ');
-  const fmt = (v: number): string => formatter(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const yTop = fmt(yMax);
-  const yBot = fmt(yMin);
-  const xL = new Date(xMin * 1000).toISOString().slice(0, 10);
-  const xR = new Date(xMax * 1000).toISOString().slice(0, 10);
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="sans-serif" font-size="11">`,
     `<rect width="${W}" height="${H}" fill="#042548"/>`,
-    `<text x="${pad.l}" y="20" fill="rgba(255,255,255,0.7)" font-size="13">${title.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</text>`,
+    `<text x="${pad.l}" y="20" fill="rgba(255,255,255,0.7)" font-size="13">${escapeXml(title)}</text>`,
+    ...yGrid,
+    ...xGrid,
     `<rect x="${pad.l}" y="${pad.t}" width="${innerW}" height="${innerH}" fill="none" stroke="rgba(255,255,255,0.1)"/>`,
     `<path d="${path}" fill="none" stroke="#00f6d2" stroke-width="2"/>`,
-    `<text x="${pad.l - 6}" y="${pad.t + 4}" text-anchor="end" fill="rgba(255,255,255,0.6)">${yTop}</text>`,
-    `<text x="${pad.l - 6}" y="${pad.t + innerH}" text-anchor="end" fill="rgba(255,255,255,0.6)">${yBot}</text>`,
-    `<text x="${pad.l}" y="${pad.t + innerH + 18}" fill="rgba(255,255,255,0.6)">${xL}</text>`,
-    `<text x="${pad.l + innerW}" y="${pad.t + innerH + 18}" text-anchor="end" fill="rgba(255,255,255,0.6)">${xR}</text>`,
     `</svg>`,
   ].join('');
 }
@@ -496,6 +538,19 @@ export const NetworkCharts: React.FC = () => {
   const charts = allCharts.filter((c) => c.category === category);
   const expanded = expandedKey ? allCharts.find((c) => c.key === expandedKey) ?? null : null;
 
+  const download = (format: 'csv' | 'svg' | 'png'): void => {
+    if (!expanded?.state.data) return;
+    const filtered = filterByTimeframe(expanded.state.data.series, timeframe);
+    const base = `${expanded.key}-${timeframe}`;
+    if (format === 'csv') {
+      downloadBlob(toCsv(filtered, expanded.title), `${base}.csv`, 'text/csv;charset=utf-8');
+      return;
+    }
+    const svg = toSvg(filtered, expanded.title, expanded.formatter, expanded.scale ?? 1);
+    if (format === 'svg') downloadBlob(svg, `${base}.svg`, 'image/svg+xml');
+    else downloadSvgAsPng(svg, `${base}.png`);
+  };
+
   useEffect(() => {
     if (!expanded) return undefined;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpandedKey(null); };
@@ -557,30 +612,14 @@ export const NetworkCharts: React.FC = () => {
                 >
                   {logPerKey[expanded.key] ? 'log' : 'lin'}
                 </TfButton>
-                <TfButton
-                  onClick={() => {
-                    if (!expanded.state.data) return;
-                    const filtered = filterByTimeframe(expanded.state.data.series, timeframe);
-                    downloadBlob(
-                      toCsv(filtered, expanded.title),
-                      `${expanded.key}-${timeframe}.csv`,
-                      'text/csv;charset=utf-8',
-                    );
-                  }}
-                  title="Download visible series as CSV"
-                >
+                <TfButton onClick={() => download('csv')} title="Download visible series as CSV">
                   CSV
                 </TfButton>
-                <TfButton
-                  onClick={() => {
-                    if (!expanded.state.data) return;
-                    const filtered = filterByTimeframe(expanded.state.data.series, timeframe);
-                    const svg = toSvg(filtered, expanded.title, expanded.formatter, expanded.scale ?? 1);
-                    downloadBlob(svg, `${expanded.key}-${timeframe}.svg`, 'image/svg+xml');
-                  }}
-                  title="Download chart as SVG"
-                >
+                <TfButton onClick={() => download('svg')} title="Download chart as SVG">
                   SVG
+                </TfButton>
+                <TfButton onClick={() => download('png')} title="Download chart as PNG">
+                  PNG
                 </TfButton>
               </ModalActionGroup>
               <TimeframeGroup>
