@@ -40,7 +40,7 @@ const Layout = styled.div`
   display: grid;
   grid-template-columns: 1fr 320px;
   gap: 0;
-  min-height: 560px;
+  min-height: calc(100vh - 130px);
   width: 100%;
   max-width: 100%;
   overflow: hidden;
@@ -150,7 +150,10 @@ const Toolbar = styled.div`
 
 const ChartContainer = styled.div`
   flex: 1;
-  min-height: 360px;
+  /* This floor is what actually sizes the chart on normal viewports: the
+     Left column's content is taller than calc(100vh - 130px), so flex:1 has
+     no spare room to grow the chart and it sits at this min. Keep it tall. */
+  min-height: 520px;
   position: relative;
 `;
 
@@ -168,7 +171,7 @@ const FeedHeader = styled.div`
 `;
 
 const TradesWrap = styled.div`
-  max-height: 480px;
+  max-height: 320px;
   overflow-y: auto;
   overflow-x: auto;
   table {

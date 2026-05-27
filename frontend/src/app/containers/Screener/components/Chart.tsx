@@ -21,13 +21,13 @@ const Wrap = styled.div`
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 360px;
+  min-height: 520px;
 `;
 
 const Inner = styled.div`
   width: 100%;
   height: 100%;
-  min-height: 360px;
+  min-height: 520px;
 `;
 
 const Legend = styled.div`
