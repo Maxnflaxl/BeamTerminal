@@ -168,8 +168,22 @@ const Btn = styled.button<{ variant: 'primary' | 'muted' | 'error' | 'success' }
   }
 `;
 
+export interface TradePreview {
+  /** Pool spot rate, in `aid2 per aid1` to match the OHLCV chart's Y axis. */
+  spotRate: number;
+  /** Effective rate the user will get for the entered amount, in `aid2 per aid1`. */
+  effectiveRate: number;
+  /** Signed percentage — positive means worse than spot (the usual case). */
+  impactPct: number;
+  /** Compact human label, e.g. "−0.12% · 150 BEAM". */
+  label: string;
+}
+
 interface Props {
   pair: ApiPair;
+  /** Fires whenever the simulated trade changes. PairDetail uses this to draw
+   *  a preview overlay on the OHLCV chart. `null` clears the overlay. */
+  onPreviewChange?: (p: TradePreview | null) => void;
 }
 
 interface Side {
@@ -193,7 +207,7 @@ function estimateOut(r1: number, r2: number, dx: number, fee: number): number {
 
 const TIER_FEE: Record<number, number> = { 0: 0.0005, 1: 0.003, 2: 0.01 };
 
-export const SwapPanel: React.FC<Props> = ({ pair }) => {
+export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
   const { headless, connecting, connect } = useWallet();
 
   // direction:
@@ -346,6 +360,42 @@ export const SwapPanel: React.FC<Props> = ({ pair }) => {
     ? displayedOut / parseFloat(amountIn)
     : null;
 
+  // Spot rate (no slippage) for the user's current direction, plus the
+  // effective rate they'd actually get. Both are in *receive-per-pay* units.
+  const spotPerPayUnit = useMemo<number | null>(() => {
+    if (reserves.r1 <= 0 || reserves.r2 <= 0) return null;
+    return direction === 'buy_aid2'
+      ? reserves.r2 / reserves.r1
+      : reserves.r1 / reserves.r2;
+  }, [reserves, direction]);
+
+  // Price impact (positive = worse than spot, which is the usual sign for
+  // any non-zero trade). Pre-fee + pool-curvature combined, expressed as %.
+  const impactPct = useMemo<number | null>(() => {
+    if (ratePerUnit === null || spotPerPayUnit === null || spotPerPayUnit <= 0) return null;
+    return (1 - ratePerUnit / spotPerPayUnit) * 100;
+  }, [ratePerUnit, spotPerPayUnit]);
+
+  // Translate the (pay→receive) preview into chart-axis units
+  // (aid2-per-aid1) and forward to the parent. The OHLCV chart always plots
+  // aid2 per aid1, so we invert when the user is "selling aid2".
+  useEffect(() => {
+    if (!onPreviewChange) return;
+    if (ratePerUnit === null || spotPerPayUnit === null || impactPct === null) {
+      onPreviewChange(null);
+      return;
+    }
+    const spotChart = direction === 'buy_aid2' ? spotPerPayUnit : 1 / spotPerPayUnit;
+    const effChart  = direction === 'buy_aid2' ? ratePerUnit    : 1 / ratePerUnit;
+    const sign = impactPct >= 0 ? '−' : '+'; // − because impact is "worse than spot"
+    const label = `${sign}${Math.abs(impactPct).toFixed(2)}% · ${pay.symbol} → ${receive.symbol}`;
+    onPreviewChange({ spotRate: spotChart, effectiveRate: effChart, impactPct, label });
+  }, [onPreviewChange, ratePerUnit, spotPerPayUnit, impactPct, direction, pay.symbol, receive.symbol]);
+
+  // Clear the overlay when the panel unmounts so users navigating away don't
+  // leave a stale price-line on the chart of the next pair they visit.
+  useEffect(() => () => onPreviewChange?.(null), [onPreviewChange]);
+
   // Button state machine.
   const v = parseFloat(amountIn);
   const hasAmount = Number.isFinite(v) && v > 0;
@@ -473,6 +523,24 @@ export const SwapPanel: React.FC<Props> = ({ pair }) => {
               %
             </span>
           </InfoRow>
+          {impactPct !== null && (
+            <InfoRow>
+              <span>Price impact</span>
+              <span
+                style={{
+                  color: impactPct < 0.1
+                    ? 'rgba(255,255,255,0.8)'
+                    : impactPct < 1
+                      ? '#f0c14b'
+                      : '#f25f5b',
+                }}
+              >
+                −
+                {impactPct.toFixed(impactPct < 0.01 ? 4 : 2)}
+                %
+              </span>
+            </InfoRow>
+          )}
           {confirmedQuote?.fee_dao !== undefined && confirmedQuote.fee_dao > 0 && (
             <InfoRow>
               <span>DAO fee</span>

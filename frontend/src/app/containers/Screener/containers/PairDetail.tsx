@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -10,7 +10,7 @@ import type {
 import { Chart } from '../components/Chart';
 import { IconsPair } from '../components/IconsPair';
 import { KindBadge } from '../components/KindBadge';
-import { SwapPanel } from '../components/SwapPanel';
+import { SwapPanel, type TradePreview } from '../components/SwapPanel';
 import {
   fmt$, fmtPct, fmtPrice, fmtDate, fmtDateFull, fmtNum,
 } from '../components/format';
@@ -329,6 +329,10 @@ export const PairDetail: React.FC = () => {
   const [tab, setTab] = useState<'trades' | 'lp'>('trades');
   const [feedCollapsed, setFeedCollapsed] = useState(false);
   const [flipRate, setFlipRate] = useState(false);
+  const [tradePreview, setTradePreview] = useState<TradePreview | null>(null);
+  // Stable identity so the SwapPanel doesn't re-fire its preview-emit effect
+  // every render of PairDetail.
+  const onPreviewChange = useCallback((p: TradePreview | null) => setTradePreview(p), []);
 
   const { data: pair, loading: pairLoading } = usePair(id);
 
@@ -538,6 +542,17 @@ export const PairDetail: React.FC = () => {
               volumeDecimals={p.decimals1}
               volumeSymbol={sym1}
               onReachStart={chartHasMore ? loadOlder : undefined}
+              tradePreview={
+                // Only meaningful on native price (USD/MC convert via oracle,
+                // not pool curve). Invert into chart axis when flipped.
+                tradePreview && metric === 'price' && effectiveDenom === 'native'
+                  ? {
+                      ...tradePreview,
+                      spotRate:      chartFlipped ? 1 / tradePreview.spotRate      : tradePreview.spotRate,
+                      effectiveRate: chartFlipped ? 1 / tradePreview.effectiveRate : tradePreview.effectiveRate,
+                    }
+                  : null
+              }
             />
           </ChartContainer>
         </ChartArea>
@@ -779,7 +794,7 @@ export const PairDetail: React.FC = () => {
           </StatRow>
         </SidebarSection>
 
-        <SwapPanel pair={p} />
+        <SwapPanel pair={p} onPreviewChange={onPreviewChange} />
       </Sidebar>
     </Layout>
   );

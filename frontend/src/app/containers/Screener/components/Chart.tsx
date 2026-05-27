@@ -4,7 +4,9 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
+  LineStyle,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type CandlestickData,
   type HistogramData,
@@ -56,10 +58,24 @@ interface Props {
   volumeSymbol: string;
   /** Called when the visible range nears the left edge of loaded data. */
   onReachStart?: () => void;
+  /**
+   * Optional live trade overlay. When the user types an amount into the swap
+   * panel we draw two horizontal price lines:
+   *   - the *spot* rate (current pool price) as a faint reference
+   *   - the *effective* rate of the simulated trade, labelled with impact %
+   * Both values are in the same units as the chart's Y axis (aid2 per aid1).
+   * Pass `null` to clear.
+   */
+  tradePreview?: {
+    spotRate: number;
+    effectiveRate: number;
+    impactPct: number;
+    label: string;
+  } | null;
 }
 
 export const Chart: React.FC<Props> = ({
-  candles, style, denomSymbol, volumeDecimals, volumeSymbol, onReachStart,
+  candles, style, denomSymbol, volumeDecimals, volumeSymbol, onReachStart, tradePreview,
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -79,6 +95,10 @@ export const Chart: React.FC<Props> = ({
   // First-time data load should `fitContent`; subsequent updates (appends,
   // pagination, polling) must NOT, or the user's pan/zoom gets stomped.
   const didFitRef = useRef(false);
+  // Mutable handles to the two preview price lines so we can update them
+  // in place rather than ripping+rebuilding on every keystroke.
+  const previewSpotRef = useRef<IPriceLine | null>(null);
+  const previewEffRef = useRef<IPriceLine | null>(null);
 
   // Build / rebuild the chart whenever the rendering style changes.
   useEffect(() => {
@@ -281,6 +301,35 @@ export const Chart: React.FC<Props> = ({
       didFitRef.current = true;
     }
   }, [candles, style, volumeDecimals]);
+
+  // Live trade preview — two horizontal price lines on the main series.
+  useEffect(() => {
+    const s = seriesRef.current;
+    if (!s) return;
+    // Always tear down on change; re-create when there's something to show.
+    if (previewSpotRef.current) { s.removePriceLine(previewSpotRef.current); previewSpotRef.current = null; }
+    if (previewEffRef.current)  { s.removePriceLine(previewEffRef.current);  previewEffRef.current  = null; }
+    if (!tradePreview) return;
+    if (!Number.isFinite(tradePreview.spotRate) || !Number.isFinite(tradePreview.effectiveRate)) return;
+
+    previewSpotRef.current = s.createPriceLine({
+      price: tradePreview.spotRate,
+      color: 'rgba(255, 255, 255, 0.45)',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: 'spot',
+    });
+    const isWorseThanSpot = Math.abs(tradePreview.impactPct) > 0;
+    previewEffRef.current = s.createPriceLine({
+      price: tradePreview.effectiveRate,
+      color: isWorseThanSpot ? '#f0c14b' : '#00f6d2',
+      lineWidth: 2,
+      lineStyle: LineStyle.Solid,
+      axisLabelVisible: true,
+      title: tradePreview.label,
+    });
+  }, [tradePreview]);
 
   return (
     <Wrap ref={wrapRef}>
