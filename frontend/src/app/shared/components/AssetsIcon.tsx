@@ -3,7 +3,6 @@ import { useSelector } from 'react-redux';
 
 import {
   BeamIcon as BeamIconSvg,
-  BeamXIcon as BeamXIconSvg,
   IconNPHAsset,
 } from '@app/shared/icons';
 
@@ -34,20 +33,40 @@ export interface AssetIconProps {
   size?: number;
 }
 
-const ICON_BY_ASSET_ID: Partial<Record<number, typeof BeamIconSvg>> = {
-  [BEAM_ID]: BeamIconSvg,
-  [BEAMX_ID]: BeamXIconSvg,
-  [NPH_ID]: IconNPHAsset,
-};
-
-// Generic glyph for every non-branded asset. Rendered inline (not via the
-// shared SVGR import) with a PER-INSTANCE gradient id, because a single
-// hardcoded id duplicated across 100+ list rows makes `url(#id)` resolve to
-// the first copy — and when that first copy's owner SVG has a 0×0 box (as it
-// does on list pages) Blink fails to paint the objectBoundingBox gradient for
-// every icon, flattening them. Unique ids sidestep the shared resolution
-// entirely. React 17 has no useId, so a module counter does the job.
+// Per-instance gradient id counter. The shared SVGR icons bake a single
+// hardcoded gradient id; duplicated across 100+ list rows, every `url(#id)`
+// resolves to the first copy, and when that first copy's owner SVG has a 0×0
+// box (as it does on list pages) Blink fails to paint the gradient for every
+// icon — flattening them / dropping borders. Inlining the affected glyphs
+// with a unique id per instance sidesteps the shared resolution. React 17 has
+// no useId, so a module counter does the job.
 let glyphSeq = 0;
+
+// BeamX icon, inlined for the same reason as GenericAssetGlyph: its border is
+// stroked with a linear gradient referenced by a shared id, which vanishes on
+// list pages where the first definition's owner SVG has a degenerate box. The
+// per-instance id keeps the border ring visible everywhere.
+const BeamXGlyph: React.FC = () => {
+  const gradId = React.useMemo(() => {
+    glyphSeq += 1;
+    return `beamxBorderGrad${glyphSeq}`;
+  }, []);
+  return (
+    <svg viewBox="0 0 18 18" width="100%" height="100%" fill="none" preserveAspectRatio="xMidYMid meet">
+      <path d="M17 9C17 13.4183 13.4183 17 9 17C4.58172 17 1 13.4183 1 9C1 4.58172 4.58172 1 9 1C13.4183 1 17 4.58172 17 9Z" fill="#000A16" stroke={`url(#${gradId})`} strokeWidth="2" />
+      <path transform="translate(-0.15 0.4)" d="M9.19053 3.71924L13.6439 11.1166H4.73535L9.19053 3.71924ZM9.1901 6.16284L6.93269 9.90024H11.4466L9.1901 6.16284Z" fill="#0B76FF" />
+      <path transform="translate(-0.15 0.4)" d="M9.18887 13.5713L4.73545 6.17389L13.644 6.17389L9.18887 13.5713ZM9.1893 11.1277L11.4467 7.39029L6.93278 7.39029L9.1893 11.1277Z" fill="#00E3C2" style={{ mixBlendMode: 'lighten' }} />
+      <path transform="translate(-0.15 0.4)" d="M6.78414 4.4487L14.2775 8.42554L6.43836 13.015L6.78414 4.4487ZM7.96456 6.52048L7.78413 10.8518L11.7562 8.52635L7.96456 6.52048Z" fill="#25C0FF" />
+      <path transform="translate(-0.15 0.4)" d="M11.5843 12.8462L4.09086 8.86939L11.93 4.27989L11.5843 12.8462ZM10.4038 10.7744L10.5843 6.44311L6.61222 8.76858L10.4038 10.7744Z" fill="#FF51FF" style={{ mixBlendMode: 'lighten' }} />
+      <defs>
+        <linearGradient id={gradId} x1="9" y1="0" x2="9" y2="18" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#A17DFF" />
+          <stop offset="1" stopColor="#6F7FFF" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+};
 
 const GenericAssetGlyph: React.FC = () => {
   const gradId = React.useMemo(() => {
@@ -97,6 +116,14 @@ const ContainerStyled = styled.div<ContainerStyledProps>`
     height: 100%;
   }
 `;
+
+// Asset id → branded glyph. Declared here (after the glyph components) so the
+// const references aren't hit before initialization at module load.
+const ICON_BY_ASSET_ID: Partial<Record<number, React.FC>> = {
+  [BEAM_ID]: BeamIconSvg,
+  [BEAMX_ID]: BeamXGlyph,
+  [NPH_ID]: IconNPHAsset,
+};
 
 function paletteColor(asset_id: number): string {
   return PALLETE_ASSETS[asset_id] ?? PALLETE_ASSETS[asset_id % PALLETE_ASSETS.length];
