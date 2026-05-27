@@ -3,7 +3,7 @@ import React, {
 } from 'react';
 import { styled } from '@linaria/react';
 import AssetIcon from '@app/shared/components/AssetsIcon';
-import type { ApiPair } from '../api/types';
+import type { ApiPair, ApiPairTier } from '../api/types';
 import { fmt$, fmtPrice, fmtPriceImpact } from './format';
 import { useWallet, invokeTrade } from '../wallet';
 
@@ -183,6 +183,11 @@ export interface TradePreview {
 
 interface Props {
   pair: ApiPair;
+  /** Fee tiers to auto-route across. When present with >1 entry, the panel
+   *  quotes every tier and routes to the best output (highest `buy`) — exactly
+   *  like dex-app's findBestPool. When absent/single, the swap is pinned to
+   *  `pair.kind` (the per-tier drill-down view). */
+  tiers?: ApiPairTier[];
   /** Fires whenever the simulated trade changes. PairDetail uses this to draw
    *  a preview overlay on the OHLCV chart. `null` clears the overlay. */
   onPreviewChange?: (p: TradePreview | null) => void;
@@ -209,7 +214,7 @@ function estimateOut(r1: number, r2: number, dx: number, fee: number): number {
 
 const TIER_FEE: Record<number, number> = { 0: 0.0005, 1: 0.003, 2: 0.01 };
 
-export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
+export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => {
   const { headless, connecting, connect } = useWallet();
 
   // direction:
@@ -218,7 +223,10 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
   const [direction, setDirection] = useState<'buy_aid2' | 'buy_aid1'>('buy_aid2');
   const [amountIn, setAmountIn] = useState<string>('');
   const [estimatedOut, setEstimatedOut] = useState<number | null>(null);
-  const [confirmedQuote, setConfirmedQuote] = useState<{ buy: number; pay: number; fee_dao?: number; fee_pool?: number } | null>(null);
+  // Tier that the local (constant-product) estimate picked as best — used to
+  // route the swap before an authoritative wallet quote arrives.
+  const [localBestKind, setLocalBestKind] = useState<0 | 1 | 2 | null>(null);
+  const [confirmedQuote, setConfirmedQuote] = useState<{ buy: number; pay: number; kind: 0 | 1 | 2; fee_dao?: number; fee_pool?: number } | null>(null);
   // Default to flipped so the rate reads "1 receive = N pay" — same
   // orientation as the OHLCV chart on a BEAM-quoted pair (BEAM per
   // other-asset). Users can toggle.
@@ -234,25 +242,50 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
     ? { aid: pair.aid2, symbol: pair.symbol2 ?? `aid${pair.aid2}`, decimals: pair.decimals2 }
     : { aid: pair.aid1, symbol: pair.symbol1 ?? `aid${pair.aid1}`, decimals: pair.decimals1 };
 
-  const fee = TIER_FEE[pair.kind] ?? 0;
-  const reserves = useMemo(() => ({
-    r1: pair.reserve1_human ?? 0,
-    r2: pair.reserve2_human ?? 0,
-  }), [pair.reserve1_human, pair.reserve2_human]);
+  // Candidate pools to route across: every tier when given, else just this pool.
+  const candidates = useMemo(() => {
+    if (tiers && tiers.length > 0) {
+      return tiers.map((t) => ({
+        kind: t.kind,
+        r1: t.reserve1_human ?? 0,
+        r2: t.reserve2_human ?? 0,
+        fee: TIER_FEE[t.kind] ?? 0,
+      }));
+    }
+    return [{
+      kind: pair.kind, r1: pair.reserve1_human ?? 0, r2: pair.reserve2_human ?? 0, fee: TIER_FEE[pair.kind] ?? 0,
+    }];
+  }, [tiers, pair.kind, pair.reserve1_human, pair.reserve2_human]);
 
-  // Local estimate updates synchronously as the user types.
+  const routing = candidates.length > 1;
+  // Tier the swap will execute against: the authoritative quote's winner if we
+  // have one, else the local estimate's pick, else the only/declared tier.
+  const execKind = confirmedQuote?.kind ?? localBestKind ?? pair.kind;
+  const active = candidates.find((c) => c.kind === execKind) ?? candidates[0]!;
+  const fee = active.fee;
+  const reserves = useMemo(() => ({ r1: active.r1, r2: active.r2 }), [active.r1, active.r2]);
+
+  // Local estimate updates synchronously as the user types. With multiple tiers
+  // it estimates each and keeps the best output (mirrors findBestPool offline).
   useEffect(() => {
     const v = parseFloat(amountIn);
     if (!Number.isFinite(v) || v <= 0) {
       setEstimatedOut(null);
       setConfirmedQuote(null);
+      setLocalBestKind(null);
       return;
     }
-    const out = direction === 'buy_aid2'
-      ? estimateOut(reserves.r1, reserves.r2, v, fee)
-      : estimateOut(reserves.r2, reserves.r1, v, fee);
-    setEstimatedOut(out > 0 ? out : null);
-  }, [amountIn, direction, reserves, fee]);
+    let best = -1;
+    let bestKind = candidates[0]!.kind;
+    for (const c of candidates) {
+      const out = direction === 'buy_aid2'
+        ? estimateOut(c.r1, c.r2, v, c.fee)
+        : estimateOut(c.r2, c.r1, v, c.fee);
+      if (out > best) { best = out; bestKind = c.kind; }
+    }
+    setEstimatedOut(best > 0 ? best : null);
+    setLocalBestKind(bestKind);
+  }, [amountIn, direction, candidates]);
 
   // Debounced authoritative quote once a wallet is reachable.
   useEffect(() => {
@@ -272,27 +305,42 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
         const callAid1 = receive.aid;
         const callAid2 = pay.aid;
         const val2_pay = GROTHS(v, pay.decimals);
-        const res = await invokeTrade({
-          aid1: callAid1,
-          aid2: callAid2,
-          kind: pair.kind,
-          val1_buy: 0,
-          val2_pay,
-          bPredictOnly: 1,
-        });
+        // Quote every candidate tier in parallel, then keep the highest `buy`
+        // (exactly dex-app's findBestPool rule). Single-tier views quote once.
+        const quotes = await Promise.all(candidates.map(async (c) => {
+          try {
+            const res = await invokeTrade({
+              aid1: callAid1,
+              aid2: callAid2,
+              kind: c.kind,
+              val1_buy: 0,
+              val2_pay,
+              bPredictOnly: 1,
+            });
+            // dex-app's TradePoolApi returns the shader's parsed result:
+            // the AMM predict returns { res: { buy, pay, fee } } or similar.
+            const r = (res as { res?: { buy?: number; pay?: number; fee_dao?: number; fee_pool?: number } })?.res
+              ?? (res as { buy?: number; pay?: number; fee_dao?: number; fee_pool?: number });
+            return {
+              kind: c.kind,
+              buy: r?.buy ?? 0,
+              pay: r?.pay ?? val2_pay,
+              fee_dao: r?.fee_dao,
+              fee_pool: r?.fee_pool,
+            };
+          } catch {
+            return { kind: c.kind, buy: 0, pay: val2_pay, fee_dao: undefined, fee_pool: undefined };
+          }
+        }));
         if (cancelled) return;
-        // dex-app's TradePoolApi returns the shader's parsed result.
-        // The AMM predict returns { res: { buy, pay, fee } } or similar.
-        const r = (res as { res?: { buy?: number; pay?: number; fee_dao?: number; fee_pool?: number } })?.res
-          ?? (res as { buy?: number; pay?: number; fee_dao?: number; fee_pool?: number });
-        const buy = r?.buy ?? 0;
-        const payActual = r?.pay ?? val2_pay;
-        if (buy > 0) {
+        const best = quotes.reduce((a, b) => (b.buy > a.buy ? b : a));
+        if (best.buy > 0) {
           setConfirmedQuote({
-            buy,
-            pay: payActual,
-            ...(typeof r?.fee_dao === 'number' ? { fee_dao: r.fee_dao } : {}),
-            ...(typeof r?.fee_pool === 'number' ? { fee_pool: r.fee_pool } : {}),
+            buy: best.buy,
+            pay: best.pay,
+            kind: best.kind,
+            ...(typeof best.fee_dao === 'number' ? { fee_dao: best.fee_dao } : {}),
+            ...(typeof best.fee_pool === 'number' ? { fee_pool: best.fee_pool } : {}),
           });
         }
       } catch (err) {
@@ -307,7 +355,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [amountIn, headless, direction, pair.kind, pay.aid, pay.decimals, receive.aid]);
+  }, [amountIn, headless, direction, candidates, pay.aid, pay.decimals, receive.aid]);
 
   const flip = useCallback(() => {
     setDirection((d) => (d === 'buy_aid2' ? 'buy_aid1' : 'buy_aid2'));
@@ -330,7 +378,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
       const res = await invokeTrade({
         aid1: callAid1,
         aid2: callAid2,
-        kind: pair.kind,
+        kind: execKind,
         val1_buy,
         val2_pay,
         bPredictOnly: 0,
@@ -350,7 +398,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
       // Auto-clear after a few seconds.
       setTimeout(() => setFeedback(null), 4000);
     }
-  }, [amountIn, confirmedQuote, pair.kind, pay.aid, pay.decimals, receive.aid]);
+  }, [amountIn, confirmedQuote, execKind, pay.aid, pay.decimals, receive.aid]);
 
   // Headless → ask the wallet to connect on demand. The button only requests a
   // connection when the user actually wants to trade; browsing needs no wallet.
@@ -537,10 +585,11 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
             </span>
           </InfoRow>
           <InfoRow>
-            <span>Fee tier</span>
+            <span>{routing ? 'Fee tier (best)' : 'Fee tier'}</span>
             <span>
               {(fee * 100).toFixed(2)}
               %
+              {routing ? ` · ${active.kind === 0 ? 'Low' : active.kind === 1 ? 'Medium' : 'High'}` : ''}
             </span>
           </InfoRow>
           {chartAxisImpactPct !== null && impactMagnitudePct !== null && (

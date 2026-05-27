@@ -1,6 +1,22 @@
 // Mirror of the backend response shapes from BeamTerminal/backend/src/api/routes.
 // Kept hand-written so we can document field semantics for the UI.
 
+/** One fee tier of a combined pair. Present in `ApiPair.tiers` only on grouped
+ *  (combined-pair) responses; powers the detail-page tier switcher and the
+ *  swap router's best-pool selection. `pool_id` is the tier's reference id;
+ *  build its public id with `pairUrlId(aid1, aid2, kind)`. */
+export interface ApiPairTier {
+  pool_id: number;
+  kind: 0 | 1 | 2;
+  kind_label: string;
+  lp_token: number;
+  tvl_usd: number | null;
+  volume_24h_usd: number | null;
+  reserve1_human: number | null;
+  reserve2_human: number | null;
+  price_native: number | null;
+}
+
 export interface ApiPair {
   pair_id: number;
   aid1: number;
@@ -44,6 +60,10 @@ export interface ApiPair {
 
   /** Close prices over the last 7d (4h buckets, oldest → newest). May be empty. */
   sparkline_7d: number[];
+
+  /** Present only on grouped (combined-pair) responses: one entry per fee tier,
+   *  deepest first. Absent on single-tier responses. */
+  tiers?: ApiPairTier[];
 }
 
 export interface ApiStats {
@@ -79,6 +99,8 @@ export interface PairsQuery {
   search?: string;
   kind?: 0 | 1 | 2;
   include_imposters?: boolean;
+  /** 'pair' collapses fee tiers into one combined row per (aid1, aid2). */
+  group?: 'tier' | 'pair';
 }
 
 export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
@@ -125,12 +147,20 @@ export interface ApiLpEvent {
   amount1: string;
   amount2: string;
   amount_ctl: string;
+  /** Signed share of the pool this event added/removed (Withdraw < 0). Null
+   *  when no snapshot is available to size the pool. Present only in
+   *  offset/`kind=lp` responses from a backend new enough to compute it. */
+  liquidity_pct?: number | null;
   confirmed: boolean;
 }
 
 export interface ApiTradesList {
   trades: ApiTrade[];
   before: number | null;
+  /** Offset-mode pagination metadata (present when requested via `offset`). */
+  total?: number | null;
+  offset?: number | null;
+  limit?: number;
 }
 
 /** A Liquidity-Add deposit resolved from a kernel id or block height,
@@ -210,6 +240,25 @@ export interface ApiLpEventsResult {
 export interface ApiLpList {
   trades: ApiLpEvent[];
   before: number | null;
+  total?: number | null;
+  offset?: number | null;
+  limit?: number;
+}
+
+/** Pool History series source + bucket width. */
+export type LiquiditySource = 'total' | 'lp' | 'trades';
+export type LiquidityInterval = '1h' | '1d';
+
+export interface ApiPoolLiquidityPoint {
+  ts: number; // unix seconds
+  amount1: string; // groths of aid1
+  amount2: string; // groths of aid2
+}
+
+export interface ApiPoolLiquidity {
+  series: ApiPoolLiquidityPoint[];
+  decimals1: number;
+  decimals2: number;
 }
 
 export interface ApiAsset {

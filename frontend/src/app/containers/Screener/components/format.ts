@@ -101,3 +101,9 @@ export function initials(symbol: string | null): string {
 export function pairUrlId(aid1: number, aid2: number, kind: number): string {
   return `${aid1}_${aid2}_${kind}`;
 }
+
+/** Combined-pair URL: "<aid1>_<aid2>" (no kind) — resolves to the pair across
+ *  all fee tiers, with the deepest tier as the price reference. */
+export function pairKey(aid1: number, aid2: number): string {
+  return `${aid1}_${aid2}`;
+}

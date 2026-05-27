@@ -1,8 +1,10 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, {
+  useCallback, useEffect, useMemo, useState,
+} from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  usePair, useOhlcv, useTradeFeed, useAssetHistory,
+  usePair, useOhlcv, usePagedTrades, useAssetHistory,
 } from '../hooks';
 import type {
   ApiCandle, ApiPair, Interval, Denom,
@@ -10,25 +12,39 @@ import type {
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import { Chart } from '../components/Chart';
 import { IconsPair } from '../components/IconsPair';
-import { KindBadge } from '../components/KindBadge';
+import { KindBadge, TiersBadge } from '../components/KindBadge';
 import { SwapPanel, type TradePreview } from '../components/SwapPanel';
+import { AssetMetaBanner } from '../components/AssetMetaBanner';
+import { LiquidityBanner } from '../components/LiquidityBanner';
+import { Pager } from '../components/Pager';
 import {
-  fmt$, fmtPct, fmtPrice, fmtDate, fmtDateFull, fmtNum, fmtPriceImpact,
+  fmt$, fmtPct, fmtPrice, fmtDate, fmtDateFull, fmtNum, fmtPriceImpact, pairUrlId,
 } from '../components/format';
+
+const TRADES_PAGE_SIZE = 50;
 
 const INTERVALS: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
 // Per-tier fee % for display alongside the rate.
 const TIER_FEE_PCT: Record<number, number> = { 0: 0.05, 1: 0.3, 2: 1 };
 
+const Page = styled.div`
+  width: 100%;
+  max-width: 100%;
+  padding: 12px 12px 0;
+  box-sizing: border-box;
+`;
+
 const Layout = styled.div`
   display: grid;
   grid-template-columns: 1fr 320px;
   gap: 0;
-  min-height: calc(100vh - 130px);
+  min-height: 560px;
   width: 100%;
   max-width: 100%;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
 
   @media (max-width: 960px) {
     grid-template-columns: 1fr;
@@ -118,6 +134,17 @@ const Toolbar = styled.div`
     background: rgba(255, 255, 255, 0.1);
     margin: 0 6px;
   }
+  .centerOn {
+    margin-left: auto;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    font-family: inherit;
+    padding: 3px 6px;
+    color-scheme: dark;
+  }
 `;
 
 const ChartContainer = styled.div`
@@ -131,46 +158,16 @@ const TradesPanel = styled.div`
   min-width: 0;
 `;
 
-const Tabs = styled.div`
-  display: flex;
-  align-items: stretch;
+const FeedHeader = styled.div`
+  padding: 10px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  button {
-    padding: 10px 16px;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: inherit;
-    &.active {
-      color: white;
-      border-bottom-color: var(--color-green);
-    }
-    &:hover {
-      color: rgba(255, 255, 255, 0.8);
-    }
-  }
-  .spacer { flex: 1; }
-  .collapse {
-    padding: 6px 12px;
-    margin: auto 8px;
-    background: rgba(255, 255, 255, 0.04);
-    border: none;
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.55);
-    font-size: 11px;
-    cursor: pointer;
-    font-family: inherit;
-    line-height: 1;
-    &:hover { background: rgba(255, 255, 255, 0.1); color: white; }
-  }
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
 `;
 
 const TradesWrap = styled.div`
-  max-height: 220px;
+  max-height: 480px;
   overflow-y: auto;
   overflow-x: auto;
   table {
@@ -321,6 +318,34 @@ const Loading = styled.div`
   color: rgba(255, 255, 255, 0.5);
 `;
 
+const TierBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+  .lbl {
+    color: rgba(255, 255, 255, 0.4);
+    margin-right: 2px;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+`;
+
+const TierPill = styled.button<{ active?: boolean }>`
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: 1px solid ${(p) => (p.active ? 'var(--color-green)' : 'rgba(255, 255, 255, 0.15)')};
+  background: ${(p) => (p.active ? 'rgba(0, 246, 210, 0.15)' : 'transparent')};
+  color: ${(p) => (p.active ? '#00f6d2' : 'rgba(255, 255, 255, 0.6)')};
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  &:hover { border-color: rgba(0, 246, 210, 0.5); }
+`;
+
 export const PairDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -335,8 +360,11 @@ export const PairDetail: React.FC = () => {
   // direction from what the title implies. Keep the toggle for users who
   // want the raw native quote.
   const [flipChart, setFlipChart] = useState(true);
-  const [tab, setTab] = useState<'trades' | 'lp'>('trades');
-  const [feedCollapsed, setFeedCollapsed] = useState(false);
+  const [tradesPage, setTradesPage] = useState(0);
+  // null = Auto (combined across tiers); otherwise a specific fee tier's kind.
+  const [selectedKind, setSelectedKind] = useState<number | null>(null);
+  // Unix-seconds date to center the price chart on (from the toolbar date input).
+  const [chartCenterOn, setChartCenterOn] = useState<number | null>(null);
   // The chart defaults to flipped (showing aid1-per-aid2 — i.e., BEAM per
   // BeamX on a BEAM-quoted pair). Match the rate-switcher default so the
   // sidebar reads in the same orientation as the chart and the user doesn't
@@ -347,7 +375,24 @@ export const PairDetail: React.FC = () => {
   // every render of PairDetail.
   const onPreviewChange = useCallback((p: TradePreview | null) => setTradePreview(p), []);
 
-  const { data: pair, loading: pairLoading } = usePair(id);
+  // The URL id is the combined pair (aid1_aid2) by default → this response
+  // carries `tiers[]`. A deep-linked tier id (aid1_aid2_kind) has no tiers[].
+  const { data: combined, loading: pairLoading } = usePair(id);
+  const tiers = combined?.tiers ?? [];
+
+  // Reset the tier selection whenever we navigate to a different pair.
+  useEffect(() => { setSelectedKind(null); setTradesPage(0); }, [id]);
+  // Switching tier swaps the underlying dataset → restart trade pagination.
+  useEffect(() => { setTradesPage(0); }, [selectedKind]);
+
+  // When a specific tier is picked, fetch that tier; otherwise show combined.
+  const tierId = selectedKind !== null && combined
+    ? pairUrlId(combined.aid1, combined.aid2, selectedKind)
+    : undefined;
+  const { data: tierPair } = usePair(tierId);
+  const pair = (selectedKind !== null ? tierPair : null) ?? combined;
+  // Drives chart + trades: the selected tier, else the combined pair.
+  const dataId = tierId ?? id;
 
   // MC mode requires USD-denominated candles; force it implicitly.
   const effectiveDenom: Denom = metric === 'mc' ? 'usd' : denom;
@@ -357,7 +402,7 @@ export const PairDetail: React.FC = () => {
     if (d !== 'usd' && metric === 'mc') setMetric('price');
   };
 
-  const { candles: rawCandles, loadOlder, hasMore: chartHasMore } = useOhlcv(id, { interval, denom: effectiveDenom, limit: 500 });
+  const { candles: rawCandles, loadOlder, hasMore: chartHasMore } = useOhlcv(dataId, { interval, denom: effectiveDenom, limit: 500 });
 
   // For BEAM/X pairs we chart MC of the non-BEAM side; for X/Y MC is ambiguous
   // (which side?) so the toggle is hidden and this resolves to `undefined`.
@@ -425,10 +470,7 @@ export const PairDetail: React.FC = () => {
     }
     return out;
   }, [rawCandles, chartFlipped, metric, supplyTimeline]);
-  const feedKind = tab === 'lp' ? 'lp' : 'Trade';
-  const {
-    items: feedItems, loading: feedLoading, hasMore: feedHasMore, loadMore: feedLoadMore,
-  } = useTradeFeed(id, feedKind, 50);
+  const { items: tradeItems, total: tradesTotal } = usePagedTrades(dataId, tradesPage, TRADES_PAGE_SIZE);
 
   if (pairLoading || !pair) {
     return <Loading>Loading pair…</Loading>;
@@ -451,7 +493,10 @@ export const PairDetail: React.FC = () => {
   const isBeamPair = p.aid1 === 0 || p.aid2 === 0;
 
   return (
-    <Layout>
+    <Page>
+      <AssetMetaBanner aid1={p.aid1} aid2={p.aid2} sym1={sym1} sym2={sym2} />
+      <LiquidityBanner id={dataId ?? ''} pair={p} />
+      <Layout>
       <Left>
         <TopBar>
           <BackBtn onClick={() => navigate('/pairs')}>←</BackBtn>
@@ -462,11 +507,32 @@ export const PairDetail: React.FC = () => {
               /
               {p.symbol2 ?? `aid${p.aid2}`}
               {' '}
-              <KindBadge kind={p.kind} />
+              {selectedKind === null && tiers.length > 1
+                ? <TiersBadge kinds={tiers.map((t) => t.kind)} />
+                : <KindBadge kind={p.kind} />}
             </TopTitle>
             <TopSubtitle>BEAM DEX</TopSubtitle>
           </div>
         </TopBar>
+
+        {tiers.length > 1 && (
+          <TierBar>
+            <span className="lbl">Fee tier</span>
+            <TierPill active={selectedKind === null} onClick={() => setSelectedKind(null)} title="Auto-route to the best pool per trade">
+              Auto
+            </TierPill>
+            {tiers.map((t) => (
+              <TierPill
+                key={t.kind}
+                active={selectedKind === t.kind}
+                onClick={() => setSelectedKind(t.kind)}
+              >
+                {(TIER_FEE_PCT[t.kind] ?? 0).toFixed(2)}
+                %
+              </TierPill>
+            ))}
+          </TierBar>
+        )}
 
         <ChartArea>
           <Toolbar>
@@ -546,6 +612,17 @@ export const PairDetail: React.FC = () => {
                 </button>
               </>
             )}
+            <input
+              type="date"
+              className="centerOn"
+              title="Center chart on date"
+              onChange={(e) => {
+                const v = e.target.value; // YYYY-MM-DD
+                if (!v) { setChartCenterOn(null); return; }
+                const ms = Date.parse(`${v}T00:00:00Z`);
+                if (!Number.isNaN(ms)) setChartCenterOn(Math.floor(ms / 1000));
+              }}
+            />
           </Toolbar>
           <ChartContainer>
             <Chart
@@ -555,6 +632,7 @@ export const PairDetail: React.FC = () => {
               volumeDecimals={p.decimals1}
               volumeSymbol={sym1}
               onReachStart={chartHasMore ? loadOlder : undefined}
+              centerOn={chartCenterOn}
               tradePreview={(() => {
                 if (!tradePreview || metric !== 'price' || effectiveDenom !== 'native') return null;
                 // Project the effective rate + signed impact into the chart's
@@ -572,119 +650,51 @@ export const PairDetail: React.FC = () => {
         </ChartArea>
 
         <TradesPanel>
-          <Tabs>
-            <button type="button" className={tab === 'trades' ? 'active' : ''} onClick={() => setTab('trades')}>
-              Trades
-            </button>
-            <button type="button" className={tab === 'lp' ? 'active' : ''} onClick={() => setTab('lp')}>
-              LP
-            </button>
-            <div className="spacer" />
-            <button
-              type="button"
-              className="collapse"
-              onClick={() => setFeedCollapsed((v) => !v)}
-              title={feedCollapsed ? 'Expand' : 'Collapse'}
-            >
-              {feedCollapsed ? '▲ Expand' : '▼ Collapse'}
-            </button>
-          </Tabs>
-          {!feedCollapsed && (
+          <FeedHeader>Recent Trades</FeedHeader>
           <TradesWrap>
             <table>
               <thead>
-                {tab === 'trades' ? (
-                  <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Price USD</th>
-                    <th>{p.symbol1}</th>
-                    <th>{p.symbol2}</th>
-                    <th>Value</th>
-                  </tr>
-                ) : (
-                  <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>{p.symbol1}</th>
-                    <th>{p.symbol2}</th>
-                    <th>LP</th>
-                  </tr>
-                )}
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Price USD</th>
+                  <th>{p.symbol1}</th>
+                  <th>{p.symbol2}</th>
+                  <th>Value</th>
+                </tr>
               </thead>
               <tbody>
-                {tab === 'trades'
-                  ? feedItems.map((row) => {
-                    const t = row as { trade_id: number; timestamp: number; side: 'buy' | 'sell'; price_usd: number | null; amount_in: string; amount_out: string; value_usd: number | null };
-                    return (
-                      <tr key={t.trade_id} title={fmtDateFull(t.timestamp)}>
-                        <td>{fmtDate(t.timestamp)}</td>
-                        <td>
-                          <span className={t.side === 'buy' ? 'buy' : 'sell'}>
-                            {t.side === 'buy' ? 'Buy' : 'Sell'}
-                          </span>
-                        </td>
-                        <td>{fmt$(t.price_usd)}</td>
-                        <td>{fmtAmt(t.amount_in, p.decimals1)}</td>
-                        <td>{fmtAmt(t.amount_out, p.decimals2)}</td>
-                        <td>{fmt$(t.value_usd)}</td>
-                      </tr>
-                    );
-                  })
-                  : feedItems.map((row) => {
-                    const e = row as { event_id: number; timestamp: number; kind: 'Deposit' | 'Withdraw'; amount1: string; amount2: string; amount_ctl: string };
-                    return (
-                      <tr key={e.event_id}>
-                        <td>{fmtDate(e.timestamp)}</td>
-                        <td>
-                          <span className={e.kind === 'Deposit' ? 'buy' : 'sell'}>
-                            {e.kind}
-                          </span>
-                        </td>
-                        <td>{fmtAmt(e.amount1, p.decimals1)}</td>
-                        <td>{fmtAmt(e.amount2, p.decimals2)}</td>
-                        <td>{fmtAmt(e.amount_ctl, 8)}</td>
-                      </tr>
-                    );
-                  })}
-                {feedItems.length === 0 && !feedLoading && (
-                  <tr>
-                    <td colSpan={tab === 'trades' ? 6 : 5} style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.4)' }}>
-                      No
-                      {' '}
-                      {tab === 'trades' ? 'trades' : 'LP events'}
-                      {' '}
-                      yet.
+                {tradeItems.map((t) => (
+                  <tr key={t.trade_id} title={fmtDateFull(t.timestamp)}>
+                    <td>{fmtDate(t.timestamp)}</td>
+                    <td>
+                      <span className={t.side === 'buy' ? 'buy' : 'sell'}>
+                        {t.side === 'buy' ? 'Buy' : 'Sell'}
+                      </span>
                     </td>
+                    <td>{fmt$(t.price_usd)}</td>
+                    <td>{fmtAmt(t.amount_in, p.decimals1)}</td>
+                    <td>{fmtAmt(t.amount_out, p.decimals2)}</td>
+                    <td>{fmt$(t.value_usd)}</td>
                   </tr>
-                )}
-                {feedHasMore && feedItems.length > 0 && (
+                ))}
+                {tradeItems.length === 0 && (
                   <tr>
-                    <td colSpan={tab === 'trades' ? 6 : 5} style={{ textAlign: 'center', padding: '8px' }}>
-                      <button
-                        type="button"
-                        onClick={feedLoadMore}
-                        disabled={feedLoading}
-                        style={{
-                          background: 'rgba(255,255,255,0.06)',
-                          color: 'rgba(255,255,255,0.7)',
-                          border: 'none',
-                          padding: '6px 14px',
-                          borderRadius: 6,
-                          fontSize: 12,
-                          cursor: feedLoading ? 'wait' : 'pointer',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        {feedLoading ? 'Loading…' : 'Load older'}
-                      </button>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.4)' }}>
+                      No trades yet.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </TradesWrap>
-          )}
+          <Pager
+            page={tradesPage}
+            pageSize={TRADES_PAGE_SIZE}
+            total={tradesTotal}
+            loadedCount={tradeItems.length}
+            onChange={setTradesPage}
+          />
         </TradesPanel>
       </Left>
 
@@ -795,8 +805,9 @@ export const PairDetail: React.FC = () => {
           <StatRow>
             <span className="lbl">Fee tier</span>
             <span className="val">
-              {(TIER_FEE_PCT[p.kind] ?? 0).toFixed(2)}
-              %
+              {selectedKind === null && tiers.length > 1
+                ? `Auto · ${tiers.map((t) => `${(TIER_FEE_PCT[t.kind] ?? 0).toFixed(2)}%`).join(' / ')}`
+                : `${(TIER_FEE_PCT[p.kind] ?? 0).toFixed(2)}%`}
             </span>
           </StatRow>
           <StatRow>
@@ -818,9 +829,14 @@ export const PairDetail: React.FC = () => {
           </StatRow>
         </SidebarSection>
 
-        <SwapPanel pair={p} onPreviewChange={onPreviewChange} />
+        <SwapPanel
+          pair={p}
+          tiers={selectedKind === null ? combined?.tiers : undefined}
+          onPreviewChange={onPreviewChange}
+        />
       </Sidebar>
-    </Layout>
+      </Layout>
+    </Page>
   );
 };
 

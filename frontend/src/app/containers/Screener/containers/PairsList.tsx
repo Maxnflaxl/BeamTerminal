@@ -6,10 +6,10 @@ import { usePairs, useStats } from '../hooks';
 import type { ApiPair, SortKey, SortOrder } from '../api/types';
 import { StatsBar } from '../components/StatsBar';
 import { IconsPair } from '../components/IconsPair';
-import { KindBadge } from '../components/KindBadge';
+import { TiersBadge } from '../components/KindBadge';
 import { Sparkline } from '../components/Sparkline';
 import {
-  fmt$, fmtPct, fmtPrice, pairUrlId,
+  fmt$, fmtPct, fmtPrice, pairKey,
 } from '../components/format';
 
 const Page = styled.div`
@@ -307,6 +307,7 @@ export const PairsList: React.FC = () => {
         sort_by: sortBy,
         order,
         limit: 100,
+        group: 'pair' as const,
         ...(debouncedSearch ? { search: debouncedSearch } : {}),
       }),
       [sortBy, order, debouncedSearch],
@@ -372,7 +373,7 @@ export const PairsList: React.FC = () => {
               return (
                 <Card
                   key={p.pair_id}
-                  onClick={() => navigate(`/pair/${pairUrlId(p.aid1, p.aid2, p.kind)}`)}
+                  onClick={() => navigate(`/pair/${pairKey(p.aid1, p.aid2)}`)}
                 >
                   <IconsPair aid1={p.aid1} aid2={p.aid2} />
                   <CardMain>
@@ -381,7 +382,7 @@ export const PairsList: React.FC = () => {
                         {p.symbol1 ?? `aid${p.aid1}`}/{p.symbol2 ?? `aid${p.aid2}`}
                       </CardTitle>
                       <CardSub>#{p.aid2} · #{idx + 1}</CardSub>
-                      <KindBadge kind={p.kind} />
+                      <TiersBadge kinds={p.tiers?.map((t) => t.kind) ?? [p.kind]} />
                     </CardTopRow>
                     <CardStats>
                       <CardStat>
@@ -449,7 +450,7 @@ export const PairsList: React.FC = () => {
                 return (
                   <tr
                     key={p.pair_id}
-                    onClick={() => navigate(`/pair/${pairUrlId(p.aid1, p.aid2, p.kind)}`)}
+                    onClick={() => navigate(`/pair/${pairKey(p.aid1, p.aid2)}`)}
                   >
                     <td className="neutral">{idx + 1}</td>
                     <td>
@@ -466,7 +467,7 @@ export const PairsList: React.FC = () => {
                         </PairName>
                       </PairCell>
                     </td>
-                    <td><KindBadge kind={p.kind} /></td>
+                    <td><TiersBadge kinds={p.tiers?.map((t) => t.kind) ?? [p.kind]} /></td>
                     <td className="mono">
                       {p.price_usd !== null ? fmt$(p.price_usd) : fmtPrice(p.price_native)}
                     </td>
