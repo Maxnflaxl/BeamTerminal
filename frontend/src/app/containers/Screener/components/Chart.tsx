@@ -60,16 +60,19 @@ interface Props {
   onReachStart?: () => void;
   /**
    * Optional live trade overlay. When the user types an amount into the swap
-   * panel we draw two horizontal price lines:
-   *   - the *spot* rate (current pool price) as a faint reference
-   *   - the *effective* rate of the simulated trade, labelled with impact %
+   * panel we draw two horizontal lines:
+   *   - the pool *spot* (mid) rate as a faint reference — the price the trade's
+   *     cost is measured against;
+   *   - the *effective* rate of the simulated trade, labelled with the total
+   *     move vs spot so the drawn gap matches the number.
    * Both values are in the same units as the chart's Y axis (aid2 per aid1).
    * Pass `null` to clear.
    */
   tradePreview?: {
     spotRate: number;
     effectiveRate: number;
-    impactPct: number;
+    /** Signed total move vs spot (fee + impact); drives the label + colour. */
+    totalVsSpotPct: number;
     label: string;
   } | null;
 }
@@ -320,7 +323,7 @@ export const Chart: React.FC<Props> = ({
       axisLabelVisible: true,
       title: 'spot',
     });
-    const isWorseThanSpot = Math.abs(tradePreview.impactPct) > 0;
+    const isWorseThanSpot = Math.abs(tradePreview.totalVsSpotPct) > 0;
     previewEffRef.current = s.createPriceLine({
       price: tradePreview.effectiveRate,
       color: isWorseThanSpot ? '#f0c14b' : '#00f6d2',

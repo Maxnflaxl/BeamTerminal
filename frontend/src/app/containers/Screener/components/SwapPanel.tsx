@@ -169,18 +169,20 @@ const Btn = styled.button<{ variant: 'primary' | 'muted' | 'error' | 'success' }
 `;
 
 export interface TradePreview {
-  /** Pool spot rate, in `aid2 per aid1` to match the OHLCV chart's Y axis. */
+  /** Pool *mid* rate (reserve2/reserve1), in `aid2 per aid1`. The faint "spot"
+   * reference line — also the price the on-chart impact is measured against. */
   spotRate: number;
   /** Effective rate the user will get for the entered amount, in `aid2 per aid1`. */
   effectiveRate: number;
   /**
-   * Signed price impact in the canonical chart-axis (aid1 per aid2).
-   * Positive when the trade pushes that axis UP (buying aid2 with aid1),
-   * negative when it pushes DOWN (buying aid1 with aid2). The chart label
-   * and the trade-panel row both consume this directly through
-   * `fmtPriceImpact` so the sign + rounding agree.
+   * Signed *total* cost vs spot in the canonical chart-axis (aid1 per aid2):
+   * fee + price impact, i.e. the full distance from the spot line to the
+   * effective line. The chart labels the effective line with this so the
+   * drawn gap matches the number. Positive when the trade pushes that axis UP
+   * (buying aid2 with aid1), negative when it pushes DOWN. The panel breaks
+   * this into the separate "Fee tier" / "Price impact" rows.
    */
-  impactPct: number;
+  totalVsSpotPct: number;
   /** "BEAM → BeamX" / "BeamX → BEAM" — the direction of the simulated trade. */
   directionLabel: string;
 }
@@ -378,12 +380,17 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
       : reserves.r1 / reserves.r2;
   }, [reserves, direction]);
 
-  // Price impact magnitude in the pay→receive frame: always ≥ 0 for a real
-  // swap (pool curvature + fee both make you worse off than spot).
+  // Price impact magnitude in the pay→receive frame: the pure pool-curvature
+  // slippage, measured against the *fee-adjusted* spot. The LP fee is reported
+  // separately (the "Fee tier" row), so we divide it out here — otherwise the
+  // effective rate (which already nets the fee) would floor impact at the fee
+  // rate and tiny trades on a 1% pool could never read below 1.00%.
   const impactMagnitudePct = useMemo<number | null>(() => {
     if (ratePerUnit === null || spotPerPayUnit === null || spotPerPayUnit <= 0) return null;
-    return (1 - ratePerUnit / spotPerPayUnit) * 100;
-  }, [ratePerUnit, spotPerPayUnit]);
+    const feeAdjSpot = spotPerPayUnit * (1 - fee);
+    if (feeAdjSpot <= 0) return null;
+    return (1 - ratePerUnit / feeAdjSpot) * 100;
+  }, [ratePerUnit, spotPerPayUnit, fee]);
 
   // Re-express the impact in the canonical chart axis (aid1 per aid2):
   //   buy_aid2 (pay aid1, get aid2) → that axis goes UP → positive sign
@@ -395,25 +402,38 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
     return direction === 'buy_aid2' ? +impactMagnitudePct : -impactMagnitudePct;
   }, [impactMagnitudePct, direction]);
 
+  // Total cost vs the *raw* spot mid (fee + impact): the full distance from
+  // the pool's current price to the rate you actually fill at. This is what
+  // the chart draws as the gap between the spot line and the effective line,
+  // and ≈ fee% + impact% (the cross-term is negligible at display precision).
+  const totalVsSpotMagnitudePct = useMemo<number | null>(() => {
+    if (ratePerUnit === null || spotPerPayUnit === null || spotPerPayUnit <= 0) return null;
+    return (1 - ratePerUnit / spotPerPayUnit) * 100;
+  }, [ratePerUnit, spotPerPayUnit]);
+
+  const chartAxisTotalPct = useMemo<number | null>(() => {
+    if (totalVsSpotMagnitudePct === null) return null;
+    return direction === 'buy_aid2' ? +totalVsSpotMagnitudePct : -totalVsSpotMagnitudePct;
+  }, [totalVsSpotMagnitudePct, direction]);
+
   // Forward the preview to the parent (PairDetail draws the chart overlay).
   useEffect(() => {
     if (!onPreviewChange) return;
-    if (ratePerUnit === null || spotPerPayUnit === null || chartAxisImpactPct === null) {
+    if (ratePerUnit === null || spotPerPayUnit === null || chartAxisTotalPct === null) {
       onPreviewChange(null);
       return;
     }
-    // Project rates into the chart's standard axis (aid2 per aid1) for
-    // backwards compatibility with the field name — PairDetail re-flips
-    // when chartFlipped is true.
+    // Project rates into the chart's standard axis (aid2 per aid1); PairDetail
+    // re-flips when chartFlipped is true.
     const spotChart = direction === 'buy_aid2' ? spotPerPayUnit : 1 / spotPerPayUnit;
-    const effChart  = direction === 'buy_aid2' ? ratePerUnit    : 1 / ratePerUnit;
+    const effChart = direction === 'buy_aid2' ? ratePerUnit : 1 / ratePerUnit;
     onPreviewChange({
       spotRate: spotChart,
       effectiveRate: effChart,
-      impactPct: chartAxisImpactPct,
+      totalVsSpotPct: chartAxisTotalPct,
       directionLabel: `${pay.symbol} → ${receive.symbol}`,
     });
-  }, [onPreviewChange, ratePerUnit, spotPerPayUnit, chartAxisImpactPct, direction, pay.symbol, receive.symbol]);
+  }, [onPreviewChange, ratePerUnit, spotPerPayUnit, chartAxisTotalPct, direction, pay.symbol, receive.symbol]);
 
   // Clear the overlay when the panel unmounts so users navigating away don't
   // leave a stale price-line on the chart of the next pair they visit.
@@ -539,6 +559,14 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
                 : `1 ${pay.symbol} ${confirmedQuote ? '=' : '≈'} ${fmtPrice(ratePerUnit)} ${receive.symbol}`}
             </span>
           </InfoRow>
+          {chartAxisTotalPct !== null && (
+            <InfoRow>
+              <span>vs spot</span>
+              <span style={{ color: 'rgba(255,255,255,0.8)' }}>
+                {fmtPriceImpact(chartAxisTotalPct)}
+              </span>
+            </InfoRow>
+          )}
           <InfoRow>
             <span>Fee tier</span>
             <span>
