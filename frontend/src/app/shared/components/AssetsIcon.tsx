@@ -29,6 +29,10 @@ function normalizeOptColor(raw: string | undefined | null): string | null {
 export interface AssetIconProps {
   asset_id?: number;
   className?: string;
+  /** Side length in px applied to both the wrapper and the inner SVG. The
+   *  SVG's viewBox is 0 0 26 26 and its radial gradient + stroke use
+   *  proportional units, so any pixel size scales cleanly. */
+  size?: number;
 }
 
 const ICON_BY_ASSET_ID: Partial<Record<number, typeof BeamIconSvg>> = {
@@ -39,6 +43,7 @@ const ICON_BY_ASSET_ID: Partial<Record<number, typeof BeamIconSvg>> = {
 
 interface ContainerStyledProps {
   resolvedColor: string;
+  size: number;
   className?: string;
 }
 
@@ -47,17 +52,22 @@ const ContainerStyled = styled.div<ContainerStyledProps>`
   align-items: center;
   justify-content: center;
   vertical-align: middle;
-  width: 18px;
-  height: 18px;
+  width: ${({ size }) => size}px;
+  height: ${({ size }) => size}px;
   margin-right: 10px;
   color: ${({ resolvedColor }) => resolvedColor};
+  & svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
 `;
 
 function paletteColor(asset_id: number): string {
   return PALLETE_ASSETS[asset_id] ?? PALLETE_ASSETS[asset_id % PALLETE_ASSETS.length];
 }
 
-const AssetIcon: React.FC<AssetIconProps> = ({ asset_id = 0, className }) => {
+const AssetIcon: React.FC<AssetIconProps> = ({ asset_id = 0, className, size = 22 }) => {
   const assets = useSelector(selectAssetsList()) as IAsset[];
   const asset = assets?.find((a) => (a.asset_id ?? a.aid) === asset_id);
   const metadataColor = normalizeOptColor(asset?.parsedMetadata?.OPT_COLOR);
@@ -65,7 +75,7 @@ const AssetIcon: React.FC<AssetIconProps> = ({ asset_id = 0, className }) => {
 
   const IconComponent = ICON_BY_ASSET_ID[asset_id] ?? AssetIconSvg;
   return (
-    <ContainerStyled resolvedColor={resolvedColor} className={className}>
+    <ContainerStyled resolvedColor={resolvedColor} size={size} className={className}>
       <IconComponent />
     </ContainerStyled>
   );

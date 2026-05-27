@@ -4,7 +4,7 @@ import React, {
 import { styled } from '@linaria/react';
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import type { ApiPair } from '../api/types';
-import { fmt$, fmtPrice } from './format';
+import { fmt$, fmtPrice, fmtPriceImpact } from './format';
 import { useWallet, invokeTrade } from '../wallet';
 
 const Panel = styled.div`
@@ -173,10 +173,16 @@ export interface TradePreview {
   spotRate: number;
   /** Effective rate the user will get for the entered amount, in `aid2 per aid1`. */
   effectiveRate: number;
-  /** Signed percentage — positive means worse than spot (the usual case). */
+  /**
+   * Signed price impact in the canonical chart-axis (aid1 per aid2).
+   * Positive when the trade pushes that axis UP (buying aid2 with aid1),
+   * negative when it pushes DOWN (buying aid1 with aid2). The chart label
+   * and the trade-panel row both consume this directly through
+   * `fmtPriceImpact` so the sign + rounding agree.
+   */
   impactPct: number;
-  /** Compact human label, e.g. "−0.12% · 150 BEAM". */
-  label: string;
+  /** "BEAM → BeamX" / "BeamX → BEAM" — the direction of the simulated trade. */
+  directionLabel: string;
 }
 
 interface Props {
@@ -217,7 +223,10 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
   const [amountIn, setAmountIn] = useState<string>('');
   const [estimatedOut, setEstimatedOut] = useState<number | null>(null);
   const [confirmedQuote, setConfirmedQuote] = useState<{ buy: number; pay: number; fee_dao?: number; fee_pool?: number } | null>(null);
-  const [flipRate, setFlipRate] = useState(false);
+  // Default to flipped so the rate reads "1 receive = N pay" — same
+  // orientation as the OHLCV chart on a BEAM-quoted pair (BEAM per
+  // other-asset). Users can toggle.
+  const [flipRate, setFlipRate] = useState(true);
   const [quoting, setQuoting] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
@@ -369,28 +378,42 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
       : reserves.r1 / reserves.r2;
   }, [reserves, direction]);
 
-  // Price impact (positive = worse than spot, which is the usual sign for
-  // any non-zero trade). Pre-fee + pool-curvature combined, expressed as %.
-  const impactPct = useMemo<number | null>(() => {
+  // Price impact magnitude in the pay→receive frame: always ≥ 0 for a real
+  // swap (pool curvature + fee both make you worse off than spot).
+  const impactMagnitudePct = useMemo<number | null>(() => {
     if (ratePerUnit === null || spotPerPayUnit === null || spotPerPayUnit <= 0) return null;
     return (1 - ratePerUnit / spotPerPayUnit) * 100;
   }, [ratePerUnit, spotPerPayUnit]);
 
-  // Translate the (pay→receive) preview into chart-axis units
-  // (aid2-per-aid1) and forward to the parent. The OHLCV chart always plots
-  // aid2 per aid1, so we invert when the user is "selling aid2".
+  // Re-express the impact in the canonical chart axis (aid1 per aid2):
+  //   buy_aid2 (pay aid1, get aid2) → that axis goes UP → positive sign
+  //   buy_aid1 (pay aid2, get aid1) → that axis goes DOWN → negative sign
+  // We expose this signed value so the chart-overlay label and the trade
+  // panel's "Price impact" row stay perfectly in lockstep.
+  const chartAxisImpactPct = useMemo<number | null>(() => {
+    if (impactMagnitudePct === null) return null;
+    return direction === 'buy_aid2' ? +impactMagnitudePct : -impactMagnitudePct;
+  }, [impactMagnitudePct, direction]);
+
+  // Forward the preview to the parent (PairDetail draws the chart overlay).
   useEffect(() => {
     if (!onPreviewChange) return;
-    if (ratePerUnit === null || spotPerPayUnit === null || impactPct === null) {
+    if (ratePerUnit === null || spotPerPayUnit === null || chartAxisImpactPct === null) {
       onPreviewChange(null);
       return;
     }
+    // Project rates into the chart's standard axis (aid2 per aid1) for
+    // backwards compatibility with the field name — PairDetail re-flips
+    // when chartFlipped is true.
     const spotChart = direction === 'buy_aid2' ? spotPerPayUnit : 1 / spotPerPayUnit;
     const effChart  = direction === 'buy_aid2' ? ratePerUnit    : 1 / ratePerUnit;
-    const sign = impactPct >= 0 ? '−' : '+'; // − because impact is "worse than spot"
-    const label = `${sign}${Math.abs(impactPct).toFixed(2)}% · ${pay.symbol} → ${receive.symbol}`;
-    onPreviewChange({ spotRate: spotChart, effectiveRate: effChart, impactPct, label });
-  }, [onPreviewChange, ratePerUnit, spotPerPayUnit, impactPct, direction, pay.symbol, receive.symbol]);
+    onPreviewChange({
+      spotRate: spotChart,
+      effectiveRate: effChart,
+      impactPct: chartAxisImpactPct,
+      directionLabel: `${pay.symbol} → ${receive.symbol}`,
+    });
+  }, [onPreviewChange, ratePerUnit, spotPerPayUnit, chartAxisImpactPct, direction, pay.symbol, receive.symbol]);
 
   // Clear the overlay when the panel unmounts so users navigating away don't
   // leave a stale price-line on the chart of the next pair they visit.
@@ -523,21 +546,21 @@ export const SwapPanel: React.FC<Props> = ({ pair, onPreviewChange }) => {
               %
             </span>
           </InfoRow>
-          {impactPct !== null && (
+          {chartAxisImpactPct !== null && impactMagnitudePct !== null && (
             <InfoRow>
               <span>Price impact</span>
               <span
                 style={{
-                  color: impactPct < 0.1
+                  // Severity colour follows magnitude (regardless of sign):
+                  // tiny = neutral, moderate = amber, large = red.
+                  color: impactMagnitudePct < 0.1
                     ? 'rgba(255,255,255,0.8)'
-                    : impactPct < 1
+                    : impactMagnitudePct < 1
                       ? '#f0c14b'
                       : '#f25f5b',
                 }}
               >
-                −
-                {impactPct.toFixed(impactPct < 0.01 ? 4 : 2)}
-                %
+                {fmtPriceImpact(chartAxisImpactPct)}
               </span>
             </InfoRow>
           )}

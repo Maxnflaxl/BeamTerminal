@@ -30,6 +30,22 @@ export function fmtPct(v: number | null | undefined): { text: string; cls: 'posi
   return { text: `${sign}${v.toFixed(2)}%`, cls };
 }
 
+/**
+ * Canonical formatter for the signed price-impact percentage used by the
+ * swap panel and the chart overlay. Always 2 decimals, explicit + / − sign
+ * (matching the chart's Y-axis movement: positive = price went up).
+ *
+ * For sub-0.005% impacts we widen to 4 decimals so micro-trades on deep
+ * pools don't all collapse to `0.00%`.
+ */
+export function fmtPriceImpact(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  const abs = Math.abs(v);
+  const decimals = abs < 0.005 ? 4 : 2;
+  const sign = v > 0 ? '+' : v < 0 ? '−' : '';
+  return `${sign}${abs.toFixed(decimals)}%`;
+}
+
 export function fmtPrice(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v) || v === 0) return '—';
   if (v >= 1) return group(v, 4);

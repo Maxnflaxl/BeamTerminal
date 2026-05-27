@@ -178,16 +178,12 @@ const Cell = styled.div`
   align-items: center;
 `;
 
+// AssetIcon is used as-is — same component the trade panel renders. We just
+// strip the right-margin (set for text-adjacent layout) since the icon sits
+// in its own flex slot here.
 const RowAssetIcon = styled(AssetIcon)`
-  width: 28px;
-  height: 28px;
-  margin-right: 0;
+  && { margin-right: 0; }
   flex-shrink: 0;
-  & svg {
-    display: block;
-    width: 28px;
-    height: 28px;
-  }
 `;
 
 const Sym = styled.div`

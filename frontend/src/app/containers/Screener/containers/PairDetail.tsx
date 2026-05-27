@@ -12,7 +12,7 @@ import { IconsPair } from '../components/IconsPair';
 import { KindBadge } from '../components/KindBadge';
 import { SwapPanel, type TradePreview } from '../components/SwapPanel';
 import {
-  fmt$, fmtPct, fmtPrice, fmtDate, fmtDateFull, fmtNum,
+  fmt$, fmtPct, fmtPrice, fmtDate, fmtDateFull, fmtNum, fmtPriceImpact,
 } from '../components/format';
 
 const INTERVALS: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
@@ -328,7 +328,11 @@ export const PairDetail: React.FC = () => {
   const [flipChart, setFlipChart] = useState(true);
   const [tab, setTab] = useState<'trades' | 'lp'>('trades');
   const [feedCollapsed, setFeedCollapsed] = useState(false);
-  const [flipRate, setFlipRate] = useState(false);
+  // The chart defaults to flipped (showing aid1-per-aid2 — i.e., BEAM per
+  // BeamX on a BEAM-quoted pair). Match the rate-switcher default so the
+  // sidebar reads in the same orientation as the chart and the user doesn't
+  // see two opposite numbers for the same pool.
+  const [flipRate, setFlipRate] = useState(true);
   const [tradePreview, setTradePreview] = useState<TradePreview | null>(null);
   // Stable identity so the SwapPanel doesn't re-fire its preview-emit effect
   // every render of PairDetail.
@@ -542,17 +546,19 @@ export const PairDetail: React.FC = () => {
               volumeDecimals={p.decimals1}
               volumeSymbol={sym1}
               onReachStart={chartHasMore ? loadOlder : undefined}
-              tradePreview={
-                // Only meaningful on native price (USD/MC convert via oracle,
-                // not pool curve). Invert into chart axis when flipped.
-                tradePreview && metric === 'price' && effectiveDenom === 'native'
-                  ? {
-                      ...tradePreview,
-                      spotRate:      chartFlipped ? 1 / tradePreview.spotRate      : tradePreview.spotRate,
-                      effectiveRate: chartFlipped ? 1 / tradePreview.effectiveRate : tradePreview.effectiveRate,
-                    }
-                  : null
-              }
+              tradePreview={(() => {
+                if (!tradePreview || metric !== 'price' || effectiveDenom !== 'native') return null;
+                // Project rates + signed impact into the chart's Y-axis.
+                // SwapPanel already gives us the impact in the canonical
+                // aid1/aid2 frame; when the chart is showing aid2/aid1
+                // (chartFlipped === false) the sign flips along with the
+                // visible direction of the orange line.
+                const spotChart = chartFlipped ? 1 / tradePreview.spotRate      : tradePreview.spotRate;
+                const effChart  = chartFlipped ? 1 / tradePreview.effectiveRate : tradePreview.effectiveRate;
+                const impactPct = chartFlipped ? tradePreview.impactPct         : -tradePreview.impactPct;
+                const label = `${fmtPriceImpact(impactPct)} · ${tradePreview.directionLabel}`;
+                return { spotRate: spotChart, effectiveRate: effChart, impactPct, label };
+              })()}
             />
           </ChartContainer>
         </ChartArea>
@@ -680,13 +686,17 @@ export const PairDetail: React.FC = () => {
             <span className="lbl">Price USD</span>
             <span className="lbl">
               Price
+              {' '}
               {p.symbol1}
             </span>
           </PriceRow>
           <PriceRow>
             <span className="val">{fmt$(p.price_usd)}</span>
             <span className="native">
-              {fmtPrice(p.price_native)}
+              {/* `Price (sym1)` means price denominated in sym1 — i.e.,
+                  how many sym1 you get per 1 sym2. price_native is the
+                  reverse (sym2 per sym1) so invert. */}
+              {fmtPrice(p.price_native && p.price_native > 0 ? 1 / p.price_native : null)}
               {' '}
               {p.symbol1}
             </span>

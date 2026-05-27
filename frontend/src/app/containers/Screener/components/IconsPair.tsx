@@ -1,26 +1,11 @@
 import React from 'react';
 import { styled } from '@linaria/react';
-import {
-  BeamIcon as BeamIconSvg,
-  BeamXIcon as BeamXIconSvg,
-  AssetIcon as AssetIconSvg,
-  IconNPHAsset,
-} from '@app/shared/icons';
-import {
-  BEAM_ID, BEAMX_ID, NPH_ID, PALLETE_ASSETS,
-} from '@app/shared/constants';
+import AssetIcon from '@app/shared/components/AssetsIcon';
 
-// Same convention as dex-app's AssetIcon: three brand-specific SVGs,
-// everything else uses the generic icon colored from a palette by AID.
-const ICON_BY_ASSET_ID: Partial<Record<number, typeof BeamIconSvg>> = {
-  [BEAM_ID]: BeamIconSvg,
-  [BEAMX_ID]: BeamXIconSvg,
-  [NPH_ID]: IconNPHAsset,
-};
-
-function colorForAid(aid: number): string {
-  return (PALLETE_ASSETS[aid] ?? PALLETE_ASSETS[aid % PALLETE_ASSETS.length]) as string;
-}
+// Two AssetIcons side-by-side. The `size` prop is intentionally ignored —
+// AssetIcon uses its SVG's intrinsic 18×18 layout (stroke + radial gradient)
+// which doesn't scale cleanly. Standardising on 18px everywhere matches how
+// the trade panel renders, which is the visual target.
 
 const Wrap = styled.span`
   display: inline-flex;
@@ -28,36 +13,23 @@ const Wrap = styled.span`
   flex-shrink: 0;
   vertical-align: middle;
   gap: 2px;
-`;
 
-const Slot = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  & svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
+  /* Strip the default right-margin from AssetIcon — it's set for the trade
+     panel's text-adjacent layout and creates dead space between the pair's
+     two icons. */
+  & > * { margin-right: 0 !important; }
 `;
 
 interface Props {
   aid1: number;
   aid2: number;
+  /** Accepted for backwards compatibility; ignored — see file header. */
   size?: number;
 }
 
-export const IconsPair: React.FC<Props> = ({ aid1, aid2, size = 22 }) => {
-  const Icon1 = ICON_BY_ASSET_ID[aid1] ?? AssetIconSvg;
-  const Icon2 = ICON_BY_ASSET_ID[aid2] ?? AssetIconSvg;
-  return (
-    <Wrap>
-      <Slot style={{ width: size, height: size, color: colorForAid(aid1) }}>
-        <Icon1 />
-      </Slot>
-      <Slot style={{ width: size, height: size, color: colorForAid(aid2) }}>
-        <Icon2 />
-      </Slot>
-    </Wrap>
-  );
-};
+export const IconsPair: React.FC<Props> = ({ aid1, aid2 }) => (
+  <Wrap>
+    <AssetIcon asset_id={aid1} />
+    <AssetIcon asset_id={aid2} />
+  </Wrap>
+);
