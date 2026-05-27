@@ -58,6 +58,10 @@ interface Props {
   volumeSymbol: string;
   /** Called when the visible range nears the left edge of loaded data. */
   onReachStart?: () => void;
+  /** Unix-seconds timestamp to scroll/center the view on. Bumps the visible
+   *  range around the date; out-of-range dates scroll as far as data allows
+   *  (and trip `onReachStart` so older candles lazy-load). */
+  centerOn?: number | null;
   /**
    * Optional live trade overlay. When the user types an amount into the swap
    * panel we draw a single horizontal line at the *effective* rate of the
@@ -72,7 +76,7 @@ interface Props {
 }
 
 export const Chart: React.FC<Props> = ({
-  candles, style, denomSymbol, volumeDecimals, volumeSymbol, onReachStart, tradePreview,
+  candles, style, denomSymbol, volumeDecimals, volumeSymbol, onReachStart, centerOn, tradePreview,
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -303,6 +307,25 @@ export const Chart: React.FC<Props> = ({
       didFitRef.current = true;
     }
   }, [candles, style, volumeDecimals]);
+
+  // Center the view on a chosen date. Window is ~30 bars either side, derived
+  // from the loaded candles' average spacing.
+  useEffect(() => {
+    if (centerOn == null) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+    const cs = candlesRef.current;
+    const spacing = cs.length >= 2
+      ? Math.max(1, (cs[cs.length - 1]!.time - cs[0]!.time) / (cs.length - 1))
+      : 86400;
+    const half = spacing * 30;
+    try {
+      chart.timeScale().setVisibleRange({
+        from: (centerOn - half) as UTCTimestamp,
+        to: (centerOn + half) as UTCTimestamp,
+      });
+    } catch { /* date outside loaded data — onReachStart will lazy-load older */ }
+  }, [centerOn]);
 
   // Live trade preview — two horizontal price lines on the main series.
   useEffect(() => {

@@ -11,6 +11,7 @@ import type {
   ApiOhlcv,
   ApiTradesList,
   ApiLpList,
+  ApiPoolLiquidity,
   ApiDepositInfo,
   ApiDepositCandidates,
   ApiLpEventsResult,
@@ -20,6 +21,8 @@ import type {
   PairsQuery,
   Interval,
   Denom,
+  LiquiditySource,
+  LiquidityInterval,
 } from './types';
 
 const BASE = 'https://beamterminal.0xmx.net/api';
@@ -72,9 +75,14 @@ export const api = {
 
   ohlcv: (id: string | number, opts: { interval?: Interval; limit?: number; to?: number; denom?: Denom } = {}): Promise<ApiOhlcv> => get<ApiOhlcv>(`/pairs/${id}/ohlcv${qs(opts)}`),
 
-  trades: (id: string | number, opts: { limit?: number; before?: number; include_unconfirmed?: boolean } = {}): Promise<ApiTradesList> => get<ApiTradesList>(`/pairs/${id}/trades${qs({ ...opts, kind: 'Trade' })}`),
+  trades: (id: string | number, opts: { limit?: number; before?: number; offset?: number; count?: boolean; include_unconfirmed?: boolean } = {}): Promise<ApiTradesList> => get<ApiTradesList>(`/pairs/${id}/trades${qs({ ...opts, kind: 'Trade' })}`),
 
-  lpEvents: (id: string | number, opts: { limit?: number; before?: number } = {}): Promise<ApiLpList> => get<ApiLpList>(`/pairs/${id}/trades${qs({ ...opts, kind: 'lp' })}`),
+  lpEvents: (id: string | number, opts: { limit?: number; before?: number; offset?: number; count?: boolean } = {}): Promise<ApiLpList> => get<ApiLpList>(`/pairs/${id}/trades${qs({ ...opts, kind: 'lp' })}`),
+
+  poolLiquidity: (
+    id: string | number,
+    opts: { source?: LiquiditySource; interval?: LiquidityInterval; from?: number; to?: number } = {},
+  ): Promise<ApiPoolLiquidity> => get<ApiPoolLiquidity>(`/pairs/${id}/liquidity${qs(opts)}`),
 
   // Resolve a Liquidity-Add deposit by kernel id or block height. Returns a
   // single ApiDepositInfo, or { candidates } when a height has several deposits.

@@ -9,12 +9,17 @@ import type {
   ApiCandle,
   ApiTradesList,
   ApiLpList,
+  ApiTrade,
+  ApiLpEvent,
+  ApiPoolLiquidity,
   ApiAsset,
   ApiAssetsList,
   ApiAssetHistory,
   PairsQuery,
   Interval,
   Denom,
+  LiquiditySource,
+  LiquidityInterval,
 } from './api/types';
 
 // Polling cadence when no wallet is connected.
@@ -275,6 +280,63 @@ export function useTradeFeed(id: string | undefined, kind: 'Trade' | 'lp', pageS
     items, loading, hasMore, loadMore,
   };
 }
+
+/**
+ * Numbered (offset) pagination for the recent-trades table. `count=true` so the
+ * response carries the pool's total row count for "Showing X to Y of N". Polls
+ * the current page every 30s so the head stays fresh without losing the page.
+ */
+export interface PagedState<T> {
+  items: T[];
+  total: number | null;
+  loading: boolean;
+  error: string | null;
+}
+
+export const usePagedTrades = (
+  id: string | undefined,
+  page: number,
+  pageSize = 50,
+): PagedState<ApiTrade> => {
+  const state = usePolling<ApiTradesList>(
+    () => (id ? api.trades(id, { limit: pageSize, offset: page * pageSize, count: true }) : Promise.reject(new Error('no id'))),
+    [id ?? '', page, pageSize],
+  );
+  return {
+    items: state.data?.trades ?? [],
+    total: state.data?.total ?? null,
+    loading: state.loading,
+    error: state.error,
+  };
+};
+
+export const usePagedLpEvents = (
+  id: string | undefined,
+  page: number,
+  pageSize = 50,
+): PagedState<ApiLpEvent> => {
+  const state = usePolling<ApiLpList>(
+    () => (id ? api.lpEvents(id, { limit: pageSize, offset: page * pageSize, count: true }) : Promise.reject(new Error('no id'))),
+    [id ?? '', page, pageSize],
+  );
+  return {
+    items: state.data?.trades ?? [],
+    total: state.data?.total ?? null,
+    loading: state.loading,
+    error: state.error,
+  };
+};
+
+/** Pool History series. No polling — the series is large and changes slowly;
+ *  it reloads when the source/interval/range toggles change. */
+export const usePoolLiquidity = (
+  id: string | undefined,
+  opts: { source: LiquiditySource; interval: LiquidityInterval; from?: number; to?: number },
+): AsyncState<ApiPoolLiquidity> & { refetch: () => void } => usePolling(
+  () => (id ? api.poolLiquidity(id, opts) : Promise.reject(new Error('no id'))),
+  [id ?? '', opts.source, opts.interval, opts.from ?? 0, opts.to ?? 0],
+  0,
+);
 
 export const useAsset = (aid: number | undefined): AsyncState<ApiAsset> & { refetch: () => void } => usePolling(() => (aid !== undefined ? api.asset(aid) : Promise.reject(new Error('no aid'))), [aid ?? -1]);
 
