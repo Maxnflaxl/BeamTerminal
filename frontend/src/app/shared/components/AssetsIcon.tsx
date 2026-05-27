@@ -15,7 +15,7 @@ import { IAsset } from '@core/types';
 
 // Inlined rather than imported from appUtils to avoid pulling that module's
 // transitive dependency on the entry-point store default export (TDZ).
-function normalizeOptColor(raw: string | undefined | null): string | null {
+export function normalizeOptColor(raw: string | undefined | null): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   const hex = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
@@ -31,6 +31,10 @@ export interface AssetIconProps {
    *  SVG's viewBox is 0 0 26 26 and its radial gradient + stroke use
    *  proportional units, so any pixel size scales cleanly. */
   size?: number;
+  /** Explicit brand colour (e.g. OPT_COLOR sourced from the REST API when the
+   *  on-chain assets list isn't loaded). Takes precedence over the Redux
+   *  metadata colour and the palette fallback. */
+  color?: string | null;
 }
 
 // Per-instance gradient id counter. The shared SVGR icons bake a single
@@ -129,10 +133,12 @@ function paletteColor(asset_id: number): string {
   return PALLETE_ASSETS[asset_id] ?? PALLETE_ASSETS[asset_id % PALLETE_ASSETS.length];
 }
 
-const AssetIcon: React.FC<AssetIconProps> = ({ asset_id = 0, className, size = 22 }) => {
+const AssetIcon: React.FC<AssetIconProps> = ({
+  asset_id = 0, className, size = 22, color,
+}) => {
   const assets = useSelector(selectAssetsList()) as IAsset[];
   const asset = assets?.find((a) => (a.asset_id ?? a.aid) === asset_id);
-  const metadataColor = normalizeOptColor(asset?.parsedMetadata?.OPT_COLOR);
+  const metadataColor = normalizeOptColor(color) ?? normalizeOptColor(asset?.parsedMetadata?.OPT_COLOR);
   const resolvedColor = metadataColor ?? paletteColor(asset_id);
 
   const BrandedIcon = ICON_BY_ASSET_ID[asset_id];

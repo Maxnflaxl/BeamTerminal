@@ -6,6 +6,7 @@ import AssetIcon from '@app/shared/components/AssetsIcon';
 import type { ApiPair, ApiPairTier } from '../api/types';
 import { fmt$, fmtPrice, fmtPriceImpact } from './format';
 import { useWallet, invokeTrade } from '../wallet';
+import { useAssetColor } from '../assetColors';
 
 const Panel = styled.div`
   padding: 14px 16px;
@@ -241,6 +242,8 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
   const receive: Side = direction === 'buy_aid2'
     ? { aid: pair.aid2, symbol: pair.symbol2 ?? `aid${pair.aid2}`, decimals: pair.decimals2 }
     : { aid: pair.aid1, symbol: pair.symbol1 ?? `aid${pair.aid1}`, decimals: pair.decimals1 };
+  const payColor = useAssetColor(pay.aid);
+  const receiveColor = useAssetColor(receive.aid);
 
   // Candidate pools to route across: every tier when given, else just this pool.
   const candidates = useMemo(() => {
@@ -506,7 +509,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
             onChange={(e) => setAmountIn(e.target.value.replace(/[^0-9.]/g, ''))}
           />
           <TokenBadge>
-            <BadgeAssetIcon asset_id={pay.aid} />
+            <BadgeAssetIcon asset_id={pay.aid} color={payColor} />
             <div>
               {pay.symbol}
               {' '}
@@ -540,7 +543,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
               : ''}
           />
           <TokenBadge>
-            <BadgeAssetIcon asset_id={receive.aid} />
+            <BadgeAssetIcon asset_id={receive.aid} color={receiveColor} />
             <div>
               {receive.symbol}
               {' '}

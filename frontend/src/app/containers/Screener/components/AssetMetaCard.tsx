@@ -1,6 +1,6 @@
 import React from 'react';
 import { styled } from '@linaria/react';
-import AssetIcon from '@app/shared/components/AssetsIcon';
+import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
 import type { ApiAsset } from '../api/types';
 import { fmtNum } from './format';
 
@@ -73,7 +73,7 @@ export const AssetMetaCard: React.FC<Props> = ({
   return (
     <Card>
       <Head>
-        <AssetIcon className="icon" asset_id={asset.aid} />
+        <AssetIcon className="icon" asset_id={asset.aid} color={asset.color} />
         <span className="name">{asset.name ?? `Asset #${asset.aid}`}</span>
       </Head>
       <Grid>
@@ -97,6 +97,23 @@ export const AssetMetaCard: React.FC<Props> = ({
           <span className="lbl">Block:</span>
           <span className="val">{lastChangeHeight !== null ? lastChangeHeight.toLocaleString('en-US') : '—'}</span>
         </Cell>
+        {normalizeOptColor(asset.color) && (
+          <Cell>
+            <span className="lbl">Color:</span>
+            <span className="val" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  background: normalizeOptColor(asset.color) as string,
+                  border: '1px solid rgba(255,255,255,0.2)',
+                }}
+              />
+              {normalizeOptColor(asset.color)}
+            </span>
+          </Cell>
+        )}
       </Grid>
       {asset.description && <Desc>{asset.description}</Desc>}
     </Card>

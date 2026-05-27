@@ -27,6 +27,7 @@ import {
   BeamExplorer,
   Privacy,
   Footer,
+  AssetColorsProvider,
 } from '@app/containers/Screener';
 import { ROUTES } from '@app/shared/constants';
 import { Loader, TopNav } from '@app/shared/components';
@@ -109,7 +110,9 @@ const App = () => {
           )}
         >
           <TopNav />
-          <ErrorBoundary>{content}</ErrorBoundary>
+          <AssetColorsProvider>
+            <ErrorBoundary>{content}</ErrorBoundary>
+          </AssetColorsProvider>
           <Footer />
           <ToastContainer
             position="bottom-right"

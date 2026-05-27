@@ -293,7 +293,7 @@ export const AssetsList: React.FC = () => {
                   : '—';
               return (
                 <ACard key={a.aid} onClick={() => navigate(`/asset/${a.aid}`)}>
-                  <RowAssetIcon asset_id={a.aid} />
+                  <RowAssetIcon asset_id={a.aid} color={a.color} />
                   <ACardMain>
                     <ACardTitleRow>
                       <ACardTitle>{a.short_name ?? `aid${a.aid}`}</ACardTitle>
@@ -357,7 +357,7 @@ export const AssetsList: React.FC = () => {
                     </td>
                     <td>
                       <Cell>
-                        <RowAssetIcon asset_id={a.aid} />
+                        <RowAssetIcon asset_id={a.aid} color={a.color} />
                         <Sym>
                           {a.short_name ?? `aid${a.aid}`}
                           <small>{a.name ?? ''}</small>

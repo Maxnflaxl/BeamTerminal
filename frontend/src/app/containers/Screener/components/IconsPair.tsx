@@ -1,6 +1,7 @@
 import React from 'react';
 import { styled } from '@linaria/react';
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { useAssetColor } from '../assetColors';
 
 // Two AssetIcons side-by-side. The `size` prop is intentionally ignored —
 // AssetIcon uses its SVG's intrinsic 18×18 layout (stroke + radial gradient)
@@ -27,9 +28,13 @@ interface Props {
   size?: number;
 }
 
-export const IconsPair: React.FC<Props> = ({ aid1, aid2 }) => (
-  <Wrap>
-    <AssetIcon asset_id={aid1} />
-    <AssetIcon asset_id={aid2} />
-  </Wrap>
-);
+export const IconsPair: React.FC<Props> = ({ aid1, aid2 }) => {
+  const color1 = useAssetColor(aid1);
+  const color2 = useAssetColor(aid2);
+  return (
+    <Wrap>
+      <AssetIcon asset_id={aid1} color={color1} />
+      <AssetIcon asset_id={aid2} color={color2} />
+    </Wrap>
+  );
+};

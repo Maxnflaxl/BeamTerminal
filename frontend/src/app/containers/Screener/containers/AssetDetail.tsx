@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate, useParams } from 'react-router-dom';
-import AssetIcon from '@app/shared/components/AssetsIcon';
+import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
 import { useAsset, useAssetHistory, usePairs } from '../hooks';
 import { fmt$, fmtNum, pairUrlId } from '../components/format';
 import { KindBadge } from '../components/KindBadge';
@@ -242,7 +242,7 @@ export const AssetDetail: React.FC = () => {
 
       <Card>
         <HeaderRow>
-          <HeaderAssetIcon asset_id={asset.aid} />
+          <HeaderAssetIcon asset_id={asset.aid} color={asset.color} />
           <NameCol>
             <FullName>
               {asset.name ?? `Asset #${asset.aid}`}
@@ -293,6 +293,23 @@ export const AssetDetail: React.FC = () => {
             <div className="lbl">Unit name</div>
             <div className="val">{asset.unit_name ?? '—'}</div>
           </InfoCell>
+          {normalizeOptColor(asset.color) && (
+            <InfoCell>
+              <div className="lbl">Color</div>
+              <div className="val" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 3,
+                    background: normalizeOptColor(asset.color) as string,
+                    border: '1px solid rgba(255,255,255,0.2)',
+                  }}
+                />
+                {normalizeOptColor(asset.color)}
+              </div>
+            </InfoCell>
+          )}
           <InfoCell>
             <div className="lbl">Pools active</div>
             <div className="val">{asset.pools.length}</div>

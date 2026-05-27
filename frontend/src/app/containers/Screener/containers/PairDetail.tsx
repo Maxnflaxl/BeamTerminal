@@ -14,6 +14,7 @@ import { Chart } from '../components/Chart';
 import { IconsPair } from '../components/IconsPair';
 import { KindBadge, TiersBadge } from '../components/KindBadge';
 import { SwapPanel, type TradePreview } from '../components/SwapPanel';
+import { useAssetColor } from '../assetColors';
 import { AssetMetaBanner } from '../components/AssetMetaBanner';
 import { LiquidityBanner } from '../components/LiquidityBanner';
 import { Pager } from '../components/Pager';
@@ -393,6 +394,10 @@ export const PairDetail: React.FC = () => {
   const pair = (selectedKind !== null ? tierPair : null) ?? combined;
   // Drives chart + trades: the selected tier, else the combined pair.
   const dataId = tierId ?? id;
+  // OPT_COLOR for the pooled-token icons (header pair icons use IconsPair,
+  // which resolves colours itself). Computed before the loading guard below.
+  const poolColor1 = useAssetColor(pair?.aid1);
+  const poolColor2 = useAssetColor(pair?.aid2);
 
   // MC mode requires USD-denominated candles; force it implicitly.
   const effectiveDenom: Denom = metric === 'mc' ? 'usd' : denom;
@@ -757,7 +762,7 @@ export const PairDetail: React.FC = () => {
           <h4>Pooled Tokens</h4>
           <PoolRow>
             <div className="name">
-              <PoolAssetIcon asset_id={p.aid1} size={20} />
+              <PoolAssetIcon asset_id={p.aid1} size={20} color={poolColor1} />
               <span className="lbl">
                 {p.symbol1 ?? `aid${p.aid1}`}
                 {' '}
@@ -775,7 +780,7 @@ export const PairDetail: React.FC = () => {
           </PoolRow>
           <PoolRow>
             <div className="name">
-              <PoolAssetIcon asset_id={p.aid2} size={20} />
+              <PoolAssetIcon asset_id={p.aid2} size={20} color={poolColor2} />
               <span className="lbl">
                 {p.symbol2 ?? `aid${p.aid2}`}
                 {' '}

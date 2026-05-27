@@ -276,6 +276,8 @@ export interface ApiAsset {
   // Configured supply cap in groths. Null = no cap (either non-minter asset
   // or minter's Limit is the UINT64_MAX "unlimited" sentinel).
   max_supply: string | null;
+  /** Brand colour from the OPT_COLOR metadata key (hex). Null when undefined. */
+  color: string | null;
   pools: Array<{ pair_id: number; aid1: number; aid2: number; kind: number; tvl_usd: number | null }>;
 }
 
@@ -292,6 +294,7 @@ export interface ApiAssetListEntry {
   first_seen_height: number | null;
   minter_cid: string | null;
   max_supply: string | null;
+  color: string | null;
   pool_count: number;
 }
 
