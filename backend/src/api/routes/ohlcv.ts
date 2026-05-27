@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { q } from '../../db.js';
 import { BadRequest, NotFound } from '../error.js';
-import { resolvePairId } from '../repos/pairs.js';
+import { resolvePair } from '../repos/pairs.js';
 
 const INTERVALS = {
   '1m':  { table: 'candles_1m',  seconds: 60 },
@@ -38,8 +38,9 @@ interface OracleHistoryRow {
 
 export async function ohlcvRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { id: string } }>('/pairs/:id/ohlcv', async (req, reply) => {
-    const poolId = await resolvePairId(req.params.id);
-    if (poolId === null) throw NotFound('PAIR_NOT_FOUND', `no pair ${req.params.id}`);
+    const resolved = await resolvePair(req.params.id);
+    if (resolved === null) throw NotFound('PAIR_NOT_FOUND', `no pair ${req.params.id}`);
+    const { poolIds, refPoolId, aid1, aid2 } = resolved;
 
     const parsed = Query.safeParse(req.query);
     if (!parsed.success) {
@@ -48,26 +49,39 @@ export async function ohlcvRoutes(app: FastifyInstance): Promise<void> {
     const { interval, limit, to, denom } = parsed.data;
     const cfg = INTERVALS[interval as Interval];
 
-    // Identify pair side for USD conversion (only valid when one side is BEAM).
-    const { rows: poolMeta } = await q<{ aid1: string; aid2: string }>(
-      `SELECT aid1::text, aid2::text FROM pools WHERE pool_id = $1`,
-      [poolId],
-    );
-    if (poolMeta.length === 0) throw NotFound('PAIR_NOT_FOUND', `pool ${poolId} gone`);
-    const aid1 = Number(poolMeta[0]!.aid1);
-    const aid2 = Number(poolMeta[0]!.aid2);
+    // Pair side for USD conversion (only valid when one side is BEAM). All
+    // tiers of a pair share aid1/aid2, so this is computed once.
     const usdSide: 'aid2-per-aid1' | 'inverse' | 'unsupported' =
       aid1 === 0 ? 'aid2-per-aid1' : aid2 === 0 ? 'inverse' : 'unsupported';
 
     const toTs = to ? new Date(to * 1000) : new Date();
+    // Price OHLC comes from the reference (deepest) tier; volume/trade_count
+    // are summed across every tier of the pair over the reference's bucket
+    // window. For a single-tier id `poolIds` is just `[refPoolId]`, so this
+    // reduces to the per-pool series.
     const { rows } = await q<CandleRow>(
-      `SELECT bucket, open::text, high::text, low::text, close::text,
-              volume_aid1::text, trade_count::text
-         FROM ${cfg.table}
-        WHERE pool_id = $1 AND bucket < $2
-        ORDER BY bucket DESC
-        LIMIT $3`,
-      [poolId, toTs, limit],
+      `WITH ref AS (
+         SELECT bucket, open, high, low, close, volume_aid1, trade_count
+           FROM ${cfg.table}
+          WHERE pool_id = $1 AND bucket < $2
+          ORDER BY bucket DESC
+          LIMIT $3
+       ),
+       vol AS (
+         SELECT bucket, SUM(volume_aid1) AS volume_aid1, SUM(trade_count) AS trade_count
+           FROM ${cfg.table}
+          WHERE pool_id = ANY($4) AND bucket < $2
+            AND bucket >= (SELECT min(bucket) FROM ref)
+          GROUP BY bucket
+       )
+       SELECT ref.bucket,
+              ref.open::text, ref.high::text, ref.low::text, ref.close::text,
+              COALESCE(vol.volume_aid1, ref.volume_aid1)::text AS volume_aid1,
+              COALESCE(vol.trade_count, ref.trade_count)::text  AS trade_count
+         FROM ref
+         LEFT JOIN vol USING (bucket)
+        ORDER BY ref.bucket DESC`,
+      [refPoolId, toTs, limit, poolIds],
     );
 
     // For USD denom we need the BEAM/USD reference per-candle. We pull every

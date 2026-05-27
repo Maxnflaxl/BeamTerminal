@@ -191,28 +191,80 @@ export async function getPairByPoolId(poolId: number): Promise<PairRowRaw | null
   return rows.find((r) => Number(r.pool_id) === poolId) ?? null;
 }
 
-/** Resolve "aid1_aid2_kind" (or legacy "aid1-aid2-kind") or an LP token aid
- *  into a numeric pool_id. The internal pool_id is NOT a valid public URL
- *  form — only the LP aid (user-facing identifier shared by tools like
- *  BeamScreener) and the tuple are accepted. */
-export async function resolvePairId(idOrTuple: string): Promise<number | null> {
+/** A resolved pair reference: every tier's pool plus the reference (deepest)
+ *  pool whose price/metadata represent the pair. For single-tier refs both
+ *  collapse to one pool. */
+export interface ResolvedPair {
+  poolIds: number[];
+  /** The deepest tier (max latest-snapshot reserve1) — canonical price source. */
+  refPoolId: number;
+  aid1: number;
+  aid2: number;
+}
+
+/**
+ * Resolve a public pair reference into one or more pool_ids.
+ *
+ * Accepted forms:
+ *   - `<aid_ctl>`            — an LP token aid (single tier)
+ *   - `<aid1>_<aid2>_<kind>` — a specific tier (legacy `-` separators also work)
+ *   - `<aid1>_<aid2>`        — the combined pair across all fee tiers
+ *
+ * For the combined form the reference pool is the tier with the largest
+ * latest-snapshot reserve1. Within one pair every tier shares the same
+ * (aid1, aid2), so raw reserve1 groths are directly comparable.
+ */
+export async function resolvePair(idOrTuple: string): Promise<ResolvedPair | null> {
   if (/^\d+$/.test(idOrTuple)) {
     const n = Number(idOrTuple);
-    const { rows } = await q<{ pool_id: string }>(
-      `SELECT pool_id::text FROM pools
+    const { rows } = await q<{ pool_id: string; aid1: string; aid2: string }>(
+      `SELECT pool_id::text, aid1::text, aid2::text FROM pools
         WHERE aid_ctl = $1 AND destroyed_at_height IS NULL
         LIMIT 1`,
       [n],
     );
-    return rows[0] ? Number(rows[0].pool_id) : null;
+    if (!rows[0]) return null;
+    const poolId = Number(rows[0].pool_id);
+    return { poolIds: [poolId], refPoolId: poolId, aid1: Number(rows[0].aid1), aid2: Number(rows[0].aid2) };
   }
-  const m = idOrTuple.match(/^(\d+)[-_](\d+)[-_](\d)$/);
-  if (!m) return null;
-  const [, aid1, aid2, kind] = m;
-  const { rows } = await q<{ pool_id: string }>(
-    `SELECT pool_id::text FROM pools
-      WHERE aid1 = $1 AND aid2 = $2 AND kind = $3 AND destroyed_at_height IS NULL`,
-    [Number(aid1), Number(aid2), Number(kind)],
-  );
-  return rows[0] ? Number(rows[0].pool_id) : null;
+
+  const tier = idOrTuple.match(/^(\d+)[-_](\d+)[-_](\d)$/);
+  if (tier) {
+    const [, aid1, aid2, kind] = tier;
+    const { rows } = await q<{ pool_id: string }>(
+      `SELECT pool_id::text FROM pools
+        WHERE aid1 = $1 AND aid2 = $2 AND kind = $3 AND destroyed_at_height IS NULL`,
+      [Number(aid1), Number(aid2), Number(kind)],
+    );
+    if (!rows[0]) return null;
+    const poolId = Number(rows[0].pool_id);
+    return { poolIds: [poolId], refPoolId: poolId, aid1: Number(aid1), aid2: Number(aid2) };
+  }
+
+  const pair = idOrTuple.match(/^(\d+)[-_](\d+)$/);
+  if (pair) {
+    const [, aid1, aid2] = pair;
+    const { rows } = await q<{ pool_id: string }>(
+      `SELECT p.pool_id::text
+         FROM pools p
+         LEFT JOIN LATERAL (
+           SELECT reserve1 FROM pool_state_snapshots s
+            WHERE s.pool_id = p.pool_id ORDER BY s.ts DESC LIMIT 1
+         ) snap ON TRUE
+        WHERE p.aid1 = $1 AND p.aid2 = $2 AND p.destroyed_at_height IS NULL
+        ORDER BY COALESCE(snap.reserve1, 0) DESC`,
+      [Number(aid1), Number(aid2)],
+    );
+    if (rows.length === 0) return null;
+    const poolIds = rows.map((r) => Number(r.pool_id));
+    return { poolIds, refPoolId: poolIds[0]!, aid1: Number(aid1), aid2: Number(aid2) };
+  }
+
+  return null;
+}
+
+/** Resolve any public pair reference to its reference (deepest) pool_id.
+ *  Thin wrapper over {@link resolvePair} for single-pool routes. */
+export async function resolvePairId(idOrTuple: string): Promise<number | null> {
+  return (await resolvePair(idOrTuple))?.refPoolId ?? null;
 }
