@@ -103,13 +103,14 @@ export async function syncAssetsCatalog(): Promise<number> {
       picked.supply ?? null,
       picked.lock_height ?? null,
       meta.color ?? null,
+      meta.logo_url ?? null,
     ];
 
     await q(
       `INSERT INTO assets (
-         aid, name, short_name, unit_name, description, decimals, emission, lock_height, color, last_updated_at
+         aid, name, short_name, unit_name, description, decimals, emission, lock_height, color, logo_url, last_updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
        ON CONFLICT (aid) DO UPDATE SET
          name            = EXCLUDED.name,
          short_name      = EXCLUDED.short_name,
@@ -118,6 +119,7 @@ export async function syncAssetsCatalog(): Promise<number> {
          emission        = EXCLUDED.emission,
          lock_height     = COALESCE(EXCLUDED.lock_height, assets.lock_height),
          color           = EXCLUDED.color,
+         logo_url        = EXCLUDED.logo_url,
          last_updated_at = now()`,
       params,
     );

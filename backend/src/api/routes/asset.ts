@@ -31,6 +31,7 @@ interface AssetRow {
   minter_cid: string | null;
   max_supply: string | null;
   color: string | null;
+  logo_url: string | null;
 }
 
 interface AssetPoolRow {
@@ -65,6 +66,7 @@ interface AssetListRow {
   minter_cid: string | null;
   max_supply: string | null;
   color: string | null;
+  logo_url: string | null;
   pool_count: string;
 }
 
@@ -76,7 +78,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       SELECT a.aid::text, a.name, a.short_name, a.unit_name, a.description,
              a.decimals, a.is_imposter, a.imposter_reason,
              a.emission::text, a.first_seen_height::text,
-             a.minter_cid, a.max_supply::text, a.color,
+             a.minter_cid, a.max_supply::text, a.color, a.logo_url,
              COALESCE(pc.cnt, 0)::text AS pool_count
         FROM assets a
    LEFT JOIN (
@@ -104,6 +106,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         minter_cid: r.minter_cid,
         max_supply: r.max_supply,
         color: r.color,
+        logo_url: r.logo_url,
         pool_count: Number(r.pool_count),
       })),
     };
@@ -118,7 +121,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const { rows } = await q<AssetRow>(
       `SELECT aid::text, name, short_name, unit_name, description, decimals,
               is_imposter, emission::text, first_seen_height::text,
-              minter_cid, max_supply::text, color
+              minter_cid, max_supply::text, color, logo_url
          FROM assets
         WHERE aid = $1`,
       [aid],
@@ -187,6 +190,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       minter_cid: asset.minter_cid,
       max_supply: asset.max_supply,
       color: asset.color,
+      logo_url: asset.logo_url,
       pools,
     };
   });
