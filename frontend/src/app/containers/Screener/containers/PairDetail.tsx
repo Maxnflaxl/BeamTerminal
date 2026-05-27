@@ -7,6 +7,7 @@ import {
 import type {
   ApiCandle, ApiPair, Interval, Denom,
 } from '../api/types';
+import AssetIcon from '@app/shared/components/AssetsIcon';
 import { Chart } from '../components/Chart';
 import { IconsPair } from '../components/IconsPair';
 import { KindBadge } from '../components/KindBadge';
@@ -261,6 +262,7 @@ const PoolRow = styled.div`
   padding: 5px 0;
   font-size: 13px;
   gap: 8px;
+  .name { display: flex; align-items: center; min-width: 0; }
   .lbl {
     color: rgba(255, 255, 255, 0.85);
     white-space: nowrap;
@@ -270,6 +272,13 @@ const PoolRow = styled.div`
   .lbl small { color: rgba(255, 255, 255, 0.4); margin-left: 4px; }
   .val { font-family: 'SFProDisplay', monospace; text-align: right; white-space: nowrap; }
   .usd { color: rgba(255, 255, 255, 0.4); font-size: 11px; margin-left: 6px; }
+`;
+
+// Same icon the trade panel / lists render; trimmed to a tight 20px slot with
+// a small right gap to the symbol label.
+const PoolAssetIcon = styled(AssetIcon)`
+  && { margin-right: 8px; }
+  flex-shrink: 0;
 `;
 
 const RateLine = styled.div`
@@ -737,30 +746,36 @@ export const PairDetail: React.FC = () => {
         <SidebarSection>
           <h4>Pooled Tokens</h4>
           <PoolRow>
-            <span className="lbl">
-              {p.symbol1 ?? `aid${p.aid1}`}
-              {' '}
-              <small>
-                (#
-                {p.aid1}
-                )
-              </small>
-            </span>
+            <div className="name">
+              <PoolAssetIcon asset_id={p.aid1} size={20} />
+              <span className="lbl">
+                {p.symbol1 ?? `aid${p.aid1}`}
+                {' '}
+                <small>
+                  (#
+                  {p.aid1}
+                  )
+                </small>
+              </span>
+            </div>
             <span className="val">
               {fmtNum(p.reserve1_human, 2)}
               <span className="usd">{fmt$(p.reserve1_usd)}</span>
             </span>
           </PoolRow>
           <PoolRow>
-            <span className="lbl">
-              {p.symbol2 ?? `aid${p.aid2}`}
-              {' '}
-              <small>
-                (#
-                {p.aid2}
-                )
-              </small>
-            </span>
+            <div className="name">
+              <PoolAssetIcon asset_id={p.aid2} size={20} />
+              <span className="lbl">
+                {p.symbol2 ?? `aid${p.aid2}`}
+                {' '}
+                <small>
+                  (#
+                  {p.aid2}
+                  )
+                </small>
+              </span>
+            </div>
             <span className="val">
               {fmtNum(p.reserve2_human, 2)}
               <span className="usd">{fmt$(p.reserve2_usd)}</span>
