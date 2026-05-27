@@ -251,12 +251,3 @@ yarn prettier
 ```
 
 `scripts/build-dapp.sh` is the only script outside `package.json`.
-
-## Out of scope for v1
-
-* I18n / multi-language.
-* Dark/light theme toggle (the entire app is dark; no light theme).
-* User watchlist / favorites persistence.
-* Notifications.
-* Embeddable iframe widget for other sites.
-* Per-block refresh via `BeamDappConnector.subscribe('ev_system_state', …)` — the polling model is sufficient for v1; the hook layer is ready to swap in event-driven refetches when we want them.

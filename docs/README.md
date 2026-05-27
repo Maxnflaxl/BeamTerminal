@@ -52,36 +52,6 @@ BeamTerminal/
 * **Wallet bridge** — `BeamDappConnector` from dex-app (verbatim), shaders loaded via `shaderRegistry.ts`.
 * **Chain layer** — a single BEAM `explorer-node` binary that embeds a full node and serves an HTTP API; we poll it.
 
-## Locked-in choices
-
-Decisions worth remembering, with the *why* attached. Numbers are arbitrary; order is roughly the order they were made during planning.
-
-| # | Decision | Why it stuck |
-|---|---|---|
-| 1 | Own indexer + DB + API; replace `buybeam.my` entirely | Full control over uptime, schema evolution, and CG submission. |
-| 2 | One repo, two top-level folders (`backend/`, `frontend/`) | Easy cross-references, no monorepo tooling overhead. |
-| 3 | Backend stack: **Node.js + TypeScript** | Shares types and ergonomics with the frontend; first-class fetch/streaming/JSON. |
-| 4 | Indexer source: **poll a local `explorer-node`** | Explorer ships a `parser.wasm` that pretty-prints every contract — no raw-byte decoding. |
-| 5 | DB: **PostgreSQL + TimescaleDB** | Continuous aggregates auto-build OHLCV across six timeframes from one `trades` hypertable. |
-| 6 | Single binary, no separate `beam-node` | `explorer-node` embeds a full node *and* serves HTTP. One process, one chain DB. |
-| 7 | Hosting: **single VPS**, docker-compose + systemd | Cheapest, simplest, sufficient at BEAM's trading volume. |
-| 8 | Backfill from **DEX deploy height** | Full history forever; one slow first sync is acceptable. The deploy height is pinned in `.env`. |
-| 9 | Pair identity = `(aid1, aid2, kind)` — one tuple per pool | AMM has three fee tiers; treating them separately preserves real price/liquidity per pool. |
-| 10 | Finality: **80 blocks** before a trade is "confirmed" | Matches BEAM's [Exchange Integration Guide](https://github.com/BeamMW/beam/wiki/Exchange-integration). Public CG endpoints serve confirmed-only. |
-| 11 | BEAM/USD reference: **on-chain `oracle2`** | Self-contained, no external API dep. The parser shader pre-decodes `Median` to a decimal string. |
-| 12 | Public API: **open, rate-limited per IP** | Trust + monitor. Limit is 600 req/min by default; tune via `RATE_LIMIT_PER_MIN`. |
-| 13 | Imposter assets: **hardcoded list in `backend/src/imposters.ts`** | Mirrors dex-app's `imposterAssets.ts`; `/cg/*` excludes them, `/api/*` flags them. |
-| 14 | Swap routing: **direct to `DEX_CID`**, no fee wrapper | BeamScreener routes through vsnation's `WRAPPER_CID` for a fee skim; we don't. Users pay only the AMM's tiered fee. |
-| 15 | CG asset namespace: **bare decimal AID strings** for `base_currency` / `target_currency`; **LP token AID** for `pool_id` | One LP token per pool — natural per-pool identifier with no prefix gymnastics. |
-
-## What's not in v1
-
-* Multi-DEX aggregation (only the AMM contract).
-* Derivative or NFT data surfaces (out of scope for a spot DEX).
-* Push notifications, price alerts, watchlists, user accounts.
-* Public WebSocket (the wallet's `ev_system_state` covers live in-app updates; web users get fresh-on-poll).
-* Server-side swap routing or quote caching — quotes come from the AMM shader directly, in the wallet.
-
 ---
 
 For an end-to-end "how does a trade get from chain to chart?" walkthrough, start with [architecture.md](architecture.md) and follow the data flow into [indexer.md](indexer.md) → [database.md](database.md) → [api.md](api.md).
