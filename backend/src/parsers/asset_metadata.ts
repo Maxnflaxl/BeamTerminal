@@ -27,6 +27,8 @@ export interface AssetMetadata {
   site_url?: string;
   /** Optional logo URL. */
   logo_url?: string;
+  /** Optional brand colour (hex, e.g. "#00e3c2"), from OPT_COLOR. */
+  color?: string;
   /** Schema version if declared (older assets omit it). */
   schema_version?: string;
   /** Any other KEY=value pairs we don't have a dedicated field for. */
@@ -42,6 +44,7 @@ const KEY_MAP: Record<string, keyof AssetMetadata> = {
   OPT_LONG_DESC: 'long_description',
   OPT_SITE_URL: 'site_url',
   OPT_LOGO_URL: 'logo_url',
+  OPT_COLOR: 'color',
   SCH_VER: 'schema_version',
 };
 

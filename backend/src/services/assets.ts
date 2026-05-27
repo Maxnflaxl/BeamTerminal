@@ -102,13 +102,14 @@ export async function syncAssetsCatalog(): Promise<number> {
       8, // decimals — all observed BEAM assets are 8-decimal
       picked.supply ?? null,
       picked.lock_height ?? null,
+      meta.color ?? null,
     ];
 
     await q(
       `INSERT INTO assets (
-         aid, name, short_name, unit_name, description, decimals, emission, lock_height, last_updated_at
+         aid, name, short_name, unit_name, description, decimals, emission, lock_height, color, last_updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
        ON CONFLICT (aid) DO UPDATE SET
          name            = EXCLUDED.name,
          short_name      = EXCLUDED.short_name,
@@ -116,6 +117,7 @@ export async function syncAssetsCatalog(): Promise<number> {
          description     = EXCLUDED.description,
          emission        = EXCLUDED.emission,
          lock_height     = COALESCE(EXCLUDED.lock_height, assets.lock_height),
+         color           = EXCLUDED.color,
          last_updated_at = now()`,
       params,
     );
