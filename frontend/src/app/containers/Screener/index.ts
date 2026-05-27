@@ -1,5 +1,6 @@
 export { PairsList } from './containers/PairsList';
 export { PairDetail } from './containers/PairDetail';
+export { LiquidityPosition } from './containers/LiquidityPosition/LiquidityPosition';
 export { AssetsList } from './containers/AssetsList';
 export { AssetDetail } from './containers/AssetDetail';
 export { NetworkCharts } from './containers/NetworkCharts';

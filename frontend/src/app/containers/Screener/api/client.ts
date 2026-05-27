@@ -11,6 +11,8 @@ import type {
   ApiOhlcv,
   ApiTradesList,
   ApiLpList,
+  ApiDepositInfo,
+  ApiDepositCandidates,
   ApiAsset,
   ApiAssetsList,
   ApiAssetHistory,
@@ -72,6 +74,13 @@ export const api = {
   trades: (id: string | number, opts: { limit?: number; before?: number; include_unconfirmed?: boolean } = {}): Promise<ApiTradesList> => get<ApiTradesList>(`/pairs/${id}/trades${qs({ ...opts, kind: 'Trade' })}`),
 
   lpEvents: (id: string | number, opts: { limit?: number; before?: number } = {}): Promise<ApiLpList> => get<ApiLpList>(`/pairs/${id}/trades${qs({ ...opts, kind: 'lp' })}`),
+
+  // Resolve a Liquidity-Add deposit by kernel id or block height. Returns a
+  // single ApiDepositInfo, or { candidates } when a height has several deposits.
+  lpPosition: {
+    deposit: (params: { kernel?: string; height?: number }): Promise<ApiDepositInfo | ApiDepositCandidates> =>
+      get<ApiDepositInfo | ApiDepositCandidates>(`/lp-position/deposit${qs(params)}`),
+  },
 
   asset: (aid: number): Promise<ApiAsset> => get<ApiAsset>(`/asset/${aid}`),
 

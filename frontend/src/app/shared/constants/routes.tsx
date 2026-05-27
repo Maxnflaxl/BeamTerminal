@@ -1,6 +1,7 @@
 export const ROUTES = {
   NAV: {
     PAIRS: '/pairs',
+    LIQUIDITY: '/pairs/liquidity',
     ASSETS: '/assets',
     EXPLORER: '/explorer',
     EXPLORER_CHARTS: '/explorer/charts',

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { styled } from '@linaria/react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { ROUTES } from '@app/shared/constants';
 import { usePairs, useStats } from '../hooks';
 import type { ApiPair, SortKey, SortOrder } from '../api/types';
 import { StatsBar } from '../components/StatsBar';
@@ -43,6 +44,28 @@ const Search = styled.input`
   font-family: inherit;
   &:focus {
     border-color: var(--color-green);
+  }
+`;
+
+const LpButton = styled(Link)`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(0, 246, 210, 0.12);
+  border: 1px solid rgba(0, 246, 210, 0.45);
+  border-radius: 8px;
+  color: #00f6d2;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 120ms, border-color 120ms;
+  &:hover { background: rgba(0, 246, 210, 0.22); }
+
+  @media (max-width: 640px) {
+    font-size: 12px;
+    padding: 8px 10px;
   }
 `;
 
@@ -311,6 +334,7 @@ export const PairsList: React.FC = () => {
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
+        <LpButton to={ROUTES.NAV.LIQUIDITY}>◆ Liquidity Positions</LpButton>
       </Header>
       <TableWrap>
         {error ? (

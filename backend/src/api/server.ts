@@ -6,6 +6,7 @@ import { installErrorHandler } from './error.js';
 import { healthRoutes } from './routes/health.js';
 import { statsRoutes } from './routes/stats.js';
 import { pairsRoutes } from './routes/pairs.js';
+import { lpPositionRoutes } from './routes/lp_position.js';
 import { ohlcvRoutes } from './routes/ohlcv.js';
 import { tradesRoutes } from './routes/trades.js';
 import { assetRoutes } from './routes/asset.js';
@@ -58,6 +59,7 @@ export function buildApp(): FastifyInstance {
   void app.register(healthRoutes, { prefix: '/api' });
   void app.register(statsRoutes, { prefix: '/api' });
   void app.register(pairsRoutes, { prefix: '/api' });
+  void app.register(lpPositionRoutes, { prefix: '/api' });
   void app.register(ohlcvRoutes, { prefix: '/api' });
   void app.register(tradesRoutes, { prefix: '/api' });
   void app.register(assetRoutes, { prefix: '/api' });

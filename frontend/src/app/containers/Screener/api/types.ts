@@ -24,6 +24,11 @@ export interface ApiPair {
   reserve2_usd: number | null;
   tvl_usd: number | null;
 
+  /** Total LP-token supply (groths of lp_token) at the latest snapshot. */
+  ctl_supply: string | null;
+  /** Height of the snapshot reserves/ctl_supply are taken from. */
+  snapshot_height: number | null;
+
   volume_24h_groth: string;
   volume_24h_usd: number | null;
 
@@ -126,6 +131,36 @@ export interface ApiLpEvent {
 export interface ApiTradesList {
   trades: ApiTrade[];
   before: number | null;
+}
+
+/** A Liquidity-Add deposit resolved from a kernel id or block height,
+ *  plus the pool/asset metadata needed to analyse the position. */
+export interface ApiDepositInfo {
+  /** Public pair reference usable with api.pair(). */
+  lp_token: number;
+  pair_id: number;
+  aid1: number;
+  aid2: number;
+  aid_ctl: number;
+  symbol1: string | null;
+  symbol2: string | null;
+  decimals1: number;
+  decimals2: number;
+  kind: 0 | 1 | 2;
+  kind_label: string;
+  fee_pct: number;
+  /** Magnitudes in groths (decimal strings). */
+  amount1: string;
+  amount2: string;
+  amount_ctl: string;
+  height: number;
+  ts: number; // unix seconds
+  confirmed: boolean;
+}
+
+/** Returned when a block height holds several deposits and the user must pick. */
+export interface ApiDepositCandidates {
+  candidates: ApiDepositInfo[];
 }
 
 export interface ApiLpList {

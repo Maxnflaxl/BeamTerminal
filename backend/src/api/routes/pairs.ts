@@ -31,6 +31,11 @@ interface ResponsePair {
   reserve2_usd: number | null;
   tvl_usd: number | null;
 
+  /** Total LP-token supply (groths of aid_ctl) at the latest snapshot. */
+  ctl_supply: string | null;
+  /** Height of the latest pool-state snapshot the reserves/ctl_supply are from. */
+  snapshot_height: number | null;
+
   volume_24h_groth: string;
   volume_24h_usd: number | null;
 
@@ -115,6 +120,8 @@ function toResponse(
     reserve1_usd: r1Usd,
     reserve2_usd: r2Usd,
     tvl_usd: tvlUsd,
+    ctl_supply: row.ctl_supply,
+    snapshot_height: row.snapshot_height !== null ? Number(row.snapshot_height) : null,
     volume_24h_groth: row.volume_24h_aid1 ?? '0',
     volume_24h_usd: volumeUsd,
     price_change_24h: priceChange24h,

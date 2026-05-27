@@ -135,7 +135,30 @@ Single pair, same fields as a row in `/api/pairs`.
 
 404 (`PAIR_NOT_FOUND`) when no matching pool exists.
 
+The row also carries `ctl_supply` (total LP-token supply, groths) and
+`snapshot_height` (the height the reserves/`ctl_supply` are from) — these power
+the liquidity-position analyzer.
+
 `Cache-Control: public, max-age=15`.
+
+## `GET /api/lp-position/deposit`
+
+Resolves a single *Liquidity Add* deposit so the frontend can analyse a
+liquidity position (share, fees, P&L, impermanent loss — all computed
+client-side from this plus `/api/pairs/{id}`). Exactly one query param:
+
+* `height=<n>` — looked up in `lp_events` (Postgres only).
+* `kernel=<64 hex>` — **the one endpoint that touches the explorer**: a single
+  `/block?kernel=` call maps the kernel to its block height, then the same
+  `lp_events` lookup runs. We don't index kernel ids, hence the hop.
+
+Returns a deposit object (`lp_token`, `aid1/aid2`, symbols, decimals, `kind` +
+`fee_pct`, `amount1/amount2/amount_ctl` in groths, `height`, `ts`, `confirmed`).
+When a height holds several deposits, returns `{ "candidates": [ … ] }` for the
+UI to disambiguate. 404 (`DEPOSIT_NOT_FOUND` / `KERNEL_NOT_FOUND`) when nothing
+matches.
+
+`Cache-Control: public, max-age=30`.
 
 ## `GET /api/pairs/{id}/ohlcv`
 
