@@ -134,11 +134,23 @@ export async function syncAssetsCatalog(): Promise<number> {
  * Stores only the AID + decimals; metadata will be filled on the next
  * syncAssetsCatalog() pass.
  */
+// AIDs we've already ensured this process. The insert below is
+// `ON CONFLICT DO NOTHING`, so once an AID is present every later call is a
+// guaranteed no-op round-trip — the cache skips it. Safe to keep for the life
+// of the process: reorgs never delete `assets` rows (they only touch
+// trades / lp_events / pool_state_snapshots / block_timestamps and un-mark
+// pools), so a row we've inserted stays inserted. `first_seen_height` is only
+// written on the first insert anyway (DO NOTHING never updates it), so
+// short-circuiting later calls changes no stored value.
+const ensuredAids = new Set<number>();
+
 export async function ensureAssetExists(aid: number, firstSeenHeight: number): Promise<void> {
+  if (ensuredAids.has(aid)) return;
   await q(
     `INSERT INTO assets (aid, decimals, first_seen_height)
      VALUES ($1, 8, $2)
      ON CONFLICT (aid) DO NOTHING`,
     [aid, firstSeenHeight],
   );
+  ensuredAids.add(aid);
 }

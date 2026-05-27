@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { getContract } from '../explorer.js';
 import { parseCallsHistory, type AmmCall } from '../parsers/amm.js';
 import { ensureAssetExists } from './assets.js';
-import { resolvePoolId } from './pools.js';
+import { resolvePoolId, type PoolKey } from './pools.js';
 import { getBlockTsMap } from './blockTimestamps.js';
 import { q } from '../db.js';
 import { logger } from '../logger.js';
@@ -84,6 +84,13 @@ export async function indexCalls(
   let lifecycle = 0;
   let skipped = 0;
 
+  // Cache pool-id lookups for this run. The pool set is fixed for the duration
+  // of an indexCalls call — snapshotPoolStates upserts every on-chain pool
+  // before ingest, and the call loop never creates a resolvable pool_id — so
+  // the same (aid1,aid2,kind) tuples resolve to the same id (or the same null)
+  // throughout, and we can skip the repeated SELECT against `pools`.
+  const poolIds: PoolIdCache = new Map();
+
   for (const call of calls) {
     const blockTs = tsMap.get(call.height);
     if (!blockTs) {
@@ -92,7 +99,7 @@ export async function indexCalls(
       continue;
     }
 
-    const written = await writeCall(call, blockTs);
+    const written = await writeCall(call, blockTs, poolIds);
     if (written === 'trade') trades++;
     else if (written === 'lp') lp++;
     else if (written === 'lifecycle') lifecycle++;
@@ -111,7 +118,23 @@ export async function indexCalls(
 
 type WriteOutcome = 'trade' | 'lp' | 'lifecycle' | 'skipped';
 
-async function writeCall(call: AmmCall, blockTs: Date): Promise<WriteOutcome> {
+// Per-run cache of (aid1,aid2,kind) -> pool_id (or null for "no such pool").
+// Caching null is safe within one indexCalls run: the resolvable pool set is
+// fixed for its duration (see indexCalls), so a tuple that resolves to null
+// stays null — a Trade on an unknown pool is skipped now and on the next tick
+// the pool snapshot creates it.
+type PoolIdCache = Map<string, bigint | null>;
+
+async function resolvePoolIdCached(key: PoolKey, cache: PoolIdCache): Promise<bigint | null> {
+  const k = `${key.aid1}-${key.aid2}-${key.kind}`;
+  const cached = cache.get(k);
+  if (cached !== undefined) return cached;
+  const id = await resolvePoolId(key);
+  cache.set(k, id);
+  return id;
+}
+
+async function writeCall(call: AmmCall, blockTs: Date, poolIds: PoolIdCache): Promise<WriteOutcome> {
   switch (call.method) {
     case 'Pool Create': {
       // We don't get aid_ctl from the call args (it's derived inside the
@@ -141,11 +164,10 @@ async function writeCall(call: AmmCall, blockTs: Date): Promise<WriteOutcome> {
     }
 
     case 'Trade': {
-      const poolId = await resolvePoolId({
-        aid1: call.aid1,
-        aid2: call.aid2,
-        kind: call.kind,
-      });
+      const poolId = await resolvePoolIdCached(
+        { aid1: call.aid1, aid2: call.aid2, kind: call.kind },
+        poolIds,
+      );
       if (poolId === null) {
         logger.warn(
           { aid1: call.aid1, aid2: call.aid2, kind: call.kind, height: call.height },
@@ -194,11 +216,10 @@ async function writeCall(call: AmmCall, blockTs: Date): Promise<WriteOutcome> {
 
     case 'Liquidity Add':
     case 'Liquidity Withdraw': {
-      const poolId = await resolvePoolId({
-        aid1: call.aid1,
-        aid2: call.aid2,
-        kind: call.kind,
-      });
+      const poolId = await resolvePoolIdCached(
+        { aid1: call.aid1, aid2: call.aid2, kind: call.kind },
+        poolIds,
+      );
       if (poolId === null) {
         logger.warn(
           { aid1: call.aid1, aid2: call.aid2, kind: call.kind, height: call.height },
