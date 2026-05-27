@@ -9,6 +9,7 @@ import { pairsRoutes } from './routes/pairs.js';
 import { lpPositionRoutes } from './routes/lp_position.js';
 import { ohlcvRoutes } from './routes/ohlcv.js';
 import { tradesRoutes } from './routes/trades.js';
+import { liquidityRoutes } from './routes/liquidity.js';
 import { assetRoutes } from './routes/asset.js';
 import { chartsRoutes, startChartCacheRefresher } from './routes/charts.js';
 import { ogRoutes } from './routes/og.js';
@@ -62,6 +63,7 @@ export function buildApp(): FastifyInstance {
   void app.register(lpPositionRoutes, { prefix: '/api' });
   void app.register(ohlcvRoutes, { prefix: '/api' });
   void app.register(tradesRoutes, { prefix: '/api' });
+  void app.register(liquidityRoutes, { prefix: '/api' });
   void app.register(assetRoutes, { prefix: '/api' });
   void app.register(chartsRoutes, { prefix: '/api' });
   void app.register(ogRoutes);
