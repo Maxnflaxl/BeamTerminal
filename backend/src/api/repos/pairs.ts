@@ -180,17 +180,6 @@ export async function listPairs(opts: ListOpts): Promise<PairRowRaw[]> {
   return rows;
 }
 
-export async function getPairByPoolId(poolId: number): Promise<PairRowRaw | null> {
-  const rows = await listPairs({
-    sort_by: 'aid2',
-    order: 'asc',
-    limit: 1,
-    offset: 0,
-    include_imposters: true,
-  });
-  return rows.find((r) => Number(r.pool_id) === poolId) ?? null;
-}
-
 /** A resolved pair reference: every tier's pool plus the reference (deepest)
  *  pool whose price/metadata represent the pair. For single-tier refs both
  *  collapse to one pool. */
