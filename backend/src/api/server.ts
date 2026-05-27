@@ -10,6 +10,7 @@ import { ohlcvRoutes } from './routes/ohlcv.js';
 import { tradesRoutes } from './routes/trades.js';
 import { assetRoutes } from './routes/asset.js';
 import { chartsRoutes, startChartCacheRefresher } from './routes/charts.js';
+import { ogRoutes } from './routes/og.js';
 import { cgTickersRoutes } from './routes/cg/tickers.js';
 import { cgHistoricalTradesRoutes } from './routes/cg/historical_trades.js';
 
@@ -61,6 +62,7 @@ export function buildApp(): FastifyInstance {
   void app.register(tradesRoutes, { prefix: '/api' });
   void app.register(assetRoutes, { prefix: '/api' });
   void app.register(chartsRoutes, { prefix: '/api' });
+  void app.register(ogRoutes);
 
   void app.register(cgTickersRoutes, { prefix: '/cg' });
   void app.register(cgHistoricalTradesRoutes, { prefix: '/cg' });
