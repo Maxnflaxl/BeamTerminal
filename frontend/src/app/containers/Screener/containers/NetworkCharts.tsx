@@ -506,31 +506,37 @@ export const NetworkCharts: React.FC = () => {
   const toggleLog = (k: string): void =>
     setLogPerKey((m) => ({ ...m, [k]: !m[k] }));
 
+  // Ordered so each "… / day" chart sits immediately before its "… (total)"
+  // twin — the 2-column auto-flow Grid then renders them side-by-side on one
+  // row (day on the left, total on the right). Charts without a day/total
+  // twin are listed after the pairs so they fall below in each category.
   const allCharts: ReadonlyArray<ChartSpec & { category: Category }> = [
-    // Blockchain
-    { key: 'hashrate',         title: 'Hashrate (Beamhash III)', state: hashrate,           formatter: fmtHashrate,   category: 'blockchain' },
-    { key: 'difficulty',       title: 'Difficulty',              state: difficulty,         formatter: fmtDifficulty, category: 'blockchain' },
-    { key: 'blockTime',        title: 'Avg block time',          state: blockTime,          formatter: fmtBlockTime,  category: 'blockchain' },
-    { key: 'kernels',          title: 'Kernels / day',           state: kernels,            formatter: fmtInt,        category: 'blockchain' },
+    // Blockchain — day/total pairs
     { key: 'transactionsDaily',title: 'Transactions / day',      state: transactionsDaily,  formatter: fmtInt,        category: 'blockchain' },
     { key: 'transactionsTotal',title: 'Transactions (total)',    state: transactionsTotal,  formatter: fmtInt,        category: 'blockchain' },
-    { key: 'txosTotal',        title: 'TXOs (total)',            state: txosTotal,          formatter: fmtInt,        category: 'blockchain' },
-    { key: 'utxosTotal',       title: 'UTXOs',                   state: utxosTotal,         formatter: fmtInt,        category: 'blockchain' },
-    { key: 'contractsTotal',   title: 'Contracts active',        state: contractsTotal,     formatter: fmtInt,        category: 'blockchain' },
     { key: 'feesDaily',        title: 'Fees / day',              state: feesDaily,          formatter: fmtBeam,       category: 'blockchain' },
     { key: 'feesTotal',        title: 'Fees (total)',            state: feesTotal,          formatter: fmtBeam,       category: 'blockchain' },
     { key: 'callsDaily',       title: 'Contract calls / day',    state: contractCallsDaily, formatter: fmtInt,        category: 'blockchain' },
     { key: 'callsTotal',       title: 'Contract calls (total)',  state: contractCallsTotal, formatter: fmtInt,        category: 'blockchain' },
+    // Blockchain — standalone
+    { key: 'hashrate',         title: 'Hashrate (Beamhash III)', state: hashrate,           formatter: fmtHashrate,   category: 'blockchain' },
+    { key: 'difficulty',       title: 'Difficulty',              state: difficulty,         formatter: fmtDifficulty, category: 'blockchain' },
+    { key: 'blockTime',        title: 'Avg block time',          state: blockTime,          formatter: fmtBlockTime,  category: 'blockchain' },
+    { key: 'kernels',          title: 'Kernels / day',           state: kernels,            formatter: fmtInt,        category: 'blockchain' },
+    { key: 'txosTotal',        title: 'TXOs (total)',            state: txosTotal,          formatter: fmtInt,        category: 'blockchain' },
+    { key: 'utxosTotal',       title: 'UTXOs',                   state: utxosTotal,         formatter: fmtInt,        category: 'blockchain' },
+    { key: 'contractsTotal',   title: 'Contracts active',        state: contractsTotal,     formatter: fmtInt,        category: 'blockchain' },
     { key: 'assets',           title: 'Confidential Assets',     state: assets,             formatter: fmtInt,        category: 'blockchain' },
-    // Lelantus
+    // Lelantus — day/total pairs
     { key: 'shieldedIns',       title: 'Shielded inputs / day',  state: shieldedInsDaily,   formatter: fmtInt,        category: 'lelantus' },
     { key: 'shieldedInsTotal',  title: 'Shielded inputs (total)',state: shieldedInsTotal,   formatter: fmtInt,        category: 'lelantus' },
     { key: 'shieldedOuts',      title: 'Shielded outputs / day', state: shieldedOutsDaily,  formatter: fmtInt,        category: 'lelantus' },
     { key: 'shieldedOutsTotal', title: 'Shielded outputs (total)',state: shieldedOutsTotal,  formatter: fmtInt,        category: 'lelantus' },
-    // DeFi
-    { key: 'tvl',                title: 'DEX TVL',                state: tvl,                formatter: fmtUsd, category: 'defi' },
+    // DeFi — day/total pairs
     { key: 'dexVolume',          title: 'DEX volume / day',       state: dexVolume,          formatter: fmtUsd, category: 'defi' },
     { key: 'dexVolumeCumulative',title: 'DEX volume (total)',     state: dexVolumeCumulative,formatter: fmtUsd, category: 'defi' },
+    // DeFi — standalone
+    { key: 'tvl',                title: 'DEX TVL',                state: tvl,                formatter: fmtUsd, category: 'defi' },
     { key: 'beamVol',            title: 'BEAM Volatility Index (30d)', state: beamVol,       formatter: fmtVol, category: 'defi' },
     { key: 'dexVol',             title: 'DEX Volatility Index (30d)',  state: dexVol,        formatter: fmtVol, category: 'defi' },
   ];
