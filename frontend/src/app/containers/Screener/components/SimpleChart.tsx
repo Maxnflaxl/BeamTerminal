@@ -130,7 +130,7 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
 
   return (
     <Wrap>
-      <Header>{title}</Header>
+      {title ? <Header>{title}</Header> : null}
       <Inner ref={innerRef} />
     </Wrap>
   );

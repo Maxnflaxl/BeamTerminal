@@ -107,16 +107,48 @@ const Cell = styled.div`
   border-radius: 8px;
   padding: 8px;
   height: 320px;
+  display: flex;
+  flex-direction: column;
+`;
+
+// Header bar above the plot. Keeps the title and the lin/log + expand controls
+// out of the chart's right price-scale gutter, so they never sit on top of the
+// y-axis numbers.
+const CellHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+`;
+
+const CellTitle = styled.div`
+  font-family: 'SFProDisplay', monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const CellActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+`;
+
+const ChartArea = styled.div`
+  flex: 1;
+  min-height: 0;
   position: relative;
 `;
 
 const ExpandButton = styled.button`
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 20;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -136,11 +168,7 @@ const ExpandButton = styled.button`
 `;
 
 const ScaleToggle = styled.button<{ active?: boolean }>`
-  position: absolute;
-  top: 8px;
-  right: 40px;
-  z-index: 20;
-  height: 24px;
+  height: 22px;
   padding: 0 8px;
   display: inline-flex;
   align-items: center;
@@ -437,17 +465,24 @@ const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
   );
   return (
     <Cell>
-      <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
-        {logScale ? 'log' : 'lin'}
-      </ScaleToggle>
-      <ExpandButton onClick={onExpand} title="Expand chart" aria-label="Expand chart">
-        <ExpandIcon />
-      </ExpandButton>
-      {filtered ? (
-        <SimpleChart series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} />
-      ) : (
-        <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
-      )}
+      <CellHeader>
+        <CellTitle>{title}</CellTitle>
+        <CellActions>
+          <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
+            {logScale ? 'log' : 'lin'}
+          </ScaleToggle>
+          <ExpandButton onClick={onExpand} title="Expand chart" aria-label="Expand chart">
+            <ExpandIcon />
+          </ExpandButton>
+        </CellActions>
+      </CellHeader>
+      <ChartArea>
+        {filtered ? (
+          <SimpleChart series={filtered} title="" scale={scale} formatter={formatter} logScale={logScale} />
+        ) : (
+          <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
+        )}
+      </ChartArea>
     </Cell>
   );
 };
