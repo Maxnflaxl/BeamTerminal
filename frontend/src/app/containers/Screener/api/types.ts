@@ -163,6 +163,50 @@ export interface ApiDepositCandidates {
   candidates: ApiDepositInfo[];
 }
 
+/** A single add/remove liquidity op, with the historical BEAM/USD price of each
+ *  asset at the op's block height (null when no BEAM route exists). */
+export interface ApiLpOp {
+  kind: 'Deposit' | 'Withdraw';
+  amount1: string;
+  amount2: string;
+  amount_ctl: string;
+  height: number;
+  ts: number; // unix seconds
+  confirmed: boolean;
+  beam_per_aid1: number | null;
+  beam_per_aid2: number | null;
+  usd_per_aid1: number | null;
+  usd_per_aid2: number | null;
+}
+
+/** All add/remove ops for one pool, gathered from the user's reference list. */
+export interface ApiPoolEvents {
+  lp_token: number;
+  pair_id: number;
+  aid1: number;
+  aid2: number;
+  aid_ctl: number;
+  symbol1: string | null;
+  symbol2: string | null;
+  decimals1: number;
+  decimals2: number;
+  kind: 0 | 1 | 2;
+  kind_label: string;
+  fee_pct: number;
+  events: ApiLpOp[];
+  // Present-time per-whole-unit prices, for valuing the still-in-pool remainder.
+  current_beam_per_aid1: number | null;
+  current_beam_per_aid2: number | null;
+  current_usd_per_aid1: number | null;
+  current_usd_per_aid2: number | null;
+}
+
+export interface ApiLpEventsResult {
+  pools: ApiPoolEvents[];
+  /** References (kernel ids / heights) that did not resolve to an indexed op. */
+  unresolved: string[];
+}
+
 export interface ApiLpList {
   trades: ApiLpEvent[];
   before: number | null;

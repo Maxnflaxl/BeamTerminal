@@ -160,6 +160,28 @@ matches.
 
 `Cache-Control: public, max-age=30`.
 
+## `GET /api/lp-position/events`
+
+Multi-operation lookup powering the liquidity-position analyzer: resolves every
+add/remove liquidity op across a list of references, so a position with several
+deposits and partial withdrawals can be valued. One query param:
+
+* `refs=<…>` — up to 50 block heights and/or 64-hex kernel ids, comma/space/
+  newline separated. Kernel ids are resolved to heights via the explorer (the
+  only explorer touch); refs that don't resolve — or that exceed the 50 cap —
+  come back in `unresolved`.
+
+Returns `{ "pools": [ … ], "unresolved": [ … ] }`, with ops grouped **by pool**
+(`lp_token`). Each pool carries its asset/fee metadata, present-time per-unit
+BEAM/USD prices (`current_beam_per_aid1`, `current_usd_per_aid1`, …), and an
+`events[]` list; each event has `kind` (Deposit/Withdraw), `amount1/2/ctl`,
+`height`, `ts`, `confirmed`, and the **historical** BEAM/USD price of each asset
+at that op's height (`beam_per_aid1`, `usd_per_aid2`, … — null when the pair has
+no BEAM route). All P&L / share / partial-withdrawal accounting is computed
+client-side from this plus `/api/pairs/{id}`.
+
+`Cache-Control: public, max-age=30`.
+
 ## `GET /api/pairs/{id}/ohlcv`
 
 Chart candles.

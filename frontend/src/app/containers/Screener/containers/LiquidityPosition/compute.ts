@@ -330,3 +330,180 @@ export function fmtDuration(ms: number): string {
 
 export const assetName = (aid: number, symbol: string | null): string =>
   aid === 0 ? 'BEAM' : symbol || `Asset-${aid}`;
+
+// --- Multi-operation aggregation (add + remove, partial withdrawal) ---------
+//
+// Flow accounting: each add/remove op is valued at its OWN time, the remaining
+// in-pool LP at the PRESENT. P&L = withdrawn + remaining − invested. Values can
+// be expressed in either pair asset (using each op's own price ratio) or in
+// BEAM/USD (using the per-op historical prices supplied by the backend).
+
+export type ValUnit = 'aid1' | 'aid2' | 'beam' | 'usd';
+
+export interface AggOp {
+  kind: 'Deposit' | 'Withdraw';
+  amount1: string; // groths
+  amount2: string;
+  amountCtl: string;
+  ts: number;
+  beamPerAid1: number | null;
+  beamPerAid2: number | null;
+  usdPerAid1: number | null;
+  usdPerAid2: number | null;
+}
+
+export interface AggInput {
+  ops: AggOp[];
+  decimals1: number;
+  decimals2: number;
+  // Present pool state (groths).
+  reserve1: string;
+  reserve2: string;
+  ctlSupply: string;
+  // Present per-whole-unit prices, for the remaining position.
+  currentBeamPerAid1: number | null;
+  currentBeamPerAid2: number | null;
+  currentUsdPerAid1: number | null;
+  currentUsdPerAid2: number | null;
+  nowTs: number;
+}
+
+export interface UnitFlow {
+  available: boolean;
+  invested: number;
+  withdrawn: number; // realized (value of removed liquidity, at removal time)
+  remaining: number; // unrealized (value of still-in-pool LP, now)
+  pnl: number;
+}
+
+export interface Aggregate {
+  /** Net remaining position as a single average-basis deposit, for the
+   *  existing principal/fees/IL analysis. Null when nothing remains in pool. */
+  metrics: Metrics | null;
+  firstAddTs: number;
+  addedCtl: number;
+  removedCtl: number;
+  netCtl: number;
+  remainingFrac: number; // netCtl / addedCtl
+  withdrawnFrac: number;
+  hasRemoves: boolean;
+  rem1: number; // remaining whole amount of aid1, now
+  rem2: number;
+  addsCount: number;
+  removesCount: number;
+  totalDep1: number; // sum of all adds, whole units
+  totalDep2: number;
+  flows: Record<ValUnit, UnitFlow>;
+}
+
+// Value of an LP op (both legs) in the chosen unit. NaN ⇒ unit not priceable.
+function opValue(
+  a1w: number,
+  a2w: number,
+  unit: ValUnit,
+  b1: number | null,
+  b2: number | null,
+  u1: number | null,
+  u2: number | null,
+): number {
+  switch (unit) {
+    // Liquidity ops are balanced at the pool ratio, so valuing both legs in one
+    // pair asset at the op's own price is just double that leg.
+    case 'aid1': return 2 * a1w;
+    case 'aid2': return 2 * a2w;
+    case 'beam': return b1 != null && b2 != null ? a1w * b1 + a2w * b2 : NaN;
+    case 'usd':  return u1 != null && u2 != null ? a1w * u1 + a2w * u2 : NaN;
+  }
+}
+
+const UNITS: ValUnit[] = ['aid1', 'aid2', 'beam', 'usd'];
+
+export function aggregate(inp: AggInput): Aggregate {
+  const w1 = (g: string): number => Number(g) / 10 ** inp.decimals1;
+  const w2 = (g: string): number => Number(g) / 10 ** inp.decimals2;
+
+  let addedCtl = 0;
+  let removedCtl = 0;
+  let firstAddTs = Infinity;
+  let totalDep1 = 0;
+  let totalDep2 = 0;
+  let addsCount = 0;
+  let removesCount = 0;
+  for (const op of inp.ops) {
+    const ctl = Number(op.amountCtl);
+    if (op.kind === 'Deposit') {
+      addedCtl += ctl;
+      totalDep1 += w1(op.amount1);
+      totalDep2 += w2(op.amount2);
+      firstAddTs = Math.min(firstAddTs, op.ts);
+      addsCount += 1;
+    } else {
+      removedCtl += ctl;
+      removesCount += 1;
+    }
+  }
+  const netCtl = Math.max(0, addedCtl - removedCtl);
+  const remainingFrac = addedCtl > 0 ? netCtl / addedCtl : 0;
+
+  const curR1 = w1(inp.reserve1);
+  const curR2 = w2(inp.reserve2);
+  const curCtl = Number(inp.ctlSupply);
+  const remShare = curCtl > 0 ? netCtl / curCtl : 0;
+  const rem1 = curR1 * remShare;
+  const rem2 = curR2 * remShare;
+
+  const flows = {} as Record<ValUnit, UnitFlow>;
+  for (const unit of UNITS) {
+    let invested = 0;
+    let withdrawn = 0;
+    let ok = true;
+    for (const op of inp.ops) {
+      const v = opValue(w1(op.amount1), w2(op.amount2), unit, op.beamPerAid1, op.beamPerAid2, op.usdPerAid1, op.usdPerAid2);
+      if (Number.isNaN(v)) { ok = false; break; }
+      if (op.kind === 'Deposit') invested += v;
+      else withdrawn += v;
+    }
+    const remaining = ok
+      ? opValue(rem1, rem2, unit, inp.currentBeamPerAid1, inp.currentBeamPerAid2, inp.currentUsdPerAid1, inp.currentUsdPerAid2)
+      : NaN;
+    const available = ok && !Number.isNaN(remaining);
+    flows[unit] = { available, invested, withdrawn, remaining, pnl: withdrawn + remaining - invested };
+  }
+
+  // Net remaining position → reuse the single-deposit analysis. Basis is the
+  // still-in-pool fraction of total deposits (graceful: == full deposit when
+  // there are no removes).
+  let metrics: Metrics | null = null;
+  if (netCtl > 0 && totalDep1 > 0 && totalDep2 > 0) {
+    metrics = computeMetrics({
+      amount1: String(Math.round(totalDep1 * remainingFrac * 10 ** inp.decimals1)),
+      amount2: String(Math.round(totalDep2 * remainingFrac * 10 ** inp.decimals2)),
+      amountCtl: String(Math.round(netCtl)),
+      decimals1: inp.decimals1,
+      decimals2: inp.decimals2,
+      reserve1: inp.reserve1,
+      reserve2: inp.reserve2,
+      ctlSupply: inp.ctlSupply,
+      depositTs: firstAddTs === Infinity ? inp.nowTs : firstAddTs,
+      nowTs: inp.nowTs,
+    });
+  }
+
+  return {
+    metrics,
+    firstAddTs: firstAddTs === Infinity ? inp.nowTs : firstAddTs,
+    addedCtl,
+    removedCtl,
+    netCtl,
+    remainingFrac,
+    withdrawnFrac: 1 - remainingFrac,
+    hasRemoves: removedCtl > 0,
+    rem1,
+    rem2,
+    addsCount,
+    removesCount,
+    totalDep1,
+    totalDep2,
+    flows,
+  };
+}

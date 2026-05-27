@@ -13,6 +13,7 @@ import type {
   ApiLpList,
   ApiDepositInfo,
   ApiDepositCandidates,
+  ApiLpEventsResult,
   ApiAsset,
   ApiAssetsList,
   ApiAssetHistory,
@@ -80,6 +81,9 @@ export const api = {
   lpPosition: {
     deposit: (params: { kernel?: string; height?: number }): Promise<ApiDepositInfo | ApiDepositCandidates> =>
       get<ApiDepositInfo | ApiDepositCandidates>(`/lp-position/deposit${qs(params)}`),
+    // Multi-ref lookup: `refs` is heights and/or kernel ids, comma/space-separated.
+    events: (refs: string): Promise<ApiLpEventsResult> =>
+      get<ApiLpEventsResult>(`/lp-position/events${qs({ refs })}`),
   },
 
   asset: (aid: number): Promise<ApiAsset> => get<ApiAsset>(`/asset/${aid}`),
