@@ -472,14 +472,44 @@ const CopyKey: React.FC<{ value: string; onCopy: (msg: string) => void; show?: '
   </KeyRow>
 );
 
+// Publishers overwhelmingly fill social fields with a bare handle ('vsnation_',
+// '@BeamBots') rather than a URL — safeHttpUrl alone turns 'vsnation_' into
+// 'https://vsnation_/' which is a dead hostname. Compose the per-platform URL
+// for bare handles; for inputs that already look like a URL fall back to
+// safeHttpUrl. The regex deliberately rejects slashes and spaces so we don't
+// accidentally inject a path into the platform URL.
+const HANDLE_RE = /^@?[A-Za-z0-9._-]+$/;
+
+function socialUrl(
+  raw: string | null | undefined,
+  composeFromHandle: (h: string) => string,
+): string | undefined {
+  if (!raw) return undefined;
+  const s = raw.trim();
+  if (!s) return undefined;
+  if (HANDLE_RE.test(s)) {
+    const handle = s.replace(/^@/, '');
+    if (!handle) return undefined;
+    // encodeURIComponent is a no-op for the chars HANDLE_RE allows, but it
+    // costs nothing and guards against any future regex relaxation.
+    return composeFromHandle(encodeURIComponent(handle));
+  }
+  return safeHttpUrl(s);
+}
+
 const SocialLinks: React.FC<{ social: ApiDappPublisher['social']; website: string | null }> = ({ social, website }) => {
   const links: Array<{ key: string; href: string; label: string; Icon: React.FC<React.SVGProps<SVGSVGElement>> }> = [];
-  if (safeHttpUrl(website))           links.push({ key: 'site',  href: safeHttpUrl(website)!,           label: 'Website',  Icon: WebsiteIcon });
-  if (safeHttpUrl(social.twitter))    links.push({ key: 'x',     href: safeHttpUrl(social.twitter)!,    label: 'X / Twitter', Icon: TwitterIcon });
-  if (safeHttpUrl(social.telegram))   links.push({ key: 'tg',    href: safeHttpUrl(social.telegram)!,   label: 'Telegram', Icon: TelegramIcon });
-  if (safeHttpUrl(social.discord))    links.push({ key: 'dc',    href: safeHttpUrl(social.discord)!,    label: 'Discord',  Icon: DiscordIcon });
-  if (safeHttpUrl(social.linkedin))   links.push({ key: 'li',    href: safeHttpUrl(social.linkedin)!,   label: 'LinkedIn', Icon: LinkedinIcon });
-  if (safeHttpUrl(social.instagram))  links.push({ key: 'ig',    href: safeHttpUrl(social.instagram)!,  label: 'Instagram', Icon: InstagramIcon });
+  const x  = socialUrl(social.twitter,   (h) => `https://x.com/${h}`);
+  const tg = socialUrl(social.telegram,  (h) => `https://t.me/${h}`);
+  const dc = socialUrl(social.discord,   (h) => `https://discord.gg/${h}`);
+  const li = socialUrl(social.linkedin,  (h) => `https://www.linkedin.com/in/${h}`);
+  const ig = socialUrl(social.instagram, (h) => `https://www.instagram.com/${h}`);
+  if (safeHttpUrl(website)) links.push({ key: 'site',  href: safeHttpUrl(website)!,  label: 'Website',     Icon: WebsiteIcon   });
+  if (x)                    links.push({ key: 'x',     href: x,                      label: 'X / Twitter', Icon: TwitterIcon   });
+  if (tg)                   links.push({ key: 'tg',    href: tg,                     label: 'Telegram',    Icon: TelegramIcon  });
+  if (dc)                   links.push({ key: 'dc',    href: dc,                     label: 'Discord',     Icon: DiscordIcon   });
+  if (li)                   links.push({ key: 'li',    href: li,                     label: 'LinkedIn',    Icon: LinkedinIcon  });
+  if (ig)                   links.push({ key: 'ig',    href: ig,                     label: 'Instagram',   Icon: InstagramIcon });
   if (links.length === 0) return <Muted style={{ margin: 0 }}>No social links.</Muted>;
   return (
     // Stop propagation here so the link click doesn't bubble to a parent
