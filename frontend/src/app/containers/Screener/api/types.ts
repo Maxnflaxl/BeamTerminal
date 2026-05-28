@@ -339,3 +339,164 @@ export interface ApiHealth {
   blocks_behind: number | null;
   lag_seconds: number;
 }
+
+// ---------------------------------------------------------------------------
+// Asset swap offers (wallet-api `assets_swap_offers_list`)
+// ---------------------------------------------------------------------------
+
+export interface ApiAssetSwapOfferLeg {
+  asset_id: number;
+  amount: string;
+  currency_name: string | null;
+}
+
+export interface ApiAssetSwapOffer {
+  id: string;
+  is_my: boolean;
+  send: ApiAssetSwapOfferLeg;
+  receive: ApiAssetSwapOfferLeg;
+  create_time: string;
+  expire_time: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  gone_at: string | null;
+}
+
+export interface ApiAssetSwapsList {
+  offers: ApiAssetSwapOffer[];
+}
+
+// ---------------------------------------------------------------------------
+// Atomic (cross-chain) swap offers (explorer /swap_offers)
+// ---------------------------------------------------------------------------
+
+export interface ApiAtomicSwapOffer {
+  tx_id: string;
+  is_beam_side: boolean;
+  status: number;
+  status_string: string | null;
+  beam_amount: string;
+  swap_amount: string;
+  swap_currency: number;
+  swap_currency_name: string | null;
+  time_created: string;
+  min_height: number | null;
+  height_expired: number | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  gone_at: string | null;
+}
+
+export interface ApiAtomicSwapsList {
+  offers: ApiAtomicSwapOffer[];
+}
+
+export interface ApiAtomicSwapTotalsPoint {
+  ts: string;
+  height: number | null;
+  total_swaps_count: number | null;
+  /** Decimal strings keyed by canonical currency label. */
+  offered: Record<'BEAM' | 'BTC' | 'LTC' | 'QTUM' | 'DOGE' | 'DASH' | 'ETH' | 'DAI' | 'USDT' | 'WBTC', string | null>;
+}
+
+export interface ApiAtomicSwapTotalsLatest {
+  latest: ApiAtomicSwapTotalsPoint | null;
+}
+
+export interface ApiAtomicSwapTotalsHistory {
+  bucket: string;
+  since: string;
+  points: ApiAtomicSwapTotalsPoint[];
+}
+
+// ---------------------------------------------------------------------------
+// DApp Store registry
+// ---------------------------------------------------------------------------
+
+export interface ApiDappPublisherRef {
+  pubkey: string;
+  name: string | null;
+}
+
+export interface ApiDapp {
+  id: string;
+  publisher: ApiDappPublisherRef;
+  name: string | null;
+  description: string | null;
+  /** Integer enum (Category in beam-ui); null when we couldn't decode. */
+  category: number | null;
+  /** Hex-decoded icon payload. Typically a base64-encoded image. May be null. */
+  icon: string | null;
+  /** IPFS CID of the dapp bundle. */
+  ipfs_id: string | null;
+  api_version: string | null;
+  min_api_version: string | null;
+  /** Composed "M.m.r.b" string, when all four parts are known. */
+  version: string | null;
+  version_parts: {
+    major: number | null;
+    minor: number | null;
+    release: number | null;
+    build: number | null;
+  };
+  first_seen_height: number;
+  first_seen_at: string;
+  last_updated_height: number;
+  last_updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface ApiDappsList {
+  dapps: ApiDapp[];
+}
+
+export interface ApiDappVersion {
+  version: string | null;
+  ipfs_hash: string | null;
+  height: number;
+  block_ts: string;
+  action: number;
+}
+
+export interface ApiDappDetail {
+  dapp: ApiDapp;
+  versions: ApiDappVersion[];
+}
+
+export interface ApiDappPublisher {
+  pubkey: string;
+  name: string | null;
+  short_title: string | null;
+  about_me: string | null;
+  website: string | null;
+  social: {
+    twitter: string | null;
+    linkedin: string | null;
+    instagram: string | null;
+    telegram: string | null;
+    discord: string | null;
+  };
+  first_seen_height: number;
+  first_seen_at: string;
+  last_updated_height: number;
+  last_updated_at: string;
+  dapps_count: number;
+}
+
+export interface ApiDappPublishersList {
+  publishers: ApiDappPublisher[];
+}
+
+export interface ApiDappRawCall {
+  kernel_id: string;
+  call_index: number;
+  height: number;
+  block_ts: string;
+  action: number | null;
+  args: unknown;
+  confirmed: boolean;
+}
+
+export interface ApiDappRawCallsList {
+  calls: ApiDappRawCall[];
+}

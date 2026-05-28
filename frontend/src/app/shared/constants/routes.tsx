@@ -13,6 +13,9 @@ export const ROUTES = {
     EXPLORER_BRIDGE: '/explorer/bridge',
     ASSET_INFO: '/asset/:id',
     PAIR_DETAIL: '/pair/:id',
+    ATOMIC_SWAPS: '/atomic-swaps',
+    ASSET_SWAPS: '/asset-swaps',
+    DAPPS: '/dapps',
     PRIVACY: '/privacy',
     // Legacy targets kept so existing dex-app components that import them
     // still compile during the strip. Unused at runtime.

@@ -43,6 +43,9 @@ const navLink = css`
 const items = [
   { to: ROUTES.NAV.PAIRS, label: 'Trade' },
   { to: ROUTES.NAV.ASSETS, label: 'Assets' },
+  { to: ROUTES.NAV.ATOMIC_SWAPS, label: 'Atomic swaps' },
+  { to: ROUTES.NAV.ASSET_SWAPS, label: 'Asset swaps' },
+  { to: ROUTES.NAV.DAPPS, label: 'DApps' },
   { to: ROUTES.NAV.EXPLORER, label: 'Explorer' },
 ];
 

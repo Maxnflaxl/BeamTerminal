@@ -18,6 +18,14 @@ import type {
   ApiAsset,
   ApiAssetsList,
   ApiAssetHistory,
+  ApiAssetSwapsList,
+  ApiAtomicSwapsList,
+  ApiAtomicSwapTotalsLatest,
+  ApiAtomicSwapTotalsHistory,
+  ApiDappsList,
+  ApiDappDetail,
+  ApiDappPublishersList,
+  ApiDappRawCallsList,
   PairsQuery,
   Interval,
   Denom,
@@ -99,6 +107,39 @@ export const api = {
   assets: (): Promise<ApiAssetsList> => get<ApiAssetsList>('/assets'),
 
   assetHistory: (aid: number, limit = 100): Promise<ApiAssetHistory> => get<ApiAssetHistory>(`/asset/${aid}/history${qs({ limit })}`),
+
+  // Wallet-gossiped DEX-style asset-to-asset offers (from wallet-api).
+  assetSwaps: (
+    opts: { include?: 'closed' | 'all'; send?: number; receive?: number } = {},
+  ): Promise<ApiAssetSwapsList> => get<ApiAssetSwapsList>(`/asset-swaps${qs(opts)}`),
+
+  // Cross-chain atomic-swap offers (from explorer /swap_offers).
+  atomicSwaps: (
+    opts: { include?: 'closed' | 'all'; currency?: string; side?: 'beam' | 'counter' } = {},
+  ): Promise<ApiAtomicSwapsList> => get<ApiAtomicSwapsList>(`/atomic-swaps${qs(opts)}`),
+
+  atomicSwapTotals: (): Promise<ApiAtomicSwapTotalsLatest> =>
+    get<ApiAtomicSwapTotalsLatest>('/atomic-swaps/totals'),
+
+  atomicSwapTotalsHistory: (
+    opts: { since?: string; bucket?: '15m' | '1h' | '1d' } = {},
+  ): Promise<ApiAtomicSwapTotalsHistory> =>
+    get<ApiAtomicSwapTotalsHistory>(`/atomic-swaps/totals/history${qs(opts)}`),
+
+  dapps: (opts: { include_deleted?: boolean } = {}): Promise<ApiDappsList> => {
+    const flags: Record<string, string | number | boolean | undefined> = {};
+    if (opts.include_deleted) flags.include_deleted = 1;
+    return get<ApiDappsList>(`/dapps${qs(flags)}`);
+  },
+
+  dapp: (id: string): Promise<ApiDappDetail> => get<ApiDappDetail>(`/dapps/${encodeURIComponent(id)}`),
+
+  dappPublishers: (): Promise<ApiDappPublishersList> => get<ApiDappPublishersList>('/dapps/publishers'),
+
+  dappRawCalls: (
+    opts: { limit?: number; action?: number } = {},
+  ): Promise<ApiDappRawCallsList> =>
+    get<ApiDappRawCallsList>(`/dapps/calls${qs(opts)}`),
 
   charts: {
     hashrate:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/hashrate'),
