@@ -47,8 +47,27 @@ services:
     network_mode: host
     env_file: ./backend/.env
 
+  # BEAM wallet-api 7.5.13882. Used by:
+  #   - the asset-swaps subsystem (assets_swap_offers_list)
+  #   - the DApp Store projection (invoke_contract of dapps_store_app.wasm)
+  # Connects P2P to the host-local explorer-node on 127.0.0.1:10000.
+  # First boot generates wallet.db + seed.txt in the named volume; the wallet
+  # holds no funds, it is read-only gossip + RPC. Required env in
+  # backend/.env: WALLET_API_NODE_ADDR, WALLET_API_PASS, WALLET_API_PORT,
+  # WALLET_API_HTTP, WALLET_API_IP_WHITELIST.
+  wallet-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.wallet-api
+    restart: always
+    network_mode: host
+    env_file: ./backend/.env
+    volumes:
+      - wallet-api-data:/data
+
 volumes:
   postgres-data:
+  wallet-api-data:
 
 secrets:
   postgres_password:

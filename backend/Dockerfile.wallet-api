@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1.7
+#
+# Pinned BEAM wallet-api 7.5.13882 (release "Groovy Gluon").
+# We need this daemon to answer `assets_swap_offers_list` for the asset-swaps
+# subsystem — the explorer node cannot serve those (they're wallet-side gossip
+# objects, not on-chain state).
+#
+# Policy mirror of explorer-node: pin a known-good binary, never build.
+# SHA256s here match the published Checksums.txt for tag beam-7.5.13882.
+# When bumping versions, update the URLs + sha256 vars + verify against
+# https://github.com/BeamMW/beam/releases/download/<tag>/Checksums.txt
+
+FROM debian:bookworm-slim AS fetch
+
+# wallet-api links against libssl/libcrypto and friends; the linux release
+# was built on a vintage Ubuntu, so debian:bookworm just barely matches.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl unzip libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/beam
+
+ARG BEAM_VERSION=7.5.13882
+ARG WALLET_API_URL=https://github.com/BeamMW/beam/releases/download/beam-${BEAM_VERSION}/linux-wallet-api-${BEAM_VERSION}.zip
+ARG WALLET_CLI_URL=https://github.com/BeamMW/beam/releases/download/beam-${BEAM_VERSION}/linux-beam-wallet-cli-${BEAM_VERSION}.zip
+ARG WALLET_API_SHA256=74e0c8b26fefb2f130d3b051faaf8d2ad759cb819abcc16b6a9238bf18a0e6c7
+ARG WALLET_CLI_SHA256=485c23fd6cb3cd290bbe8e1890c7ce8d4ed2158bad54528fb78bfab56564a62d
+
+RUN set -eux; \
+    curl -fsSL "$WALLET_API_URL" -o wallet-api.zip; \
+    echo "$WALLET_API_SHA256  wallet-api.zip" | sha256sum -c -; \
+    curl -fsSL "$WALLET_CLI_URL" -o wallet-cli.zip; \
+    echo "$WALLET_CLI_SHA256  wallet-cli.zip" | sha256sum -c -; \
+    unzip -q wallet-api.zip; \
+    unzip -q wallet-cli.zip; \
+    tar -xf wallet-api.tar; \
+    tar -xf beam-wallet.tar; \
+    chmod +x wallet-api beam-wallet; \
+    rm -f *.zip *.tar *checksum.txt
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3 tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1000 beam
+
+WORKDIR /opt/beam
+COPY --from=fetch /opt/beam/wallet-api    /opt/beam/wallet-api
+COPY --from=fetch /opt/beam/beam-wallet   /opt/beam/beam-wallet
+COPY --from=fetch /opt/beam/wallet-api.cfg /opt/beam/wallet-api.cfg
+COPY --from=fetch /opt/beam/beam-wallet.cfg /opt/beam/beam-wallet.cfg
+COPY docker/wallet-api-entrypoint.sh /usr/local/bin/wallet-api-entrypoint.sh
+RUN chmod +x /usr/local/bin/wallet-api-entrypoint.sh \
+    && mkdir -p /data && chown -R beam:beam /data /opt/beam
+
+USER beam
+WORKDIR /data
+EXPOSE 10005
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/wallet-api-entrypoint.sh"]

@@ -239,3 +239,57 @@ export async function getAssetHistory(query: {
   if (query.nMaxOps !== undefined) params.set('nMaxOps', String(query.nMaxOps));
   return fetchJson<AssetHistoryResponse>(`/asset?${params.toString()}`);
 }
+
+/**
+ * Atomic swap offers — cross-chain swap offers (BEAM ↔ BTC/LTC/...).
+ *
+ * Only present when the explorer node was built with `BEAM_ATOMIC_SWAP_SUPPORT`.
+ * The public explorer.0xmx.net build does include it; older / minimal explorer
+ * builds return 404. Callers should treat 404 as "feature unavailable" rather
+ * than a hard error.
+ *
+ * Shape per docs-gitbook/core-tech/api/Beam-Node-Explorer-API.md and
+ * beam/explorer/adapter.cpp::get_swap_offers.
+ */
+export interface SwapOffer {
+  status: number;
+  status_string: string;
+  txId: string;
+  beam_amount: string;
+  swap_amount: string;
+  /** Build-dependent integer enum; map in services/atomicSwaps.ts. */
+  swap_currency: string | number;
+  time_created: string;
+  min_height: number;
+  height_expired: number;
+  is_beam_side: boolean;
+}
+
+export async function getSwapOffers(): Promise<SwapOffer[]> {
+  return fetchJson<SwapOffer[]>('/swap_offers');
+}
+
+/**
+ * Aggregated cross-chain swap totals. All amounts are decimal strings.
+ *
+ * Field ordering matches the explorer's JSON keys (BTC, LTC, QTUM, DOGE, DASH,
+ * ETH, DAI, USDT, WBTC), which is the same ordering as the swap_currency enum
+ * in wallet/transactions/swaps/common.cpp.
+ */
+export interface SwapTotalsResponse {
+  total_swaps_count: number;
+  beams_offered: string;
+  bitcoin_offered: string;
+  litecoin_offered: string;
+  qtum_offered: string;
+  dogecoin_offered: string;
+  dash_offered: string;
+  ethereum_offered: string;
+  dai_offered: string;
+  usdt_offered: string;
+  wbtc_offered: string;
+}
+
+export async function getSwapTotals(): Promise<SwapTotalsResponse> {
+  return fetchJson<SwapTotalsResponse>('/swap_totals');
+}

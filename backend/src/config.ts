@@ -24,6 +24,26 @@ const Env = z.object({
     .string()
     .regex(CID_HEX, 'ASSET_MINTER_CID must be 64 lowercase hex chars')
     .optional(),
+  // DApp Store registry contract. Indexed exactly like DEX_CID (same call-list
+  // ingest), but parsed into the dapp_* tables instead. Mainnet default is the
+  // value hard-coded in beam-ui/ui/model/settings.cpp::getNetworkDappStoreCID().
+  // Set to empty string in env to disable the dapp-store subsystem.
+  DAPP_STORE_CID: z
+    .string()
+    .regex(CID_HEX, 'DAPP_STORE_CID must be 64 lowercase hex chars')
+    .optional()
+    .default('e2d24b686e8d31a0fe97eade9cd23281e7059b74b5757bdb96c820ef9e2af41c'),
+  // Wallet API JSON-RPC base URL. When unset, the asset-swap-offers subsystem
+  // is disabled (no daemon to ask). For dev: http://localhost:10005 once
+  // `docker compose up wallet-api` has booted; for prod: an internal URL.
+  WALLET_API_URL: z
+    .string()
+    .url()
+    .optional()
+    .transform((u) => (u ? u.replace(/\/+$/, '') : undefined)),
+  // How often to poll the wallet-api for `assets_swap_offers_list`. Offers
+  // are gossiped — there's no benefit to going faster than ~15s.
+  ASSET_SWAP_POLL_MS: z.coerce.number().int().positive().default(30_000),
   CONFIRMATIONS: z.coerce.number().int().nonnegative().default(80),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
   API_PORT: z.coerce.number().int().positive().default(3000),

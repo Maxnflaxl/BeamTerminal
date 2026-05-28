@@ -25,5 +25,8 @@ COPY package.json yarn.lock .yarnrc.yml ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY migrations ./dist/migrations
+# Vendored read-only shader binaries (e.g. dapps_store_app.wasm). See
+# backend/resources/README.md for provenance + SHA-256 pinning.
+COPY resources ./resources
 USER node
 CMD ["node", "dist/src/indexer.js"]

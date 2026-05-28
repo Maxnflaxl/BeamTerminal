@@ -19,5 +19,33 @@ services:
       timeout: 5s
       retries: 10
 
+  # BEAM wallet-api 7.5.13882. Only needed for the asset-swaps indexer subsystem
+  # (assets_swap_offers_list — not exposed by the explorer). Opt-in: comment
+  # out if you don't care about asset-swap data locally.
+  #
+  # First boot generates a fresh wallet.db + seed.txt in the named volume; the
+  # wallet holds no funds, it's a read-only gossip subscriber.
+  wallet-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.wallet-api
+    container_name: beamterminal-wallet-api-dev
+    restart: unless-stopped
+    environment:
+      # Public mainnet node P2P endpoint (same host we point EXPLORER_URL at).
+      WALLET_API_NODE_ADDR: explorer.0xmx.net:10000
+      # Wallet-db password. Any non-empty string; this wallet never holds funds.
+      WALLET_API_PASS: beamterminal-dev
+      WALLET_API_PORT: 10005
+      WALLET_API_HTTP: 1
+      # Listening interface inside the container; the port binding below
+      # already restricts external reach to 127.0.0.1.
+      WALLET_API_IP_WHITELIST: 0.0.0.0/0
+    ports:
+      - "127.0.0.1:10005:10005"
+    volumes:
+      - beamterminal-wallet-api-dev:/data
+
 volumes:
   beamterminal-postgres-dev:
+  beamterminal-wallet-api-dev:

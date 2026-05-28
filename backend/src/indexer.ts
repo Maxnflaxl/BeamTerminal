@@ -14,6 +14,9 @@ import { detectAndHealReorg, updateCursor } from './services/reorg.js';
 import { seedImposters } from './imposters.js';
 import { refreshDexStats } from './services/dexStats.js';
 import { ingestRange as ingestBlockMetricsRange, maxIndexedHeight as maxBlockMetricsHeight } from './services/blockMetrics.js';
+import { syncAssetSwapOffers } from './services/assetSwapOffers.js';
+import { syncAtomicSwapOffers, snapshotAtomicSwapTotals } from './services/atomicSwaps.js';
+import { syncDappStore } from './services/dappStore.js';
 
 let stopping = false;
 
@@ -38,6 +41,21 @@ let blockMetricsInflight = false;
 const DEX_STATS_REFRESH_MS = 5 * 60 * 1000;
 let lastDexStatsRefresh = 0;
 let dexStatsRefreshInflight = false;
+
+// Asset-swap offers (wallet-api). Independent of the main tick — runs at its
+// own cadence so a slow wallet-api can't stall DEX call ingest. No-ops when
+// WALLET_API_URL is unset.
+let lastAssetSwapsSync = 0;
+let assetSwapsInflight = false;
+
+// Atomic-swap mirror runs once per tick (cheap, two HTTP calls).
+let atomicSwapsInflight = false;
+
+// DApp Store ingest resyncs at the assets-catalog cadence (10 min). Call
+// volume is tiny — no need to do it every tick.
+const DAPP_STORE_RESYNC_MS = 10 * 60 * 1000;
+let lastDappStoreSync = 0;
+let dappStoreInflight = false;
 
 // ---------------------------------------------------------------------------
 // Cursor
@@ -140,6 +158,69 @@ function maybeKickBlockMetricsCatchUp(headHeight: number): void {
       );
     })
     .finally(() => { blockMetricsInflight = false; });
+}
+
+// Fire-and-forget poll of the wallet-api for asset-swap offers. Independent
+// cadence so DEX ingest never waits on a slow wallet daemon.
+function maybeKickAssetSwapsSync(): void {
+  if (assetSwapsInflight) return;
+  const now = Date.now();
+  if (now - lastAssetSwapsSync < config.ASSET_SWAP_POLL_MS) return;
+  assetSwapsInflight = true;
+  syncAssetSwapOffers()
+    .then((res) => {
+      lastAssetSwapsSync = Date.now();
+      if (res) logger.debug(res, 'asset swap offers synced');
+    })
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'asset swap offers sync failed; will retry next tick',
+      );
+    })
+    .finally(() => { assetSwapsInflight = false; });
+}
+
+// Atomic-swap offers + totals (explorer-driven). Cheap and synchronous-ish; we
+// still gate to avoid stacking when an explorer request hangs.
+function maybeKickAtomicSwapsSync(headHeight: number): void {
+  if (atomicSwapsInflight) return;
+  atomicSwapsInflight = true;
+  (async () => {
+    await syncAtomicSwapOffers();
+    await snapshotAtomicSwapTotals(headHeight);
+  })()
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'atomic swap sync failed; will retry next tick',
+      );
+    })
+    .finally(() => { atomicSwapsInflight = false; });
+}
+
+// DApp Store registry ingest. Runs the local app-shader (`dapps_store_app.wasm`)
+// against the live contract via wallet-api `invoke_contract`. No headHeight
+// argument: the shader reads chain state at the wallet's tip.
+function maybeKickDappStoreSync(): void {
+  if (dappStoreInflight) return;
+  if (!config.DAPP_STORE_CID) return;
+  if (!config.WALLET_API_URL) return; // wasm execution needs the daemon
+  const now = Date.now();
+  if (now - lastDappStoreSync < DAPP_STORE_RESYNC_MS) return;
+  dappStoreInflight = true;
+  syncDappStore()
+    .then((res) => {
+      lastDappStoreSync = Date.now();
+      if (res) logger.info(res, 'dapp-store synced');
+    })
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'dapp-store sync failed; will retry next tick',
+      );
+    })
+    .finally(() => { dappStoreInflight = false; });
 }
 
 async function maybeSyncAssetsCatalog(): Promise<void> {
@@ -326,6 +407,9 @@ async function steadyTick(headHeight: number, headTs: Date, headHash: string | u
 async function tick(): Promise<void> {
   await maybeSyncAssetsCatalog();
   maybeKickDexStatsRefresh();
+  // These three are independent of the chain head and self-rate-limited;
+  // kick them every tick — each one bails fast when it's not yet due.
+  maybeKickAssetSwapsSync();
 
   // Reorg check BEFORE any new ingest. If the chain rewrote our last-indexed
   // block, the cursor (and tables) get rewound to a common ancestor first.
@@ -336,6 +420,8 @@ async function tick(): Promise<void> {
   // without doing its own explorer round-trip.
   await q('UPDATE cursor SET last_chain_head = $1 WHERE id = 1', [status.height]);
   maybeKickBlockMetricsCatchUp(status.height);
+  maybeKickAtomicSwapsSync(status.height);
+  maybeKickDappStoreSync();
   const headTs = await getBlockTs(status.height);
   // Fetch head block to get the kernel hash for cursor persistence.
   const headBlock = await getBlock({ height: status.height });
