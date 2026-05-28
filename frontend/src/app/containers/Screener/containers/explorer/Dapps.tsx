@@ -554,15 +554,21 @@ const DownloadBtn: React.FC<{
   onMsg: (m: string) => void;
 }> = ({ cid, filename, onMsg }) => {
   const [busy, setBusy] = useState(false);
-  // Only the desktop Qt wallet exposes `ipfs_get` to dapps. On the public web
-  // (and mobile) we have no way to talk to BEAM's private IPFS swarm, so the
-  // button is rendered disabled with a tooltip explaining why.
-  const canDownload = BeamDappConnector.isDesktop();
-  const disabled = !cid || !canDownload || busy;
+  // Hidden inside the BEAM Desktop Wallet: the wallet's QtWebEngine profile has
+  // no `downloadRequested` handler, so the Blob `<a download>` trick is dropped
+  // silently. Until the wallet patches that we don't even render the button —
+  // only web mode (when our backend IPFS proxy ships) will offer downloads.
+  if (BeamDappConnector.isDesktop()) return null;
+  // Web flow is gated on the backend IPFS proxy (a Kubo daemon joined to BEAM's
+  // private swarm, exposed via `/api/dapp/:cid`). Until that ships the button
+  // stays visible-but-disabled so the UI surfaces the "downloads exist on web,
+  // not yet" story without lying about wallet-side downloads working.
+  const proxyReady = false;
+  const disabled = !cid || !proxyReady || busy;
   const tooltip = !cid
     ? 'No IPFS CID recorded for this version.'
-    : !canDownload
-      ? "Open BeamTerminal inside the BEAM Wallet to download — the .dapp bundle lives on BEAM's private IPFS swarm and isn't reachable from a normal browser."
+    : !proxyReady
+      ? "Download not yet available — BeamTerminal's backend IPFS proxy is still being wired up. Until then the .dapp bundle is only reachable from BEAM's private swarm."
       : busy
         ? 'Downloading from IPFS…'
         : `Download .dapp from IPFS (${cid.slice(0, 8)}…)`;
@@ -575,7 +581,7 @@ const DownloadBtn: React.FC<{
       style={disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
       onClick={async (e) => {
         e.stopPropagation();
-        if (!cid || !canDownload || busy) return;
+        if (!cid || !proxyReady || busy) return;
         setBusy(true);
         onMsg('Downloading from IPFS…');
         try {
