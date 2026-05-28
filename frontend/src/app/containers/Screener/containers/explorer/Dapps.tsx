@@ -559,15 +559,25 @@ const DownloadBtn: React.FC<{
   // Hidden inside the BEAM Desktop Wallet: its QtWebEngine profile has no
   // `downloadRequested` handler, so any browser download is silently dropped.
   if (BeamDappConnector.isDesktop()) return null;
-  const disabled = !cid;
+  // Web flow needs a backend IPFS proxy that can actually fetch dapp bytes
+  // from BEAM's private swarm. The Kubo experiment showed the bootstrap
+  // nodes don't store content and don't expose enough DHT for Kubo to
+  // discover content-bearing peers; the next attempt is to enable IPFS
+  // in the wallet-api container (asio-ipfs is BEAM's blessed path) and
+  // proxy `ipfs_get` through it. Until that's wired the button stays
+  // visible-but-disabled so the UI doesn't link to a 404.
+  void filename; void gatewayDownloadUrl;
+  const proxyReady = false;
+  const disabled = !cid || !proxyReady;
+  const tooltip = !cid
+    ? 'No IPFS CID recorded for this version.'
+    : "Download isn't wired up yet — the backend IPFS proxy is being rebuilt to use the same asio-ipfs path as the BEAM wallet. CID is copyable above.";
   return (
     <IconLink
-      href={cid ? gatewayDownloadUrl(cid, filename) : undefined}
-      download={cid ? filename : undefined}
-      rel="noopener"
-      title={cid ? `Download .dapp from IPFS (${cid.slice(0, 8)}…)` : 'No IPFS CID recorded for this version.'}
-      aria-label="Download .dapp file"
+      href={undefined}
       aria-disabled={disabled || undefined}
+      title={tooltip}
+      aria-label="Download .dapp file"
       onClick={(e) => e.stopPropagation()}
     >
       <DownloadIcon />
