@@ -17,6 +17,7 @@ import { ingestRange as ingestBlockMetricsRange, maxIndexedHeight as maxBlockMet
 import { syncAssetSwapOffers } from './services/assetSwapOffers.js';
 import { syncAtomicSwapOffers, snapshotAtomicSwapTotals } from './services/atomicSwaps.js';
 import { syncDappStore } from './services/dappStore.js';
+import { syncIpfsPins } from './services/ipfsPin.js';
 
 let stopping = false;
 
@@ -56,6 +57,14 @@ let atomicSwapsInflight = false;
 const DAPP_STORE_RESYNC_MS = 10 * 60 * 1000;
 let lastDappStoreSync = 0;
 let dappStoreInflight = false;
+
+// IPFS pin sweep. Walks dapps + dapp_versions for rows whose CID we haven't
+// pinned yet on our wallet-api node and pins them. Faster cadence than the
+// dapp-store sync itself (3 min) so a newly-indexed dapp gets pinned within
+// a couple of ticks. The sweep is a no-op once the backlog is drained.
+const IPFS_PIN_RESYNC_MS = 3 * 60 * 1000;
+let lastIpfsPinSync = 0;
+let ipfsPinInflight = false;
 
 // ---------------------------------------------------------------------------
 // Cursor
@@ -221,6 +230,26 @@ function maybeKickDappStoreSync(): void {
       );
     })
     .finally(() => { dappStoreInflight = false; });
+}
+
+function maybeKickIpfsPinSync(): void {
+  if (ipfsPinInflight) return;
+  if (!config.WALLET_API_URL) return; // pin RPC needs the daemon
+  const now = Date.now();
+  if (now - lastIpfsPinSync < IPFS_PIN_RESYNC_MS) return;
+  ipfsPinInflight = true;
+  syncIpfsPins()
+    .then((res) => {
+      lastIpfsPinSync = Date.now();
+      if (res) logger.info(res, 'ipfs-pin batch');
+    })
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'ipfs-pin sync failed; will retry next tick',
+      );
+    })
+    .finally(() => { ipfsPinInflight = false; });
 }
 
 async function maybeSyncAssetsCatalog(): Promise<void> {
@@ -422,6 +451,11 @@ async function tick(): Promise<void> {
   maybeKickBlockMetricsCatchUp(status.height);
   maybeKickAtomicSwapsSync(status.height);
   maybeKickDappStoreSync();
+  // Pin newly-indexed dapps on our wallet-api node so /ipfs/<cid> and
+  // /api/dapp/:cid keep working even when the original publisher's IPFS
+  // node goes offline. Self-paced, drains the backlog in MAX_PINS_PER_TICK
+  // chunks. Cheap when there's no backlog.
+  maybeKickIpfsPinSync();
   const headTs = await getBlockTs(status.height);
   // Fetch head block to get the kernel hash for cursor persistence.
   const headBlock = await getBlock({ height: status.height });

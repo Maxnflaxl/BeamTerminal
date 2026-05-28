@@ -180,6 +180,16 @@ export interface InvokeContractResult<TOutput = unknown> {
 // typically a few MB; cap higher if/when bigger CIDs appear.
 // ---------------------------------------------------------------------------
 
+// ipfs_pin — instructs asio-ipfs to fetch the CID if not already cached and
+// hold it forever (no GC eviction). Idempotent: a second pin of the same CID
+// is a no-op on the wallet-api side. Returns the same `hash` on success;
+// surfaces RPC-level errors via the call() wrapper.
+export async function pinIpfs(cid: string, timeoutMs?: number): Promise<void> {
+  const params: Record<string, unknown> = { hash: cid };
+  if (timeoutMs !== undefined) params.timeout = timeoutMs;
+  await call<{ hash: string }>('ipfs_pin', params);
+}
+
 export async function getIpfs(cid: string, timeoutMs?: number): Promise<Buffer> {
   // Wallet-api `timeout` is **milliseconds**, matching
   // beam-ui/apps_view.cpp:40 `kIpfsTimeout = 20 * 1000`. Don't pass a number
