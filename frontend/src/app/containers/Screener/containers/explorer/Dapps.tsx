@@ -17,6 +17,7 @@ import TelegramIcon from './shared/icons/social-telegram.svg';
 import DiscordIcon from './shared/icons/social-discord.svg';
 import LinkedinIcon from './shared/icons/social-linkedin.svg';
 import InstagramIcon from './shared/icons/social-instagram.svg';
+import WebsiteIcon from './shared/icons/social-website.svg';
 
 // ---------------------------------------------------------------------------
 // /dapps — directory of dapps published to the BEAM DApp Store registry
@@ -298,15 +299,39 @@ const Toast = styled.div`
 // helpers
 // ---------------------------------------------------------------------------
 
+// Multi-unit relative time. For older entries we want "2y 2m 3d ago" rather
+// than "1234d ago" — the longer something has been around the more useful the
+// composite breakdown is.
+//
+// "Months" here are 30 days, "years" 365 — fine for display: we never claim
+// a precise calendar duration, and the trailing units (e.g. "3d") let the
+// user spot rough age. We show up to two non-zero units, biggest first.
 function fmtRelative(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const ts = new Date(iso).getTime();
   if (!Number.isFinite(ts)) return null;
-  const delta = Math.round((Date.now() - ts) / 1000);
-  if (delta < 60) return `${delta}s ago`;
-  if (delta < 3600) return `${Math.round(delta / 60)}m ago`;
-  if (delta < 86400) return `${Math.round(delta / 3600)}h ago`;
-  return `${Math.round(delta / 86400)}d ago`;
+  let s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+
+  const Y = 365 * 24 * 3600;
+  const M = 30  * 24 * 3600;
+  const D = 24 * 3600;
+  const H = 3600;
+  const MIN = 60;
+  const parts: string[] = [];
+  const take = (size: number, suf: string) => {
+    const n = Math.floor(s / size);
+    if (n > 0) { parts.push(`${n}${suf}`); s -= n * size; }
+  };
+  take(Y, 'y');
+  take(M, 'mo');
+  // No years/months → fall through to days/hours/minutes.
+  take(D, 'd');
+  take(H, 'h');
+  take(MIN, 'm');
+  // Keep at most two units (biggest first) so older entries read like
+  // "2y 2mo" and recent ones like "3h 12m". Single-unit ("4d") is fine too.
+  return parts.slice(0, 2).join(' ') + ' ago';
 }
 
 function fmtAbsolute(iso: string | null | undefined): string | null {
@@ -364,18 +389,37 @@ function shortKey(s: string | null | undefined, head = 8, tail = 6): string {
 }
 
 // Publisher-supplied URLs land here straight from on-chain state — anyone can
-// register as a publisher and put anything in these fields. Reject every
-// scheme except http(s) so a malicious publisher can't ship a `javascript:`
-// payload via the directory.
+// register as a publisher and put anything in these fields. We:
+//   1. Reject every scheme except http(s) (no `javascript:`, `data:`, etc.).
+//   2. Normalize schemeless inputs like "example.com" to "https://example.com"
+//      — previously we resolved them via `new URL(u, window.location.origin)`,
+//      which produced a same-origin URL ("https://<our-host>/example.com"),
+//      and clicks ended up react-router-navigating inside the SPA instead of
+//      opening the external site.
+const KNOWN_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+const HTTPS_SCHEME_RE = /^https?:\/\//i;
+
 function safeHttpUrl(u: string | null | undefined): string | undefined {
   if (!u) return undefined;
+  const s = u.trim();
+  if (!s) return undefined;
+  let candidate: string;
+  if (HTTPS_SCHEME_RE.test(s)) {
+    candidate = s;
+  } else if (KNOWN_SCHEME_RE.test(s)) {
+    // Has a scheme but it isn't http(s) — reject (javascript:, data:, mailto:, …).
+    return undefined;
+  } else {
+    candidate = `https://${s}`;
+  }
   try {
-    const parsed = new URL(u, window.location.origin);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return parsed.toString();
-    }
-  } catch { /* fall through */ }
-  return undefined;
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+    if (!parsed.hostname) return undefined;
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 // For dapp icons we accept three shapes:
@@ -430,7 +474,7 @@ const CopyKey: React.FC<{ value: string; onCopy: (msg: string) => void; show?: '
 
 const SocialLinks: React.FC<{ social: ApiDappPublisher['social']; website: string | null }> = ({ social, website }) => {
   const links: Array<{ key: string; href: string; label: string; Icon: React.FC<React.SVGProps<SVGSVGElement>> }> = [];
-  if (safeHttpUrl(website))           links.push({ key: 'site',  href: safeHttpUrl(website)!,           label: 'Website',  Icon: ExternalIcon });
+  if (safeHttpUrl(website))           links.push({ key: 'site',  href: safeHttpUrl(website)!,           label: 'Website',  Icon: WebsiteIcon });
   if (safeHttpUrl(social.twitter))    links.push({ key: 'x',     href: safeHttpUrl(social.twitter)!,    label: 'X / Twitter', Icon: TwitterIcon });
   if (safeHttpUrl(social.telegram))   links.push({ key: 'tg',    href: safeHttpUrl(social.telegram)!,   label: 'Telegram', Icon: TelegramIcon });
   if (safeHttpUrl(social.discord))    links.push({ key: 'dc',    href: safeHttpUrl(social.discord)!,    label: 'Discord',  Icon: DiscordIcon });
@@ -438,7 +482,10 @@ const SocialLinks: React.FC<{ social: ApiDappPublisher['social']; website: strin
   if (safeHttpUrl(social.instagram))  links.push({ key: 'ig',    href: safeHttpUrl(social.instagram)!,  label: 'Instagram', Icon: InstagramIcon });
   if (links.length === 0) return <Muted style={{ margin: 0 }}>No social links.</Muted>;
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    // Stop propagation here so the link click doesn't bubble to a parent
+    // <tr>/Card with its own onClick (which would open the modal *and* try to
+    // navigate, leaving the user on the pairs list).
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
       {links.map(({ key, href, label, Icon }) => (
         <SocialLink key={key} href={href} target="_blank" rel="noreferrer noopener" title={label} aria-label={label}>
           <Icon />
@@ -448,14 +495,6 @@ const SocialLinks: React.FC<{ social: ApiDappPublisher['social']; website: strin
   );
 };
 
-const ExternalIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  // Tiny inline external-link glyph; matches the social icon stroke weight.
-  <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
-    <path d="M9 2h5v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M14 2 7 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-  </svg>
-);
 
 // ---------------------------------------------------------------------------
 // Publisher modal
@@ -858,11 +897,7 @@ export const Dapps: React.FC = () => {
                           <td className="mono">{p.dapps_count}</td>
                           <td><RelDate iso={p.first_seen_at} reason="No DApp Store calls have been observed from this publisher yet." /></td>
                           <td><RelDate iso={p.last_updated_at} reason="No DApp Store calls have been observed from this publisher yet." /></td>
-                          <td>
-                            <div onClick={(e) => e.stopPropagation()}>
-                              <SocialLinks social={p.social} website={p.website} />
-                            </div>
-                          </td>
+                          <td><SocialLinks social={p.social} website={p.website} /></td>
                         </tr>
                       ))}
                     </tbody>
