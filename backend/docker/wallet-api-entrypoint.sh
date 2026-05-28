@@ -93,7 +93,11 @@ SWARM_KEY_FILE="/opt/beam/ipfs/swarm.key"
 if [ "${WALLET_API_ENABLE_IPFS:-1}" = "1" ] && [ -f "$SWARM_KEY_FILE" ]; then
   SWARM_KEY_CONTENT="$(cat "$SWARM_KEY_FILE")"
   IPFS_ARGS=(
-    "--enable_ipfs"
+    # --enable_ipfs takes an explicit bool: its `implicit_value` (used when
+    # the flag appears without an arg) is `false`, set by
+    # createIPFSOptionsDesrition(false, ...) in beam/wallet/api/cli/api_cli.cpp.
+    # So we MUST pass "1" or the flag is a no-op.
+    "--enable_ipfs" "1"
     "--ipfs_repo" "$IPFS_REPO"
     "--ipfs_storage_max" "10GB"
     "--ipfs_swarm_key" "$SWARM_KEY_CONTENT"
