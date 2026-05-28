@@ -29,10 +29,12 @@ interface DappRow {
   version_minor: number | null;
   version_release: number | null;
   version_build: number | null;
-  first_seen_height: string;
-  first_seen_at: Date;
-  last_updated_height: string;
-  last_updated_at: Date;
+  // 029 made these nullable: a dapp under a multi-dapp publisher has no
+  // unambiguous on-chain attribution (see services/dappStore.ts).
+  first_seen_height: string | null;
+  first_seen_at: Date | null;
+  last_updated_height: string | null;
+  last_updated_at: Date | null;
   deleted_at: Date | null;
 }
 
@@ -47,10 +49,10 @@ interface PublisherRow {
   instagram: string | null;
   telegram: string | null;
   discord: string | null;
-  first_seen_height: string;
-  first_seen_at: Date;
-  last_updated_height: string;
-  last_updated_at: Date;
+  first_seen_height: string | null;
+  first_seen_at: Date | null;
+  last_updated_height: string | null;
+  last_updated_at: Date | null;
   dapps_count: string;
 }
 
@@ -98,10 +100,10 @@ function shapeDapp(r: DappRow): Record<string, unknown> {
       release: r.version_release,
       build: r.version_build,
     },
-    first_seen_height: Number(r.first_seen_height),
-    first_seen_at: r.first_seen_at.toISOString(),
-    last_updated_height: Number(r.last_updated_height),
-    last_updated_at: r.last_updated_at.toISOString(),
+    first_seen_height:   r.first_seen_height   != null ? Number(r.first_seen_height)   : null,
+    first_seen_at:       r.first_seen_at       != null ? r.first_seen_at.toISOString() : null,
+    last_updated_height: r.last_updated_height != null ? Number(r.last_updated_height) : null,
+    last_updated_at:     r.last_updated_at     != null ? r.last_updated_at.toISOString() : null,
     deleted_at: r.deleted_at ? r.deleted_at.toISOString() : null,
   };
 }
@@ -202,10 +204,10 @@ export async function dappsRoutes(app: FastifyInstance): Promise<void> {
           telegram: r.telegram,
           discord: r.discord,
         },
-        first_seen_height: Number(r.first_seen_height),
-        first_seen_at: r.first_seen_at.toISOString(),
-        last_updated_height: Number(r.last_updated_height),
-        last_updated_at: r.last_updated_at.toISOString(),
+        first_seen_height:   r.first_seen_height   != null ? Number(r.first_seen_height)   : null,
+        first_seen_at:       r.first_seen_at       != null ? r.first_seen_at.toISOString() : null,
+        last_updated_height: r.last_updated_height != null ? Number(r.last_updated_height) : null,
+        last_updated_at:     r.last_updated_at     != null ? r.last_updated_at.toISOString() : null,
         dapps_count: Number(r.dapps_count),
       })),
     };
