@@ -4,6 +4,8 @@ import {
   Page, Card, ExplorerHeader, H1, H3, Subtitle, Muted, TabBtn,
   Pill, DataTable, ScrollX, ErrorBox, theme,
 } from './shared';
+import { BeamIcon as BeamIconSvg } from '@app/shared/icons';
+import { BEAM_ID } from '@app/shared/constants';
 import { api } from '../../api/client';
 import type {
   ApiAssetSwapOffer,
@@ -19,7 +21,9 @@ const AssetCell = styled.span`
 `;
 
 const AssetIcon = styled.span`
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -27,7 +31,7 @@ const AssetIcon = styled.span`
   border: 1px solid ${theme.color.borderDim};
   overflow: hidden;
   flex: 0 0 18px;
-  img {
+  img, svg {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -166,16 +170,21 @@ export const AssetSwaps: React.FC = () => {
   }
 
   // Render the `<icon> <name> (<id>)` cell used in both swap legs. BEAM (aid 0)
-  // doesn't ship a logo in /assets (it's the chain native), so we fall back to
-  // a plain placeholder. Logos from the on-chain OPT_LOGO_URL metadata are
-  // already URL-validated upstream — accept whatever the catalogue gives us.
+  // is the chain native and has no /assets logo_url, so we fall back to the
+  // inlined branded glyph used by the rest of the app. Logos from the on-chain
+  // OPT_LOGO_URL metadata are already URL-validated upstream — accept whatever
+  // the catalogue gives us.
   function renderAssetCell(aid: number, currencyName: string | null): React.ReactNode {
     const asset = assetIndex.get(aid);
     const label = labelForAid(aid, currencyName);
     const logo = asset?.logo_url ?? null;
     return (
       <AssetCell>
-        <AssetIcon>{logo ? <img src={logo} alt="" /> : null}</AssetIcon>
+        <AssetIcon>
+          {logo ? <img src={logo} alt="" />
+            : aid === BEAM_ID ? <BeamIconSvg />
+              : null}
+        </AssetIcon>
         <span>{label}</span>
         <AssetAid>(#{aid})</AssetAid>
       </AssetCell>
