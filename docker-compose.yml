@@ -83,8 +83,10 @@ services:
       - ./backend/ipfs/swarm.key:/data/ipfs/swarm.key:ro
       - ./backend/ipfs/init.sh:/container-init.d/01-beam-private-swarm.sh:ro
     ports:
-      - "127.0.0.1:8080:8080"   # gateway (nginx proxies here)
-      - "127.0.0.1:5001:5001"   # admin API (loopback-only)
+      # Host port 8080 is held by mailcow; the gateway lives on 8085 instead.
+      # nginx (gateway.beamterminal.0xmx.net server block) proxies to this.
+      - "127.0.0.1:8085:8080"   # gateway
+      - "127.0.0.1:5011:5001"   # admin API (loopback-only)
     healthcheck:
       test: ["CMD", "ipfs", "id"]
       interval: 10s

@@ -149,8 +149,9 @@ services:
       - ./backend/ipfs/swarm.key:/data/ipfs/swarm.key:ro
       - ./backend/ipfs/init.sh:/container-init.d/01-beam-private-swarm.sh:ro
     ports:
-      - "127.0.0.1:8080:8080"   # gateway (nginx proxies here)
-      - "127.0.0.1:5001:5001"   # admin API (loopback-only)
+      # Host port 8080 is held by mailcow; gateway lives on 8085 instead.
+      - "127.0.0.1:8085:8080"   # gateway (nginx proxies here)
+      - "127.0.0.1:5011:5001"   # admin API (loopback-only)
     healthcheck:
       test: ["CMD", "ipfs", "id"]
       interval: 10s
@@ -304,7 +305,7 @@ docker compose exec ipfs ipfs swarm peers          # expect ≥1 line
 docker compose exec ipfs ipfs id | head -3         # confirms PNet enabled
 
 # Smoke test against a real dapp CID (Bridge App at time of writing):
-curl -sIL http://127.0.0.1:8080/ipfs/QmPWrArdausWmzB44nygzK8nxjuuQGk9MBNuWyMCHacRtn \
+curl -sIL http://127.0.0.1:8085/ipfs/QmPWrArdausWmzB44nygzK8nxjuuQGk9MBNuWyMCHacRtn \
   --max-time 30 | head -5                          # 200 OK + Content-Length
 ```
 

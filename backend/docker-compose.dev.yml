@@ -63,8 +63,11 @@ services:
       - ./ipfs/swarm.key:/data/ipfs/swarm.key:ro
       - ./ipfs/init.sh:/container-init.d/01-beam-private-swarm.sh:ro
     ports:
-      - "127.0.0.1:8080:8080"  # gateway
-      - "127.0.0.1:5001:5001"  # api (admin surface; kept loopback)
+      # Same offsets as production: host 8080 / 5001 are often busy
+      # (mailcow on prod, possibly other things locally). Use 8085 / 5011
+      # so the dev daemon doesn't collide.
+      - "127.0.0.1:8085:8080"  # gateway
+      - "127.0.0.1:5011:5001"  # api (admin surface; kept loopback)
     healthcheck:
       test: ["CMD", "ipfs", "id"]
       interval: 10s
