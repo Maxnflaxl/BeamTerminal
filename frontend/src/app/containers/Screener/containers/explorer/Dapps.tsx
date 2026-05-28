@@ -58,11 +58,16 @@ const ACTION_LABEL: Record<number, string> = {
 // styled bits
 // ---------------------------------------------------------------------------
 
+// Flex `gap` is unsupported in QtWebEngine 5.15.2 (Chrome 83) used by the
+// shipped Beam Wallet — silently ignored. Use the negative-outer-margin
+// pattern for flex-wrap containers so spacing renders in the wallet too.
 const Toolbar = styled.div`
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
-  margin: 8px 0 12px;
+  margin: 5px 0 12px;
+  margin-right: -3px;
+  margin-left: -3px;
+  & > * { margin: 3px; }
 `;
 
 const Mono = styled.span`
@@ -82,7 +87,6 @@ const DappCard = styled.button`
   border-radius: ${theme.radius.md};
   padding: 12px 14px;
   display: flex;
-  gap: 12px;
   align-items: flex-start;
   text-align: left;
   font: inherit;
@@ -90,6 +94,7 @@ const DappCard = styled.button`
   color: ${theme.color.text};
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
+  & > * + * { margin-left: 12px; }
   &:hover { border-color: ${theme.color.accent}; background: rgba(0, 246, 210, 0.04); }
 `;
 
@@ -150,17 +155,18 @@ const CardDesc = styled.div`
 const CardMeta = styled.div`
   font-size: 10px;
   color: ${theme.color.muted};
-  margin-top: 8px;
+  margin-top: 5px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 10px;
   align-items: center;
+  margin-right: -5px;
+  margin-left: -5px;
+  & > * { margin: 3px 5px; }
 `;
 
 const PublisherChip = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   background: rgba(255, 255, 255, 0.06);
   border-radius: 4px;
   padding: 2px 6px;
@@ -170,6 +176,7 @@ const PublisherChip = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  & > * + * { margin-left: 4px; }
 `;
 
 const IconButton = styled.button`
@@ -206,17 +213,24 @@ const SocialLink = styled.a`
 const KeyRow = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
   flex-wrap: wrap;
+  margin-right: -3px;
+  margin-left: -3px;
+  & > * { margin: 3px; }
 `;
 
 // ---------------------------------------------------------------------------
 // Modal
 // ---------------------------------------------------------------------------
 
+// `inset: 0` shorthand isn't supported in QtWebEngine 5.15.2 (Chrome 83),
+// so the backdrop would collapse to 0x0 and the modal becomes invisible.
 const ModalBackdrop = styled.div`
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(2, 16, 31, 0.75);
   display: flex;
   align-items: center;
@@ -241,10 +255,10 @@ const ModalShell = styled.div`
 
 const ModalHeader = styled.div`
   display: flex;
-  gap: 14px;
   align-items: center;
   padding: 16px 20px 12px;
   border-bottom: 1px solid ${theme.color.divider};
+  & > * + * { margin-left: 14px; }
 `;
 
 const ModalBody = styled.div`
@@ -280,6 +294,22 @@ const FieldLabel = styled.div`
   letter-spacing: 0.06em;
   color: ${theme.color.muted};
   margin-bottom: 3px;
+`;
+
+const FieldRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  margin-right: -12px;
+  margin-left: -12px;
+  & > * { margin: 0 12px; }
+`;
+
+const SocialRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  margin-right: -3px;
+  margin-left: -3px;
+  & > * { margin: 3px; }
 `;
 
 const Toast = styled.div`
@@ -608,13 +638,13 @@ const SocialLinks: React.FC<{ social: ApiDappPublisher['social']; website: strin
     // Stop propagation here so the link click doesn't bubble to a parent
     // <tr>/Card with its own onClick (which would open the modal *and* try to
     // navigate, leaving the user on the pairs list).
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+    <SocialRow onClick={(e) => e.stopPropagation()}>
       {links.map(({ key, href, label, Icon }) => (
         <SocialLink key={key} href={href} target="_blank" rel="noreferrer noopener" title={label} aria-label={label}>
           <Icon />
         </SocialLink>
       ))}
-    </div>
+    </SocialRow>
   );
 };
 
@@ -659,7 +689,7 @@ const PublisherModal: React.FC<{
             <SocialLinks social={publisher.social} website={publisher.website} />
           </Field>
 
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          <FieldRow>
             <Field>
               <FieldLabel>First seen</FieldLabel>
               <DateBlock
@@ -680,7 +710,7 @@ const PublisherModal: React.FC<{
               <FieldLabel>Dapps</FieldLabel>
               <div>{publisher.dapps_count}</div>
             </Field>
-          </div>
+          </FieldRow>
 
           <H3>Published dapps</H3>
           {own.length === 0 ? (
@@ -791,7 +821,7 @@ const DappModal: React.FC<{
             </KeyRow>
           </Field>
 
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          <FieldRow>
             <Field>
               <FieldLabel>First seen</FieldLabel>
               <DateBlock iso={dapp.first_seen_at} height={dapp.first_seen_height} />
@@ -805,7 +835,7 @@ const DappModal: React.FC<{
               <Mono>{dapp.api_version ?? '—'}</Mono>
               <Muted style={{ margin: '2px 0 0', fontSize: 10 }}>min: {dapp.min_api_version ?? '—'}</Muted>
             </Field>
-          </div>
+          </FieldRow>
 
           {dapp.ipfs_id ? (
             <Field>

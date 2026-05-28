@@ -27,3 +27,5 @@ yarn-error.log*
 
 # Built dapp bundles
 *.dapp
+# `scripts/build-dapp.sh` staging directory.
+/beamterminal/
