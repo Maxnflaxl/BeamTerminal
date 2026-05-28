@@ -164,6 +164,33 @@ export interface InvokeContractResult<TOutput = unknown> {
   txid?: string;
 }
 
+// ---------------------------------------------------------------------------
+// ipfs_get
+//
+// Wallet-api speaks to its embedded asio-ipfs daemon (joined to BEAM's private
+// mainnet swarm via --ipfs_swarm_key + --ipfs_bootstrap). This is the only
+// reliable way to fetch dapp bundles from the swarm — public IPFS gateways
+// can't reach private content, and Kubo lacks the BEAM-specific peer
+// discovery asio-ipfs implements (see memory: beam-ipfs-swarm).
+//
+// Wire shape per beam/wallet/api/v7_0/v7_0_api_parse.cpp:128:
+//   { "result": { "hash": "<cid>", "data": [<int>, …] } }
+// `data` is an array of 0..255 byte integers — wallet-api uses JSON-RPC and
+// has no streaming mode, so the whole payload arrives in memory. Dapps are
+// typically a few MB; cap higher if/when bigger CIDs appear.
+// ---------------------------------------------------------------------------
+
+export async function getIpfs(cid: string, timeoutSec?: number): Promise<Buffer> {
+  const params: Record<string, unknown> = { hash: cid };
+  if (timeoutSec !== undefined) params.timeout = timeoutSec;
+  const resp = await call<{ hash: string; data: number[] }>('ipfs_get', params);
+  const data = resp.result?.data;
+  if (!Array.isArray(data)) {
+    throw new Error(`wallet-api ipfs_get: unexpected shape ${JSON.stringify(resp).slice(0, 200)}`);
+  }
+  return Buffer.from(data);
+}
+
 export async function invokeContract<TOutput = unknown>(params: InvokeContractParams): Promise<InvokeContractResult<TOutput>> {
   const rpcParams: Record<string, unknown> = {
     args: params.args,

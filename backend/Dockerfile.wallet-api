@@ -51,6 +51,9 @@ COPY --from=fetch /opt/beam/beam-wallet   /opt/beam/beam-wallet
 COPY --from=fetch /opt/beam/wallet-api.cfg /opt/beam/wallet-api.cfg
 COPY --from=fetch /opt/beam/beam-wallet.cfg /opt/beam/beam-wallet.cfg
 COPY docker/wallet-api-entrypoint.sh /usr/local/bin/wallet-api-entrypoint.sh
+# BEAM mainnet IPFS swarm key — entrypoint passes its contents via
+# --ipfs_swarm_key. Public string from beam/wallet/ipfs/ipfs_imp.cpp:169.
+COPY ipfs/swarm.key /opt/beam/ipfs/swarm.key
 RUN chmod +x /usr/local/bin/wallet-api-entrypoint.sh \
     && mkdir -p /data && chown -R beam:beam /data /opt/beam
 

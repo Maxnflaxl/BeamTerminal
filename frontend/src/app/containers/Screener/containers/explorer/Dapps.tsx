@@ -512,14 +512,12 @@ function dappFilename(name: string | null, version: string | null): string {
 
 // BEAM dapps live on a *private* IPFS swarm (mainnet swarm_key is hard-coded
 // in beam/wallet/ipfs/ipfs_imp.cpp), so the public gateways (ipfs.io,
-// dweb.link, …) can't reach them. We run our own Kubo daemon on the VPS,
-// joined to the same swarm, exposed at this hostname (see `nginx.conf` and
-// `backend/ipfs/`). `?download=true&filename=…` are standard Kubo gateway
-// query params that add `Content-Disposition: attachment; filename=…`.
-const IPFS_GATEWAY = 'https://gateway.beamterminal.0xmx.net/ipfs';
-
-function gatewayDownloadUrl(cid: string, filename: string): string {
-  return `${IPFS_GATEWAY}/${cid}?download=true&filename=${encodeURIComponent(filename)}`;
+// dweb.link, …) can't reach them. Our backend's wallet-api container runs
+// asio-ipfs joined to that swarm and exposes `ipfs_get` over JSON-RPC; the
+// Fastify route `/api/dapp/:cid` wraps it with a Content-Disposition header
+// so the browser handles the download natively.
+function dappDownloadUrl(cid: string, filename: string): string {
+  return `/api/dapp/${cid}?filename=${encodeURIComponent(filename)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -559,25 +557,15 @@ const DownloadBtn: React.FC<{
   // Hidden inside the BEAM Desktop Wallet: its QtWebEngine profile has no
   // `downloadRequested` handler, so any browser download is silently dropped.
   if (BeamDappConnector.isDesktop()) return null;
-  // Web flow needs a backend IPFS proxy that can actually fetch dapp bytes
-  // from BEAM's private swarm. The Kubo experiment showed the bootstrap
-  // nodes don't store content and don't expose enough DHT for Kubo to
-  // discover content-bearing peers; the next attempt is to enable IPFS
-  // in the wallet-api container (asio-ipfs is BEAM's blessed path) and
-  // proxy `ipfs_get` through it. Until that's wired the button stays
-  // visible-but-disabled so the UI doesn't link to a 404.
-  void filename; void gatewayDownloadUrl;
-  const proxyReady = false;
-  const disabled = !cid || !proxyReady;
-  const tooltip = !cid
-    ? 'No IPFS CID recorded for this version.'
-    : "Download isn't wired up yet — the backend IPFS proxy is being rebuilt to use the same asio-ipfs path as the BEAM wallet. CID is copyable above.";
+  const disabled = !cid;
   return (
     <IconLink
-      href={undefined}
-      aria-disabled={disabled || undefined}
-      title={tooltip}
+      href={cid ? dappDownloadUrl(cid, filename) : undefined}
+      download={cid ? filename : undefined}
+      rel="noopener"
+      title={cid ? `Download .dapp from IPFS (${cid.slice(0, 8)}…)` : 'No IPFS CID recorded for this version.'}
       aria-label="Download .dapp file"
+      aria-disabled={disabled || undefined}
       onClick={(e) => e.stopPropagation()}
     >
       <DownloadIcon />

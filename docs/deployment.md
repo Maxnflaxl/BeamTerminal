@@ -134,34 +134,8 @@ services:
       - "127.0.0.1:3000:3000"
     env_file: ./backend/.env
 
-  # Kubo IPFS daemon joined to BEAM's private mainnet swarm. Backs the
-  # public gateway at gateway.beamterminal.0xmx.net/ipfs/<cid>. The
-  # swarm.key + bootstrap addresses are public (taken from beam-ui open
-  # source) and live in backend/ipfs/.
-  ipfs:
-    image: ipfs/kubo:v0.30.0
-    restart: always
-    environment:
-      LIBP2P_FORCE_PNET: "1"
-      IPFS_PROFILE: "server"
-    volumes:
-      - ipfs-data:/data/ipfs
-      - ./backend/ipfs/swarm.key:/data/ipfs/swarm.key:ro
-      - ./backend/ipfs/init.sh:/container-init.d/01-beam-private-swarm.sh:ro
-    ports:
-      # Host port 8080 is held by mailcow; gateway lives on 8085 instead.
-      - "127.0.0.1:8085:8080"   # gateway (nginx proxies here)
-      - "127.0.0.1:5011:5001"   # admin API (loopback-only)
-    healthcheck:
-      test: ["CMD", "ipfs", "id"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
 volumes:
   postgres-data:
-  ipfs-data:
 
 secrets:
   postgres_password:
@@ -186,9 +160,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### Cloudflare setup
 
-1. DNS:
-   - `A beamterminal.0xmx.net → <VPS IPv4>`, **proxied** (orange cloud).
-   - `A gateway.beamterminal.0xmx.net → <VPS IPv4>`, **proxied** — backs the public IPFS gateway served by the Kubo daemon.
+1. DNS: `A beamterminal.0xmx.net → <VPS IPv4>`, **proxied** (orange cloud).
 2. SSL/TLS mode: **Full** (origin can later add a self-signed cert without reconfiguration). Flexible works too but is weaker.
 3. Optional: enable **"Always Use HTTPS"** so Cloudflare redirects bare HTTP at the edge — the origin doesn't need a redirect block.
 
@@ -288,35 +260,37 @@ chown -R www-data:www-data /var/www/beamterminal
 
 Zero-downtime is overkill at this scale — a 5 s API blip on deploy is fine. Migration files are idempotent (the `schema_migrations` table tracks what's been applied), so re-running `migrate.js` after `git pull` is safe.
 
-## IPFS gateway (Kubo, private mainnet swarm)
+## IPFS for `.dapp` downloads
 
-Brought up by the `ipfs` service in `docker-compose.yml` and fronted by the
-`gateway.beamterminal.0xmx.net` server block in `nginx.conf`.
+We don't run a separate IPFS daemon — the `wallet-api` container already
+shipping for asset-swaps and the DApp Store projection is built with
+`BEAM_IPFS_SUPPORT` and embeds `asio-ipfs`. Enabling it is purely a matter
+of CLI flags in `backend/docker/wallet-api-entrypoint.sh`:
 
-First-boot sequence on the VPS:
+* `--enable_ipfs`
+* `--ipfs_swarm_key "$(cat /opt/beam/ipfs/swarm.key)"` — the public BEAM mainnet
+  PSK, baked into the image from `backend/ipfs/swarm.key`.
+* `--ipfs_bootstrap` for each `eu-node0X.mainnet.beam.mw:38041/p2p/…` address.
+
+`/api/dapp/:cid` (Fastify, see `backend/src/api/routes/dapp_download.ts`)
+proxies `ipfs_get` over JSON-RPC and returns the bytes with a
+`Content-Disposition: attachment; filename=…` header. The frontend Download
+button is a plain `<a download href="/api/dapp/<cid>?filename=…">`, so the
+browser handles streaming / progress / right-click "Save as".
+
+Smoke test once `wallet-api` is up:
 
 ```sh
-cd /root/Beam/BeamTerminal
-docker compose up -d ipfs
-
-# Wait ~30s for the daemon to come up, run init.sh, and dial the four BEAM
-# mainnet bootstrap peers. Check it found them:
-docker compose exec ipfs ipfs swarm peers          # expect ≥1 line
-docker compose exec ipfs ipfs id | head -3         # confirms PNet enabled
-
-# Smoke test against a real dapp CID (Bridge App at time of writing):
-curl -sIL http://127.0.0.1:8085/ipfs/QmPWrArdausWmzB44nygzK8nxjuuQGk9MBNuWyMCHacRtn \
-  --max-time 30 | head -5                          # 200 OK + Content-Length
+curl -fsSL -o /tmp/bridge.dapp \
+  "https://beamterminal.0xmx.net/api/dapp/QmPWrArdausWmzB44nygzK8nxjuuQGk9MBNuWyMCHacRtn?filename=BridgeApp.dapp"
+file /tmp/bridge.dapp                  # expect "Zip archive data"
 ```
 
-`docker compose logs -f ipfs` shows libp2p activity. If the daemon refuses to
-start, `LIBP2P_FORCE_PNET=1` means the `swarm.key` volume mount failed — check
-the path in `docker-compose.yml`.
-
-`backend/ipfs/init.sh` only runs on a fresh repo (Kubo's `/container-init.d/`
-hook). After the first boot it's a no-op. To re-apply config changes either
-exec into the container and re-run the relevant `ipfs config …` lines, or wipe
-the `ipfs-data` volume and restart (resync takes ~30s).
+Why this path and not a standalone Kubo daemon: we tried — Kubo's bitswap
+can dial BEAM's bootstrap peers (PSK works) but those peers don't store dapp
+blocks themselves, and the private-swarm DHT has only those four peers, so
+content lookup dead-ends. `asio-ipfs` succeeds because it has BEAM-specific
+peer-discovery logic Kubo doesn't replicate. See memory: beam-ipfs-swarm.
 
 ## `.dapp` distribution
 

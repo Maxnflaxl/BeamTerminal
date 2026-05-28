@@ -65,39 +65,9 @@ services:
     volumes:
       - wallet-api-data:/data
 
-  # Kubo IPFS daemon joined to BEAM's private mainnet swarm. Backs the public
-  # gateway at gateway.beamterminal.0xmx.net/ipfs/<cid>. The swarm.key +
-  # bootstrap addresses are public (taken from beam-ui open source) and live
-  # in backend/ipfs/.
-  #
-  # Not host-network like the others — Kubo's gateway needs predictable port
-  # bindings so nginx on the host can proxy to 127.0.0.1:8080.
-  ipfs:
-    image: ipfs/kubo:v0.30.0
-    restart: always
-    environment:
-      LIBP2P_FORCE_PNET: "1"
-      IPFS_PROFILE: "server"
-    volumes:
-      - ipfs-data:/data/ipfs
-      - ./backend/ipfs/swarm.key:/data/ipfs/swarm.key:ro
-      - ./backend/ipfs/init.sh:/container-init.d/01-beam-private-swarm.sh:ro
-    ports:
-      # Host port 8080 is held by mailcow; the gateway lives on 8085 instead.
-      # nginx (gateway.beamterminal.0xmx.net server block) proxies to this.
-      - "127.0.0.1:8085:8080"   # gateway
-      - "127.0.0.1:5011:5001"   # admin API (loopback-only)
-    healthcheck:
-      test: ["CMD", "ipfs", "id"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
 volumes:
   postgres-data:
   wallet-api-data:
-  ipfs-data:
 
 secrets:
   postgres_password:

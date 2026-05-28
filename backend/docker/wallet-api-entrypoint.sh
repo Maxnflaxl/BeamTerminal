@@ -83,6 +83,33 @@ if [ ! -f "$WALLET_DB" ]; then
   echo "[wallet-api-entrypoint] wallet initialised"
 fi
 
+# Compose the IPFS args. The binary supports `--enable_ipfs`,
+# `--ipfs_swarm_key` (key file contents — not a path), `--ipfs_bootstrap`
+# (multitoken multiaddrs), etc. See beam/utility/cli/options.cpp:644-708.
+# The swarm key + bootstrap addresses are the BEAM mainnet ones from
+# `ipfs_imp.cpp:100-103,169`, baked into the image at /opt/beam/ipfs/.
+IPFS_REPO="${DATA_DIR}/ipfs-repo"
+SWARM_KEY_FILE="/opt/beam/ipfs/swarm.key"
+if [ "${WALLET_API_ENABLE_IPFS:-1}" = "1" ] && [ -f "$SWARM_KEY_FILE" ]; then
+  SWARM_KEY_CONTENT="$(cat "$SWARM_KEY_FILE")"
+  IPFS_ARGS=(
+    "--enable_ipfs"
+    "--ipfs_repo" "$IPFS_REPO"
+    "--ipfs_storage_max" "10GB"
+    "--ipfs_swarm_key" "$SWARM_KEY_CONTENT"
+    # Each bootstrap as its own flag — easier than the multi-token form when
+    # passed through `exec` with quoting.
+    "--ipfs_bootstrap" "/dns4/eu-node01.mainnet.beam.mw/tcp/38041/p2p/12D3KooWJFduasQPYWhw4SsoFPmnJ1PXfmHYaA9qYKvn4JKM2hND"
+    "--ipfs_bootstrap" "/dns4/eu-node02.mainnet.beam.mw/tcp/38041/p2p/12D3KooWCjmtegxdSkkfutWqty39dwhEhYDWCDj6KCizDtft3sqc"
+    "--ipfs_bootstrap" "/dns4/eu-node03.mainnet.beam.mw/tcp/38041/p2p/12D3KooWL5c6JHHkfYLzBjcuot27eyKVhhczvvY617v1cy7QVUHt"
+    "--ipfs_bootstrap" "/dns4/eu-node04.mainnet.beam.mw/tcp/38041/p2p/12D3KooWHpgKQYXJMKXQZuwbuRoFK28cQLiVjCVFxhSpFX9XHNWZ"
+  )
+  echo "[wallet-api-entrypoint] IPFS enabled, repo=$IPFS_REPO"
+else
+  IPFS_ARGS=()
+  echo "[wallet-api-entrypoint] IPFS disabled (WALLET_API_ENABLE_IPFS=${WALLET_API_ENABLE_IPFS:-1})"
+fi
+
 exec /opt/beam/wallet-api \
   --pass "$WALLET_API_PASS" \
   --node_addr "$WALLET_API_NODE_ADDR" \
@@ -90,6 +117,7 @@ exec /opt/beam/wallet-api \
   --port "$PORT" \
   --use_http "$USE_HTTP" \
   --enable_assets \
+  "${IPFS_ARGS[@]}" \
   ${WALLET_API_IP_WHITELIST:+--ip_whitelist "$WALLET_API_IP_WHITELIST"}
 
 # --enable_assets is required to register the DexBoard subscriber that backs
