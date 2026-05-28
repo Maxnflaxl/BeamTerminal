@@ -17,9 +17,11 @@ import { BadRequest, ApiError } from '../error.js';
 // ---------------------------------------------------------------------------
 
 const CID_RE = /^[A-Za-z0-9]{40,80}$/;
-// 90 s lines up with `IPFSConfig.kIpfsTimeout` in beam-ui's apps_view.cpp
-// — that's the worst-case wallets are tuned to tolerate too.
-const IPFS_TIMEOUT_SEC = 90;
+// 90 000 ms — generous, but dapp bundles are a few MB and the first
+// fetch from a cold cache can take a while. The wallet itself uses 20 s
+// (beam-ui/apps_view.cpp:40 kIpfsTimeout = 20 * 1000); we go higher
+// because a backend retry costs less than a failed user download.
+const IPFS_TIMEOUT_MS = 90_000;
 const FILENAME_SAFE_RE = /[^A-Za-z0-9._\- ]+/g;
 
 function sanitizeFilename(s: string): string {
@@ -42,7 +44,7 @@ export const dappDownloadRoutes = async (app: FastifyInstance): Promise<void> =>
 
       let bytes: Buffer;
       try {
-        bytes = await getIpfs(cid, IPFS_TIMEOUT_SEC);
+        bytes = await getIpfs(cid, IPFS_TIMEOUT_MS);
       } catch (err) {
         if (err instanceof WalletApiUnavailableError) {
           throw new ApiError(503, 'IPFS_UNAVAILABLE', 'wallet-api IPFS is not configured');

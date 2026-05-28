@@ -180,9 +180,13 @@ export interface InvokeContractResult<TOutput = unknown> {
 // typically a few MB; cap higher if/when bigger CIDs appear.
 // ---------------------------------------------------------------------------
 
-export async function getIpfs(cid: string, timeoutSec?: number): Promise<Buffer> {
+export async function getIpfs(cid: string, timeoutMs?: number): Promise<Buffer> {
+  // Wallet-api `timeout` is **milliseconds**, matching
+  // beam-ui/apps_view.cpp:40 `kIpfsTimeout = 20 * 1000`. Don't pass a number
+  // smaller than ~5000 — asio-ipfs bails immediately and surfaces
+  // "operation timed out" (RPC error -32022) without retrying any peer.
   const params: Record<string, unknown> = { hash: cid };
-  if (timeoutSec !== undefined) params.timeout = timeoutSec;
+  if (timeoutMs !== undefined) params.timeout = timeoutMs;
   const resp = await call<{ hash: string; data: number[] }>('ipfs_get', params);
   const data = resp.result?.data;
   if (!Array.isArray(data)) {
