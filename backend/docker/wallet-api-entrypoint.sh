@@ -100,6 +100,11 @@ if [ "${WALLET_API_ENABLE_IPFS:-1}" = "1" ] && [ -f "$SWARM_KEY_FILE" ]; then
     "--enable_ipfs" "1"
     "--ipfs_repo" "$IPFS_REPO"
     "--ipfs_storage_max" "10GB"
+    # Default 6100/6200 collide with an existing dappnet beam node on the VPS.
+    # Move to 6101/6201. These are loopback-only by default, no firewall change
+    # needed.
+    "--ipfs_api_addr" "/ip4/127.0.0.1/tcp/6101"
+    "--ipfs_gateway_addr" "/ip4/127.0.0.1/tcp/6201"
     "--ipfs_swarm_key" "$SWARM_KEY_CONTENT"
     # Each bootstrap as its own flag — easier than the multi-token form when
     # passed through `exec` with quoting.
