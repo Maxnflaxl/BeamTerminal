@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
 import { useAsset, useAssetHistory, usePairs } from '../hooks';
 import { fmt$, fmtNum, pairUrlId } from '../components/format';
@@ -126,6 +126,14 @@ const InfoCell = styled.div`
   }
 `;
 
+// CID link in the Issuer cell → opens the contract on the internal block
+// explorer (HashRouter, so this resolves to /#/explorer/beam?...).
+const CidLink = styled(Link)`
+  color: var(--color-green);
+  text-decoration: none;
+  &:hover { text-decoration: underline; }
+`;
+
 const Description = styled.div`
   font-size: 13px;
   color: rgba(255, 255, 255, 0.7);
@@ -233,6 +241,49 @@ export const AssetDetail: React.FC = () => {
     });
   }
 
+  // Issuer label. Contract-issued assets (DEX LP tokens, Asset Minter tokens,
+  // Nephrite, BeamX, …) carry an owner_cid; we show the contract's parser name
+  // (or a generic "Contract" when unknown) plus a shortened, clickable CID that
+  // opens the contract on the internal block explorer.
+  const issuerEl: React.ReactNode = (() => {
+    if (asset.aid === 0) return 'Native (BEAM)';
+    const cid = asset.owner_cid;
+    if (cid) {
+      const kind = asset.owner_kind && asset.owner_kind.trim() ? asset.owner_kind : 'Contract';
+      return (
+        <>
+          {kind}
+          {' ('}
+          <CidLink
+            to={`/explorer/beam?network=mainnet&type=contract&id=${cid}`}
+            title={cid}
+          >
+            {`${cid.slice(0, 6)}…${cid.slice(-4)}`}
+          </CidLink>
+          {')'}
+        </>
+      );
+    }
+    // Wallet-issued: show the owner-key. Clicking it opens the block explorer's
+    // asset list filtered to every asset owned by this wallet key.
+    const addr = asset.owner_addr;
+    if (addr) {
+      return (
+        <>
+          {'Wallet ('}
+          <CidLink
+            to={`/explorer/beam?network=mainnet&type=assets&q=${addr}`}
+            title={`Show all assets owned by ${addr}`}
+          >
+            {`${addr.slice(0, 6)}…${addr.slice(-4)}`}
+          </CidLink>
+          {')'}
+        </>
+      );
+    }
+    return 'Wallet';
+  })();
+
   return (
     <Page>
       <TopBar>
@@ -316,7 +367,7 @@ export const AssetDetail: React.FC = () => {
           </InfoCell>
           <InfoCell>
             <div className="lbl">Issuer</div>
-            <div className="val">{asset.minter_cid ? 'Asset Minter' : asset.aid === 0 ? 'Native (BEAM)' : 'Wallet'}</div>
+            <div className="val">{issuerEl}</div>
           </InfoCell>
         </InfoGrid>
 

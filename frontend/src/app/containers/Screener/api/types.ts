@@ -280,6 +280,15 @@ export interface ApiAsset {
   color: string | null;
   /** Logo URL from the OPT_LOGO_URL metadata key (SVG vector). Null when undefined. */
   logo_url: string | null;
+  /** Issuing contract CID when the asset is owned by a contract (DEX, Asset
+   *  Minter, Nephrite, …). Null for wallet-issued assets and aid 0 (BEAM). */
+  owner_cid: string | null;
+  /** The issuing contract's explorer parser name ("DEX v0", "Nephrite v1",
+   *  "Minter", …). Null when owner_cid is null or the contract is unknown. */
+  owner_kind: string | null;
+  /** Wallet owner-key for wallet-issued assets (shown as "Wallet (<key>)").
+   *  Null for contract-issued assets and aid 0 (BEAM). */
+  owner_addr: string | null;
   pools: Array<{ pair_id: number; aid1: number; aid2: number; kind: number; tvl_usd: number | null }>;
 }
 

@@ -1,6 +1,7 @@
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import {
   createChart, ColorType, CrosshairMode,
@@ -82,9 +83,43 @@ interface ViewState {
   cols?: string;
   dh?: string;
   adj?: string;
+  /** Client-side filter term for the Assets table's Owner column (used to
+   *  deep-link "show every asset owned by this wallet/contract"). */
+  q?: string;
 }
 
-const defaultView: ViewState = { network: 'mainnet', type: 'status' };
+// View state is mirrored into the URL query string (e.g.
+// `?network=mainnet&type=contract&id=<cid>`), matching the original
+// BeamExplorer.htm scheme so any contract/asset/block view is a shareable link.
+const VIEW_TYPES: ReadonlySet<string> = new Set<ViewType>([
+  'status', 'block', 'treasury', 'asset', 'assets',
+  'contract', 'contracts', 'hdrs', 'peers', 'historical',
+]);
+
+// Optional string fields carried in the URL alongside `network`/`type`.
+const VIEW_PARAM_KEYS = [
+  'id', 'height', 'kernel', 'hMin', 'hMax', 'nMax', 'nMaxOps', 'nMaxTxs', 'cols', 'dh', 'adj', 'q',
+] as const;
+
+function parseView(sp: URLSearchParams): ViewState {
+  const rawType = sp.get('type') ?? '';
+  const type = (VIEW_TYPES.has(rawType) ? rawType : 'status') as ViewType;
+  const view: ViewState = { network: sp.get('network') || 'mainnet', type };
+  for (const k of VIEW_PARAM_KEYS) {
+    const v = sp.get(k);
+    if (v !== null) view[k] = v;
+  }
+  return view;
+}
+
+function serializeView(v: ViewState): Record<string, string> {
+  const out: Record<string, string> = { network: v.network, type: v.type };
+  for (const k of VIEW_PARAM_KEYS) {
+    const val = v[k];
+    if (val !== undefined && val !== '') out[k] = String(val);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Column header metadata (block headers grid)
@@ -495,13 +530,17 @@ function BlockLink({ h, ctx }: { h: number | string; ctx: RenderCtx }): JSX.Elem
 }
 
 function CidLink({ cid, ctx }: { cid: string; ctx: RenderCtx }): JSX.Element {
+  // Truncate the 64-char CID so it stays on one line in table columns (the
+  // full value is on hover and one click away); break-all would otherwise wrap
+  // it into a narrow vertical stack.
+  const short = cid.length > 16 ? `${cid.slice(0, 8)}…${cid.slice(-6)}` : cid;
   return (
     <Link
       onClick={(e) => { e.preventDefault(); ctx.go({ type: 'contract', id: cid }); }}
       href="#"
       title={cid}
     >
-      <Mono>{cid}</Mono>
+      <Mono style={{ whiteSpace: 'nowrap' }}>{short}</Mono>
     </Link>
   );
 }
@@ -623,6 +662,218 @@ function GenericTable({ rows, ctx }: { rows: unknown[]; ctx: RenderCtx }): JSX.E
         </tbody>
       </DataTable>
     </ScrollX>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Generic sortable + per-column-searchable table. Mirrors the click-to-filter
+// / click-to-sort header feature of BeamExplorer.htm: every data table routes
+// its rows + column metadata through here while keeping its own cell-rendering
+// in `renderRow`. Filters/sort only appear once a table has enough rows to be
+// worth it (matches the .htm's >5-row gate).
+// ---------------------------------------------------------------------------
+
+const MIN_ROWS_FOR_FILTERS = 6;
+
+interface FilterColumn<T> {
+  header: React.ReactNode;
+  /** Extra class for the <th> (e.g. 'right'). */
+  className?: string;
+  /** Searchable text for this column; omit to make it non-searchable. */
+  text?: (row: T) => string;
+  /** Sort key; omit to make the column non-sortable. */
+  sortKey?: (row: T) => string | number;
+}
+
+// Recursively flatten a typed cell / array / object into searchable text.
+function cellText(cell: unknown): string {
+  if (cell === null || cell === undefined) return '';
+  if (typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean') return String(cell);
+  if (Array.isArray(cell)) return cell.map(cellText).join(' ');
+  if (typeof cell === 'object') {
+    const o = cell as Record<string, unknown>;
+    if ('value' in o) return cellText(o.value);
+    return Object.values(o).map(cellText).join(' ');
+  }
+  return '';
+}
+
+// Numeric-aware sort key: parse the cell's text as a number when possible
+// (so amounts/heights sort numerically), otherwise lowercase the string.
+function cellSort(cell: unknown): string | number {
+  const t = cellText(cell).trim();
+  if (t === '') return '';
+  const n = Number(t.replace(/[, +]/g, ''));
+  return Number.isFinite(n) ? n : t.toLowerCase();
+}
+
+// Extract a block height from a cell. Several explorer tables (contract call
+// history, asset history) return the height as a bare number rather than a
+// `{type:"height", value}` wrapper, so read both shapes.
+function cellHeight(cell: unknown): number | string {
+  if (typeof cell === 'number' || typeof cell === 'string') return cell;
+  if (cell && typeof cell === 'object' && 'value' in (cell as object)) {
+    const v = (cell as { value?: unknown }).value;
+    if (typeof v === 'number' || typeof v === 'string') return v;
+  }
+  return '';
+}
+
+const FilterInput = styled.input`
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ${theme.font.mono};
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 2px 6px;
+  background: ${theme.color.surface};
+  border: 1px solid ${theme.color.border};
+  border-radius: 4px;
+  color: ${theme.color.text};
+  &::placeholder { color: ${theme.color.muted}; }
+`;
+
+const FilterToggle = styled.button`
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-family: ${theme.font.mono};
+  font-size: 11px;
+  color: ${theme.color.muted};
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 4px;
+  &:hover { color: ${theme.color.accent}; }
+`;
+
+function FilterTable<T>({
+  columns, rows, renderRow, initialTerms,
+}: {
+  columns: FilterColumn<T>[];
+  rows: T[];
+  // Returns the <tr>(s) for one row; multiple <tr> are fine (e.g. grouped
+  // contract calls). The caller owns React keys.
+  renderRow: (row: T, index: number) => React.ReactNode;
+  // Pre-applied per-column search terms (column index → term), e.g. when a
+  // deep link asks to show only one owner's assets. Reveals the search row.
+  initialTerms?: Record<number, string>;
+}): JSX.Element {
+  const enabled = rows.length >= MIN_ROWS_FOR_FILTERS;
+  const initialKey = JSON.stringify(initialTerms ?? {});
+  const [showFilters, setShowFilters] = useState(!!initialTerms && Object.keys(initialTerms).length > 0);
+  const [terms, setTerms] = useState<Record<number, string>>(initialTerms ?? {});
+  const [sort, setSort] = useState<{ col: number; dir: 1 | -1 } | null>(null);
+
+  // Re-seed when the deep-linked filter changes (e.g. navigating from one
+  // owner's assets to another's).
+  useEffect(() => {
+    const seed = initialTerms ?? {};
+    if (Object.keys(seed).length > 0) {
+      setTerms(seed);
+      setShowFilters(true);
+    }
+    // initialKey is the stable stringified form of initialTerms.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialKey]);
+
+  const visible = useMemo(() => {
+    if (!enabled) return rows;
+    let out = rows;
+    const active = Object.entries(terms).filter(([, v]) => v.trim() !== '');
+    if (active.length > 0) {
+      out = out.filter((row) => active.every(([ci, term]) => {
+        const col = columns[Number(ci)];
+        if (!col?.text) return true;
+        return col.text(row).toLowerCase().includes(term.trim().toLowerCase());
+      }));
+    }
+    if (sort) {
+      const col = columns[sort.col];
+      if (col?.sortKey) {
+        // Stable sort: keep original order as the tie-breaker.
+        out = out
+          .map((row, i) => ({ row, i, k: col.sortKey!(row) }))
+          .sort((a, b) => {
+            let cmp: number;
+            if (typeof a.k === 'number' && typeof b.k === 'number') cmp = a.k - b.k;
+            else cmp = String(a.k).localeCompare(String(b.k));
+            return cmp === 0 ? a.i - b.i : cmp * sort.dir;
+          })
+          .map((x) => x.row);
+      }
+    }
+    return out;
+  }, [enabled, rows, terms, sort, columns]);
+
+  const toggleSort = useCallback((ci: number) => {
+    if (!columns[ci]?.sortKey) return;
+    // Cycle: ascending → descending → off.
+    setSort((prev) => {
+      if (!prev || prev.col !== ci) return { col: ci, dir: 1 };
+      if (prev.dir === 1) return { col: ci, dir: -1 };
+      return null;
+    });
+  }, [columns]);
+
+  return (
+    <>
+      {enabled && (
+        <FilterToggle
+          type="button"
+          onClick={() => setShowFilters((s) => !s)}
+          title="Show per-column search boxes"
+        >
+          {showFilters ? '▾ Hide filters' : '▸ Filter / sort'}
+          {visible.length !== rows.length ? ` · ${visible.length}/${rows.length}` : ''}
+        </FilterToggle>
+      )}
+      <ScrollX>
+        <DataTable>
+          <thead>
+            <tr>
+              {columns.map((c, ci) => {
+                const sortable = enabled && !!c.sortKey;
+                const arrow = sort?.col === ci ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
+                return (
+                  <th
+                    key={ci}
+                    className={c.className}
+                    data-sortable={sortable ? '' : undefined}
+                    onClick={sortable ? () => toggleSort(ci) : undefined}
+                    title={sortable ? 'Sort column' : undefined}
+                  >
+                    {c.header}{arrow}
+                  </th>
+                );
+              })}
+            </tr>
+            {enabled && showFilters && (
+              <tr>
+                {columns.map((c, ci) => (
+                  <th key={ci} className={c.className}>
+                    {c.text ? (
+                      <FilterInput
+                        value={terms[ci] ?? ''}
+                        placeholder="🔎"
+                        onChange={(e) => {
+                          const { value } = e.target;
+                          setTerms((t) => ({ ...t, [ci]: value }));
+                        }}
+                      />
+                    ) : null}
+                  </th>
+                ))}
+              </tr>
+            )}
+          </thead>
+          <tbody>
+            {visible.map((row, i) => renderRow(row, i))}
+          </tbody>
+        </DataTable>
+      </ScrollX>
+    </>
   );
 }
 
@@ -804,68 +1055,70 @@ function StatusView({ data, ctx }: { data: unknown; ctx: RenderCtx }): JSX.Eleme
 function TxoTable(
   { rows, isInp, ctx }: { rows: any[]; isInp: boolean; ctx: RenderCtx },
 ): JSX.Element {
+  const heightCell = (r: any): any => (isInp ? r.height : r.spent);
+  const extraText = (r: any): string => {
+    const extras: string[] = [];
+    if (r.Asset) extras.push(`CA [${r.Asset.min}-${r.Asset.max}]`);
+    if (r.type) extras.push(String((r.type as TypedCell).value ?? r.type));
+    if (r.Value != null) extras.push(String((r.Value as TypedCell).value ?? r.Value));
+    return extras.join(' ');
+  };
+  const columns: FilterColumn<any>[] = [
+    { header: 'Commitment', text: (r) => String(r.commitment ?? ''), sortKey: (r) => String(r.commitment ?? '') },
+    { header: isInp ? 'Height' : 'Spent', className: 'right', text: (r) => cellText(heightCell(r)), sortKey: (r) => cellSort(heightCell(r)) },
+    { header: 'Maturity', className: 'right', text: (r) => cellText(r.Maturity), sortKey: (r) => cellSort(r.Maturity) },
+    { header: 'Extra', text: extraText, sortKey: extraText },
+  ];
   return (
-    <ScrollX>
-      <DataTable>
-        <thead><tr>
-          <th>Commitment</th>
-          <th>{isInp ? 'Height' : 'Spent'}</th>
-          <th>Maturity</th>
-          <th>Extra</th>
-        </tr></thead>
-        <tbody>
-          {rows.map((r, i) => {
-            const heightCell = isInp ? r.height : r.spent;
-            const extras: string[] = [];
-            if (r.Asset) extras.push(`CA [${r.Asset.min}-${r.Asset.max}]`);
-            if (r.type) extras.push(String((r.type as TypedCell).value ?? r.type));
-            if (r.Value != null) extras.push(String((r.Value as TypedCell).value ?? r.Value));
-            return (
-              <tr key={i}>
-                <td><Mono title={r.commitment}>{r.commitment}</Mono></td>
-                <td className="right">
-                  {heightCell != null ? <BlockLink h={heightCell} ctx={ctx} /> : ''}
-                </td>
-                <td className="right">
-                  {r.Maturity != null ? <RenderValue value={r.Maturity} ctx={ctx} /> : ''}
-                </td>
-                <td>{extras.join(' ')}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </DataTable>
-    </ScrollX>
+    <FilterTable
+      columns={columns}
+      rows={rows}
+      renderRow={(r, i) => (
+        <tr key={i}>
+          <td><Mono title={r.commitment}>{r.commitment}</Mono></td>
+          <td className="right">
+            {heightCell(r) != null ? <BlockLink h={heightCell(r)} ctx={ctx} /> : ''}
+          </td>
+          <td className="right">
+            {r.Maturity != null ? <RenderValue value={r.Maturity} ctx={ctx} /> : ''}
+          </td>
+          <td>{extraText(r)}</td>
+        </tr>
+      )}
+    />
   );
 }
 
-function AssetsTable({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Element {
+function AssetsTable(
+  { data, ctx, ownerFilter }: { data: any; ctx: RenderCtx; ownerFilter?: string },
+): JSX.Element {
   const rawRows = data?.value;
-  const rows: any[][] = Array.isArray(rawRows) ? rawRows : [];
+  const allRows: any[][] = Array.isArray(rawRows) ? rawRows : [];
+  const rows: any[][] = allRows.slice(1).map((row) => (Array.isArray(row) ? row : []));
+  const columns: FilterColumn<any[]>[] = [
+    { header: 'Id', text: (r) => cellText(r[0]), sortKey: (r) => cellSort(r[0]) },
+    { header: 'Owner', text: (r) => cellText(r[1]), sortKey: (r) => cellSort(r[1]) },
+    { header: 'Deposit', className: 'right', text: (r) => cellText(r[2]), sortKey: (r) => cellSort(r[2]) },
+    { header: 'Supply', className: 'right', text: (r) => cellText(r[3]), sortKey: (r) => cellSort(r[3]) },
+    { header: 'Lock Height', text: (r) => cellText(r[4]), sortKey: (r) => cellSort(r[4]) },
+    { header: 'Metadata', text: (r) => cellText(r[5]), sortKey: (r) => cellSort(r[5]) },
+  ];
   return (
-    <ScrollX>
-      <DataTable>
-        <thead><tr>
-          <th>Id</th><th>Owner</th><th className="right">Deposit</th>
-          <th className="right">Supply</th><th>Lock Height</th><th>Metadata</th>
-        </tr></thead>
-        <tbody>
-          {rows.slice(1).map((row, i) => {
-            const r: any[] = Array.isArray(row) ? row : [];
-            return (
-              <tr key={i}>
-                <td><AssetLink aid={r[0]?.value} ctx={ctx} /></td>
-                <td><RenderValue value={r[1]} ctx={ctx} /></td>
-                <td className="right"><AmountClr amount={String(r[2]?.value ?? '')} /></td>
-                <td className="right"><AmountClr amount={String(r[3]?.value ?? '')} /></td>
-                <td>{r[4] != null ? <RenderValue value={r[4]} ctx={ctx} /> : ''}</td>
-                <td><Mono style={{ color: theme.color.purple }}>{String(r[5] ?? '')}</Mono></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </DataTable>
-    </ScrollX>
+    <FilterTable
+      columns={columns}
+      rows={rows}
+      initialTerms={ownerFilter ? { 1: ownerFilter } : undefined}
+      renderRow={(r, i) => (
+        <tr key={i}>
+          <td><AssetLink aid={r[0]?.value} ctx={ctx} /></td>
+          <td><RenderValue value={r[1]} ctx={ctx} /></td>
+          <td className="right"><AmountClr amount={String(r[2]?.value ?? '')} /></td>
+          <td className="right"><AmountClr amount={String(r[3]?.value ?? '')} /></td>
+          <td>{r[4] != null ? <RenderValue value={r[4]} ctx={ctx} /> : ''}</td>
+          <td><Mono style={{ color: theme.color.purple }}>{String(r[5] ?? '')}</Mono></td>
+        </tr>
+      )}
+    />
   );
 }
 
@@ -928,33 +1181,33 @@ function BlockView(
         {Array.isArray(data?.kernels) && data.kernels.length > 0 && (
           <>
             <H3>Kernels ({data.kernels.length})</H3>
-            <ScrollX>
-              <DataTable>
-                <thead><tr>
-                  <th>ID</th><th className="right">Fee</th><th>Height</th><th>Extra</th>
-                </tr></thead>
-                <tbody>
-                  {data.kernels.map((k: any, i: number) => {
-                    const rest = { ...k };
-                    delete rest.id;
-                    delete rest.fee;
-                    delete rest.minHeight;
-                    delete rest.maxHeight;
-                    const mh = k.minHeight ? <BlockLink h={k.minHeight} ctx={ctx} /> : '*';
-                    const xh = k.maxHeight ? <BlockLink h={k.maxHeight} ctx={ctx} /> : '*';
-                    const highlighted = kernelId && k.id === kernelId;
-                    return (
-                      <tr key={i} style={highlighted ? { background: 'rgba(240, 165, 0, 0.12)' } : undefined}>
-                        <td><Mono title={k.id}>{k.id}</Mono></td>
-                        <td className="right"><RenderValue value={k.fee} ctx={ctx} /></td>
-                        <td>{mh}-{xh}</td>
-                        <td><RenderValue value={rest} ctx={ctx} /></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </DataTable>
-            </ScrollX>
+            <FilterTable
+              columns={[
+                { header: 'ID', text: (k) => String(k.id ?? ''), sortKey: (k) => String(k.id ?? '') },
+                { header: 'Fee', className: 'right', text: (k) => cellText(k.fee), sortKey: (k) => cellSort(k.fee) },
+                { header: 'Height', text: (k) => `${cellText(k.minHeight)} ${cellText(k.maxHeight)}`, sortKey: (k) => cellSort(k.minHeight) },
+                { header: 'Extra' },
+              ]}
+              rows={data.kernels as any[]}
+              renderRow={(k, i) => {
+                const rest = { ...k };
+                delete rest.id;
+                delete rest.fee;
+                delete rest.minHeight;
+                delete rest.maxHeight;
+                const mh = k.minHeight ? <BlockLink h={k.minHeight} ctx={ctx} /> : '*';
+                const xh = k.maxHeight ? <BlockLink h={k.maxHeight} ctx={ctx} /> : '*';
+                const highlighted = kernelId && k.id === kernelId;
+                return (
+                  <tr key={i} style={highlighted ? { background: 'rgba(240, 165, 0, 0.12)' } : undefined}>
+                    <td><Mono title={k.id}>{k.id}</Mono></td>
+                    <td className="right"><RenderValue value={k.fee} ctx={ctx} /></td>
+                    <td>{mh}-{xh}</td>
+                    <td><RenderValue value={rest} ctx={ctx} /></td>
+                  </tr>
+                );
+              }}
+            />
           </>
         )}
       </Collapsible>
@@ -997,46 +1250,46 @@ function ContractsView({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Elemen
   const labels: string[] = headerRow.map((c: any) => String(c?.value ?? ''));
   // Default fallback labels match the original `DisplayContracts` thead.
   const L = (i: number, fb: string): string => labels[i] || fb;
+  const dataRows: any[][] = rows.slice(1).map((row) => (Array.isArray(row) ? row : []));
+  // Deploy Height is a bare number in `/contracts?exp_am=1` (reading `.value`
+  // on the number was the source of the "undefined" rendering).
+  const heightVal = (r: any[]): unknown => {
+    const c = r[2];
+    return (c !== null && typeof c === 'object') ? (c as { value?: unknown }).value : c;
+  };
+  const columns: FilterColumn<any[]>[] = [
+    { header: L(0, 'Cid'), text: (r) => cellText(r[0]), sortKey: (r) => cellSort(r[0]) },
+    { header: L(1, 'Kind'), text: (r) => cellText(r[1]), sortKey: (r) => cellSort(r[1]) },
+    { header: L(2, 'Deploy Height'), className: 'right', text: (r) => cellText(heightVal(r)), sortKey: (r) => cellSort(heightVal(r)) },
+    // Locked Funds / Owned Assets are interactive widgets — neither searchable
+    // nor sortable.
+    { header: L(3, 'Locked Funds') },
+    { header: L(4, 'Owned Assets') },
+  ];
   return (
     <>
       <H2>Deployed Smart Contracts</H2>
-      <ScrollX>
-        <DataTable>
-          <thead><tr>
-            <th>{L(0, 'Cid')}</th>
-            <th>{L(1, 'Kind')}</th>
-            <th className="right">{L(2, 'Deploy Height')}</th>
-            <th>{L(3, 'Locked Funds')}</th>
-            <th>{L(4, 'Owned Assets')}</th>
-          </tr></thead>
-          <tbody>
-            {rows.slice(1).map((row, i) => {
-              const r: any[] = Array.isArray(row) ? row : [];
-              const cid = r[0]?.value;
-              // Deploy Height is a bare number in `/contracts?exp_am=1` (see
-              // the original MakeBlock(jRow[2]) call) - reading `.value` on
-              // the number was the source of the "undefined" rendering.
-              const heightCell = r[2];
-              const height = (heightCell !== null && typeof heightCell === 'object')
-                ? (heightCell as { value?: unknown }).value
-                : heightCell;
-              return (
-                <tr key={i}>
-                  <td><CidLink cid={String(cid ?? '')} ctx={ctx} /></td>
-                  <td><RenderValue value={r[1]} ctx={ctx} /></td>
-                  <td className="right">
-                    {height !== undefined && height !== null && height !== ''
-                      ? <BlockLink h={String(height)} ctx={ctx} />
-                      : null}
-                  </td>
-                  <td><LockedFundsWidget funds={r[3]} ctx={ctx} /></td>
-                  <td><OwnedAssetsWidget owned={r[4]} ctx={ctx} /></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </DataTable>
-      </ScrollX>
+      <FilterTable
+        columns={columns}
+        rows={dataRows}
+        renderRow={(r, i) => {
+          const cid = r[0]?.value;
+          const height = heightVal(r);
+          return (
+            <tr key={i}>
+              <td><CidLink cid={String(cid ?? '')} ctx={ctx} /></td>
+              <td><RenderValue value={r[1]} ctx={ctx} /></td>
+              <td className="right">
+                {height !== undefined && height !== null && height !== ''
+                  ? <BlockLink h={String(height)} ctx={ctx} />
+                  : null}
+              </td>
+              <td><LockedFundsWidget funds={r[3]} ctx={ctx} /></td>
+              <td><OwnedAssetsWidget owned={r[4]} ctx={ctx} /></td>
+            </tr>
+          );
+        }}
+      />
     </>
   );
 }
@@ -1065,28 +1318,25 @@ function AssetView(
       <H2>Status of Asset {view.id}</H2>
       <Collapsible open>
         <summary>Asset History</summary>
-        <ScrollX>
-          <DataTable>
-            <thead><tr>
-              <th>Height</th><th>Event</th><th className="right">Amount</th>
-              <th className="right">Total Amount</th><th>Extra</th>
-            </tr></thead>
-            <tbody>
-              {histRows.slice(1).map((row, i) => {
-                const r: any[] = Array.isArray(row) ? row : [];
-                return (
-                  <tr key={i}>
-                    <td><BlockLink h={(r[0] as TypedCell)?.value as string} ctx={ctx} /></td>
-                    <td><RenderValue value={r[1]} ctx={ctx} /></td>
-                    <td className="right"><RenderValue value={r[2]} ctx={ctx} /></td>
-                    <td className="right"><RenderValue value={r[3]} ctx={ctx} /></td>
-                    <td><RenderValue value={r[4]} ctx={ctx} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </DataTable>
-        </ScrollX>
+        <FilterTable
+          columns={[
+            { header: 'Height', text: (r) => cellText(r[0]), sortKey: (r) => cellSort(r[0]) },
+            { header: 'Event', text: (r) => cellText(r[1]), sortKey: (r) => cellSort(r[1]) },
+            { header: 'Amount', className: 'right', text: (r) => cellText(r[2]), sortKey: (r) => cellSort(r[2]) },
+            { header: 'Total Amount', className: 'right', text: (r) => cellText(r[3]), sortKey: (r) => cellSort(r[3]) },
+            { header: 'Extra', text: (r) => cellText(r[4]), sortKey: (r) => cellSort(r[4]) },
+          ]}
+          rows={histRows.slice(1).map((row) => (Array.isArray(row) ? row : []) as any[])}
+          renderRow={(r, i) => (
+            <tr key={i}>
+              <td><BlockLink h={cellHeight(r[0])} ctx={ctx} /></td>
+              <td><RenderValue value={r[1]} ctx={ctx} /></td>
+              <td className="right"><RenderValue value={r[2]} ctx={ctx} /></td>
+              <td className="right"><RenderValue value={r[3]} ctx={ctx} /></td>
+              <td><RenderValue value={r[4]} ctx={ctx} /></td>
+            </tr>
+          )}
+        />
         <MoreLink obj={histObj} ctx={ctx} view={view} />
       </Collapsible>
       {dist && (
@@ -1120,7 +1370,7 @@ function AssetsView(
           Next block →
         </Btn>
       </H2>
-      <AssetsTable data={data} ctx={ctx} />
+      <AssetsTable data={data} ctx={ctx} ownerFilter={view.q} />
     </>
   );
 }
@@ -1155,71 +1405,71 @@ function ContractStateView(
     return [{ depth, row: Array.isArray(row) ? row : [] }];
   }
 
+  // Filter/sort operate at the top-level call granularity so a grouped call
+  // (a primary call plus its nested fee/sub-calls) stays together; the column
+  // accessors read the group's primary (depth-0) row.
+  const FALLBACK_LABELS = ['Height', 'Cid', 'Kind', 'Method', 'Arguments', 'Funds', 'Keys'];
+  const callColCount = headerLabels.length || FALLBACK_LABELS.length;
+  const primaryRow = (r: any): any[] => expandGroup(r)[0]?.row ?? [];
+  const callColumns: FilterColumn<any>[] = Array.from({ length: callColCount }).map((_, ci) => ({
+    header: headerLabels[ci] || FALLBACK_LABELS[ci] || '',
+    text: (r: any) => cellText(primaryRow(r)[ci]),
+    sortKey: (r: any) => cellSort(primaryRow(r)[ci]),
+  }));
+
   return (
     <>
       <H2>Contract <Mono style={{ color: theme.color.accent }}>{view.id}</Mono></H2>
       <Collapsible open>
         <summary>Call history</summary>
-        <ScrollX>
-          <DataTable>
-            <thead><tr>
-              {headerLabels.length > 0
-                ? headerLabels.map((label, i) => <th key={i}>{label}</th>)
-                : (
-                  <>
-                    <th>Height</th><th>Cid</th><th>Kind</th><th>Method</th>
-                    <th>Arguments</th><th>Funds</th><th>Keys</th>
-                  </>
-                )}
-            </tr></thead>
-            <tbody>
-              {callsRows.slice(1).flatMap((r, i) => {
-                const expanded = expandGroup(r);
-                return expanded.map((e, j) => {
-                  const row = e.row;
-                  const n = colCount || row.length;
-                  return (
-                    <tr key={`${i}-${j}`}>
-                      {Array.from({ length: n }).map((_, ci) => {
-                        const cell = row[ci];
-                        const label = headerLabels[ci] || '';
-                        if (ci === 0) {
-                          return (
-                            <td key={ci}>
-                              {e.depth === 0
-                                ? <BlockLink h={(cell as TypedCell)?.value as string} ctx={ctx} />
-                                : <Muted>↳</Muted>}
-                            </td>
-                          );
-                        }
-                        // Funds/Emission columns get a dedicated FundsTable when
-                        // the cell is a typed table; otherwise fall through to
-                        // the generic renderer.
-                        const isFundsCol = label === 'Funds' || label === 'Emission';
-                        if (isFundsCol && isTypedCell(cell) && cell.type === 'table') {
-                          const fundsRaw = (cell as TypedCell).value;
-                          return (
-                            <td key={ci}>
-                              <FundsTable
-                                funds={Array.isArray(fundsRaw) ? (fundsRaw as unknown[]) : null}
-                                ctx={ctx}
-                              />
-                            </td>
-                          );
-                        }
-                        return (
-                          <td key={ci}>
-                            <RenderValue value={cell} ctx={ctx} />
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                });
-              })}
-            </tbody>
-          </DataTable>
-        </ScrollX>
+        <FilterTable
+          columns={callColumns}
+          rows={callsRows.slice(1)}
+          renderRow={(r, i) => {
+            const expanded = expandGroup(r);
+            return expanded.map((e, j) => {
+              const row = e.row;
+              const n = colCount || row.length;
+              return (
+                <tr key={`${i}-${j}`}>
+                  {Array.from({ length: n }).map((_, ci) => {
+                    const cell = row[ci];
+                    const label = headerLabels[ci] || '';
+                    if (ci === 0) {
+                      return (
+                        <td key={ci}>
+                          {e.depth === 0
+                            ? <BlockLink h={cellHeight(cell)} ctx={ctx} />
+                            : <Muted>↳</Muted>}
+                        </td>
+                      );
+                    }
+                    // Funds/Emission columns get a dedicated FundsTable when
+                    // the cell is a typed table; otherwise fall through to
+                    // the generic renderer.
+                    const isFundsCol = label === 'Funds' || label === 'Emission';
+                    if (isFundsCol && isTypedCell(cell) && cell.type === 'table') {
+                      const fundsRaw = (cell as TypedCell).value;
+                      return (
+                        <td key={ci}>
+                          <FundsTable
+                            funds={Array.isArray(fundsRaw) ? (fundsRaw as unknown[]) : null}
+                            ctx={ctx}
+                          />
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={ci}>
+                        <RenderValue value={cell} ctx={ctx} />
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            });
+          }}
+        />
         <MoreLink obj={callsObj} ctx={ctx} view={view} />
       </Collapsible>
       <Collapsible>
@@ -1639,27 +1889,35 @@ function HdrsView(
 
 function PeersView({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Element {
   const peers: any[] = Array.isArray(data) ? data : [];
+  const peerIp = (p: any): string => (typeof p === 'string' ? p : (p?.ip ?? JSON.stringify(p)));
   return (
     <>
       <H2>Connected Peers ({peers.length})</H2>
       <p>
         Network <b>{ctx.network}</b> on <Mono>{getNodeUrl(ctx.network)}</Mono>
       </p>
-      <ScrollX>
-        <DataTable>
-          <thead><tr><th>#</th><th>Peer IP</th></tr></thead>
-          <tbody>
-            {peers.length === 0
-              ? <tr><td colSpan={2}><Muted>No peers connected</Muted></td></tr>
-              : peers.map((p, i) => (
-                <tr key={i}>
-                  <td className="right">{i + 1}</td>
-                  <td><Mono>{typeof p === 'string' ? p : (p.ip ?? JSON.stringify(p))}</Mono></td>
-                </tr>
-              ))}
-          </tbody>
-        </DataTable>
-      </ScrollX>
+      {peers.length === 0 ? (
+        <ScrollX>
+          <DataTable>
+            <thead><tr><th>#</th><th>Peer IP</th></tr></thead>
+            <tbody><tr><td colSpan={2}><Muted>No peers connected</Muted></td></tr></tbody>
+          </DataTable>
+        </ScrollX>
+      ) : (
+        <FilterTable
+          columns={[
+            { header: '#', className: 'right' },
+            { header: 'Peer IP', text: peerIp, sortKey: peerIp },
+          ]}
+          rows={peers}
+          renderRow={(p, i) => (
+            <tr key={i}>
+              <td className="right">{i + 1}</td>
+              <td><Mono>{peerIp(p)}</Mono></td>
+            </tr>
+          )}
+        />
+      )}
     </>
   );
 }
@@ -1715,26 +1973,33 @@ function HistoricalView({ ctx }: { ctx: RenderCtx }): JSX.Element {
 // ---------------------------------------------------------------------------
 
 export const BeamExplorer: React.FC = () => {
-  const [view, setView] = useState<ViewState>(defaultView);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const reqId = useRef(0);
 
-  const go = useCallback((patch: Partial<ViewState>): void => {
-    setView((prev) => {
-      const next: ViewState = { ...prev, ...patch };
-      if (patch.type && patch.type !== prev.type) {
-        if (patch.type !== 'block') { next.kernel = undefined; next.adj = undefined; }
-        if (patch.type !== 'asset' && patch.type !== 'contract') { next.hMin = undefined; }
-      }
-      return next;
-    });
+  // The URL is the single source of truth for the view; navigating just
+  // rewrites the query string and the render follows.
+  const view = useMemo(() => parseView(searchParams), [searchParams]);
+
+  const setView = useCallback((next: ViewState): void => {
+    setSearchParams(serializeView(next));
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'auto' });
     }
-  }, []);
+  }, [setSearchParams]);
+
+  const go = useCallback((patch: Partial<ViewState>): void => {
+    const next: ViewState = { ...view, ...patch };
+    if (patch.type && patch.type !== view.type) {
+      if (patch.type !== 'block') { next.kernel = undefined; next.adj = undefined; }
+      if (patch.type !== 'asset' && patch.type !== 'contract') { next.hMin = undefined; }
+      if (patch.type !== 'assets') next.q = undefined; // owner filter only applies to the assets list
+    }
+    setView(next);
+  }, [view, setView]);
 
   useEffect(() => {
     if (view.type === 'historical') {
