@@ -32,6 +32,9 @@ interface AssetRow {
   max_supply: string | null;
   color: string | null;
   logo_url: string | null;
+  owner_cid: string | null;
+  owner_kind: string | null;
+  owner_addr: string | null;
 }
 
 interface AssetPoolRow {
@@ -121,7 +124,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const { rows } = await q<AssetRow>(
       `SELECT aid::text, name, short_name, unit_name, description, decimals,
               is_imposter, emission::text, first_seen_height::text,
-              minter_cid, max_supply::text, color, logo_url
+              minter_cid, max_supply::text, color, logo_url, owner_cid, owner_kind, owner_addr
          FROM assets
         WHERE aid = $1`,
       [aid],
@@ -191,6 +194,9 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       max_supply: asset.max_supply,
       color: asset.color,
       logo_url: asset.logo_url,
+      owner_cid: asset.owner_cid,
+      owner_kind: asset.owner_kind,
+      owner_addr: asset.owner_addr,
       pools,
     };
   });
