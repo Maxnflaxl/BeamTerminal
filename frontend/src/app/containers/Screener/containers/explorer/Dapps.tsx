@@ -11,7 +11,10 @@ import type {
   ApiDappPublisher,
   ApiDappVersion,
 } from '../../api/types';
+import BeamDappConnector from '@core/BeamDappConnector.js';
+import connector from '@core/connector';
 import CopyIcon from './shared/icons/copy.svg';
+import DownloadIcon from './shared/icons/download.svg';
 import TwitterIcon from './shared/icons/social-twitter.svg';
 import TelegramIcon from './shared/icons/social-telegram.svg';
 import DiscordIcon from './shared/icons/social-discord.svg';
@@ -442,6 +445,49 @@ function safeIconSrc(raw: string | null | undefined): string | undefined {
   return undefined;
 }
 
+// Filename for the downloaded .dapp bundle. Allow alphanumerics, dot, dash,
+// underscore, space; collapse other chars to '-' so the OS save dialog gets
+// something legible regardless of what the publisher put in the name.
+function sanitizeFilename(s: string): string {
+  return s.replace(/[^A-Za-z0-9._\- ]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'dapp';
+}
+
+function dappFilename(name: string | null, version: string | null): string {
+  const base = sanitizeFilename(name ?? 'dapp');
+  return version ? `${base}-v${version}.dapp` : `${base}.dapp`;
+}
+
+// BEAM dapps live on a *private* IPFS swarm (mainnet swarm_key is hard-coded
+// in beam/wallet/ipfs/ipfs_imp.cpp). Public HTTP gateways can't reach them,
+// and the Beam-operated gateway at `BeamDappConnector.ipfsGateway` is offline.
+// The only reliable path is `ipfs_get` on the wallet API — the wallet's local
+// Kubo daemon joins the private swarm and returns the bytes directly. That's
+// the same mechanism `apps_view.cpp` uses to install dapps from the store.
+async function fetchIpfsBytes(cid: string): Promise<Uint8Array> {
+  const result = await connector.callApi('ipfs_get', { hash: cid }, 120_000);
+  const data = result?.data;
+  if (!Array.isArray(data)) throw new Error('Wallet returned no IPFS data');
+  return Uint8Array.from(data);
+}
+
+function triggerBlobDownload(bytes: Uint8Array, filename: string) {
+  // Cast through ArrayBuffer to satisfy lib.dom.d.ts's BlobPart typing —
+  // Uint8Array<ArrayBufferLike> is incompatible because it could (in theory)
+  // be backed by SharedArrayBuffer. `Uint8Array.from(number[])` is always
+  // ArrayBuffer-backed, so the assertion is safe.
+  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Defer revoke so Chrome has time to start the download.
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 // ---------------------------------------------------------------------------
 // re-usable subcomponents
 // ---------------------------------------------------------------------------
@@ -471,6 +517,53 @@ const CopyKey: React.FC<{ value: string; onCopy: (msg: string) => void; show?: '
     </IconButton>
   </KeyRow>
 );
+
+const DownloadBtn: React.FC<{
+  cid: string | null | undefined;
+  filename: string;
+  onMsg: (m: string) => void;
+}> = ({ cid, filename, onMsg }) => {
+  const [busy, setBusy] = useState(false);
+  // Only the desktop Qt wallet exposes `ipfs_get` to dapps. On the public web
+  // (and mobile) we have no way to talk to BEAM's private IPFS swarm, so the
+  // button is rendered disabled with a tooltip explaining why.
+  const canDownload = BeamDappConnector.isDesktop();
+  const disabled = !cid || !canDownload || busy;
+  const tooltip = !cid
+    ? 'No IPFS CID recorded for this version.'
+    : !canDownload
+      ? "Open BeamTerminal inside the BEAM Wallet to download — the .dapp bundle lives on BEAM's private IPFS swarm and isn't reachable from a normal browser."
+      : busy
+        ? 'Downloading from IPFS…'
+        : `Download .dapp from IPFS (${cid.slice(0, 8)}…)`;
+  return (
+    <IconButton
+      type="button"
+      title={tooltip}
+      aria-label="Download .dapp file"
+      disabled={disabled}
+      style={disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (!cid || !canDownload || busy) return;
+        setBusy(true);
+        onMsg('Downloading from IPFS…');
+        try {
+          const bytes = await fetchIpfsBytes(cid);
+          triggerBlobDownload(bytes, filename);
+          onMsg(`Downloaded ${filename}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          onMsg(`Download failed: ${msg}`);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <DownloadIcon />
+    </IconButton>
+  );
+};
 
 // Publishers overwhelmingly fill social fields with a bare handle ('vsnation_',
 // '@BeamBots') rather than a URL — safeHttpUrl alone turns 'vsnation_' into
@@ -717,7 +810,14 @@ const DappModal: React.FC<{
           {dapp.ipfs_id ? (
             <Field>
               <FieldLabel>IPFS CID</FieldLabel>
-              <Mono style={{ fontSize: 11 }}>{dapp.ipfs_id}</Mono>
+              <KeyRow>
+                <Mono style={{ fontSize: 11 }}>{dapp.ipfs_id}</Mono>
+                <DownloadBtn
+                  cid={dapp.ipfs_id}
+                  filename={dappFilename(dapp.name, dapp.version)}
+                  onMsg={onCopy}
+                />
+              </KeyRow>
             </Field>
           ) : null}
 
@@ -758,7 +858,18 @@ const DappModal: React.FC<{
                           ? <RelDate iso={dapp.last_updated_at} />
                           : <RelDate iso={v.block_ts} />
                       }</td>
-                      <td className="mono">{v.ipfs_hash ? shortKey(v.ipfs_hash) : '—'}</td>
+                      <td className="mono">
+                        {v.ipfs_hash ? (
+                          <KeyRow>
+                            <span>{shortKey(v.ipfs_hash)}</span>
+                            <DownloadBtn
+                              cid={v.ipfs_hash}
+                              filename={dappFilename(dapp.name, v.version)}
+                              onMsg={onCopy}
+                            />
+                          </KeyRow>
+                        ) : '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
