@@ -316,15 +316,19 @@ function fmtAbsolute(iso: string | null | undefined): string | null {
   return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
 
-// Explanation shown on hover when a per-dapp date is null. The contract is
-// wrapped by upgradable2; the explorer drops the inner add_dapp/update_dapp
-// args, so the only way to attribute a call to a dapp is when its publisher
-// has exactly one dapp and one add_dapp call. Any other case stays "unknown"
-// instead of guessed.
+// Explanation shown on hover when a per-dapp first_seen is null. The
+// contract stores `m_Timestamp` on every dapp record (set on add + every
+// update), so `last_updated_at` is always known — but the contract overwrites
+// that timestamp on each update, so it doesn't preserve the original add
+// height. To recover first_seen we'd need to attribute add_dapp calls to
+// specific dapps, and the upgradable2 wrapper drops the inner args from the
+// explorer feed. We only fill first_seen when the mapping is unambiguous —
+// a publisher with exactly one current dapp and one add_dapp call.
 const UNKNOWN_TOOLTIP =
-  "On-chain date unknown — this publisher has more than one dapp, and the "
+  "Original add-date unknown — this publisher has more than one dapp, and the "
   + "DApp Store contract is wrapped by upgradable2 so the explorer can't "
-  + "decode which add_dapp / update_dapp call refers to which dapp.";
+  + "decode which add_dapp call refers to which dapp. (Last-updated is "
+  + "always known: the contract stamps it on the dapp record itself.)";
 
 const Unknown: React.FC<{ reason?: string }> = ({ reason = UNKNOWN_TOOLTIP }) => (
   <span style={{ color: 'rgba(255,255,255,0.4)', borderBottom: '1px dashed rgba(255,255,255,0.25)', cursor: 'help' }} title={reason}>
