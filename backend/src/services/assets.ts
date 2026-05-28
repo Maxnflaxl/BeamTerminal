@@ -1,10 +1,16 @@
-import { getAssets } from '../explorer.js';
+import { getAssets, getContracts } from '../explorer.js';
 import { parseAssetMetadata } from '../parsers/asset_metadata.js';
 import { q } from '../db.js';
 import { logger } from '../logger.js';
 
 interface PickedRow {
   aid: number | null;
+  /** Issuing contract CID when the Owner column is `{type:"cid"}`; null for
+   *  wallet-issued assets (Owner is a `{type:"blob"}` owner-key). */
+  owner_cid: string | null;
+  /** Wallet owner-key when the Owner column is `{type:"blob"}`; null for
+   *  contract-issued assets. */
+  owner_addr: string | null;
   supply: bigint | null;
   lock_height: number | null;
   metadata: string;
@@ -64,14 +70,65 @@ function pickMetadata(cell: unknown): string {
   return '';
 }
 
+/**
+ * Reads the /assets "Owner" column. Contract-issued assets carry
+ * `{type:"cid", value:<contract-id>}`; wallet-issued ones carry
+ * `{type:"blob", value:<owner-key>}` (or an empty string). We return the CID
+ * for the contract case and null otherwise — that's the wallet/contract split
+ * the UI's issuer label hinges on.
+ */
+function pickOwnerCid(cell: unknown): string | null {
+  if (typeof cell === 'object' && cell !== null) {
+    const v = cell as { type?: unknown; value?: unknown };
+    if (v.type === 'cid' && typeof v.value === 'string') return v.value;
+  }
+  return null;
+}
+
+/** Wallet owner-key from a `{type:"blob"}` Owner cell; null otherwise. */
+function pickOwnerAddr(cell: unknown): string | null {
+  if (typeof cell === 'object' && cell !== null) {
+    const v = cell as { type?: unknown; value?: unknown };
+    if (v.type === 'blob' && typeof v.value === 'string' && v.value !== '') return v.value;
+  }
+  return null;
+}
+
 function pickRow(row: unknown): PickedRow | null {
   if (!Array.isArray(row) || row.length < 6) return null;
   return {
     aid: pickAid(row[0]),
+    owner_cid: pickOwnerCid(row[1]),
+    owner_addr: pickOwnerAddr(row[1]),
     supply: pickAmount(row[3]),
     lock_height: pickHeight(row[4]),
     metadata: pickMetadata(row[5]),
   };
+}
+
+/**
+ * Builds a CID → parser-name map from the explorer's /contracts table
+ * (header `[Cid, Kind, Deploy Height, Locked Funds, Owned Assets]`). The Kind
+ * column is the human-readable name the explorer's parser.wasm assigns
+ * ("DEX v0", "Nephrite v1", "Minter", …). Returns an empty map on any failure
+ * so a missing /contracts response just leaves owner_kind null (the UI then
+ * shows a generic "Contract" label).
+ */
+async function fetchContractKinds(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const resp = await getContracts();
+    if (resp.type !== 'table' || !Array.isArray(resp.value)) return map;
+    for (const row of resp.value.slice(1)) {
+      if (!Array.isArray(row)) continue;
+      const cid = pickOwnerCid(row[0]);
+      const kind = typeof row[1] === 'string' ? row[1].trim() : '';
+      if (cid && kind) map.set(cid, kind);
+    }
+  } catch (err) {
+    logger.warn({ err }, 'fetchContractKinds failed; owner_kind will be null this sync');
+  }
+  return map;
 }
 
 /**
@@ -86,6 +143,10 @@ export async function syncAssetsCatalog(): Promise<number> {
     throw new Error('unexpected /assets response (no table)');
   }
 
+  // Resolve owner CIDs to parser names once per sync (the catalog has many
+  // assets but only a handful of distinct issuing contracts).
+  const contractKinds = await fetchContractKinds();
+
   let upserted = 0;
   for (const row of resp.value.slice(1)) {
     const picked = pickRow(row);
@@ -93,6 +154,7 @@ export async function syncAssetsCatalog(): Promise<number> {
     if (picked.aid === 0) continue; // BEAM seeded by migration
 
     const meta = parseAssetMetadata(picked.metadata);
+    const ownerKind = picked.owner_cid ? contractKinds.get(picked.owner_cid) ?? null : null;
     const params: ReadonlyArray<string | number | bigint | null> = [
       picked.aid,
       meta.name ?? null,
@@ -104,13 +166,16 @@ export async function syncAssetsCatalog(): Promise<number> {
       picked.lock_height ?? null,
       meta.color ?? null,
       meta.logo_url ?? null,
+      picked.owner_cid,
+      ownerKind,
+      picked.owner_addr,
     ];
 
     await q(
       `INSERT INTO assets (
-         aid, name, short_name, unit_name, description, decimals, emission, lock_height, color, logo_url, last_updated_at
+         aid, name, short_name, unit_name, description, decimals, emission, lock_height, color, logo_url, owner_cid, owner_kind, owner_addr, last_updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
        ON CONFLICT (aid) DO UPDATE SET
          name            = EXCLUDED.name,
          short_name      = EXCLUDED.short_name,
@@ -120,6 +185,9 @@ export async function syncAssetsCatalog(): Promise<number> {
          lock_height     = COALESCE(EXCLUDED.lock_height, assets.lock_height),
          color           = EXCLUDED.color,
          logo_url        = EXCLUDED.logo_url,
+         owner_cid       = EXCLUDED.owner_cid,
+         owner_kind      = COALESCE(EXCLUDED.owner_kind, assets.owner_kind),
+         owner_addr      = EXCLUDED.owner_addr,
          last_updated_at = now()`,
       params,
     );
