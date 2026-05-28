@@ -439,10 +439,13 @@ export interface ApiDapp {
     release: number | null;
     build: number | null;
   };
-  first_seen_height: number;
-  first_seen_at: string;
-  last_updated_height: number;
-  last_updated_at: string;
+  // Null when the dapp's on-chain attribution is ambiguous — the explorer
+  // can't decode upgradable2 inner args, so a publisher with >1 current dapp
+  // has no unambiguous mapping from add_dapp/update_dapp calls to dapps.
+  first_seen_height: number | null;
+  first_seen_at: string | null;
+  last_updated_height: number | null;
+  last_updated_at: string | null;
   deleted_at: string | null;
 }
 
@@ -476,10 +479,12 @@ export interface ApiDappPublisher {
     telegram: string | null;
     discord: string | null;
   };
-  first_seen_height: number;
-  first_seen_at: string;
-  last_updated_height: number;
-  last_updated_at: string;
+  // Nullable for symmetry with ApiDapp — a publisher we've never observed
+  // making a call (extreme edge case) ends up with no provable dates.
+  first_seen_height: number | null;
+  first_seen_at: string | null;
+  last_updated_height: number | null;
+  last_updated_at: string | null;
   dapps_count: number;
 }
 
