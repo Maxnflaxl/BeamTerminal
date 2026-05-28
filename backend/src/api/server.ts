@@ -15,6 +15,7 @@ import { assetSwapsRoutes } from './routes/asset_swaps.js';
 import { atomicSwapsRoutes } from './routes/atomic_swaps.js';
 import { dappsRoutes } from './routes/dapps.js';
 import { dappDownloadRoutes } from './routes/dapp_download.js';
+import { ipfsGatewayRoutes } from './routes/ipfs_gateway.js';
 import { chartsRoutes, startChartCacheRefresher } from './routes/charts.js';
 import { ogRoutes } from './routes/og.js';
 import { cgTickersRoutes } from './routes/cg/tickers.js';
@@ -73,6 +74,10 @@ export function buildApp(): FastifyInstance {
   void app.register(atomicSwapsRoutes, { prefix: '/api' });
   void app.register(dappsRoutes, { prefix: '/api' });
   void app.register(dappDownloadRoutes, { prefix: '/api' });
+  // Public IPFS gateway lives at /ipfs/<cid> (no /api prefix) to match the
+  // shape every other IPFS gateway uses, so third-party clients can swap
+  // ipfs.io / dweb.link → beamterminal.0xmx.net by changing the host.
+  void app.register(ipfsGatewayRoutes);
   void app.register(chartsRoutes, { prefix: '/api' });
   void app.register(ogRoutes);
 
