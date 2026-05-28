@@ -11,6 +11,9 @@ import { ohlcvRoutes } from './routes/ohlcv.js';
 import { tradesRoutes } from './routes/trades.js';
 import { liquidityRoutes } from './routes/liquidity.js';
 import { assetRoutes } from './routes/asset.js';
+import { assetSwapsRoutes } from './routes/asset_swaps.js';
+import { atomicSwapsRoutes } from './routes/atomic_swaps.js';
+import { dappsRoutes } from './routes/dapps.js';
 import { chartsRoutes, startChartCacheRefresher } from './routes/charts.js';
 import { ogRoutes } from './routes/og.js';
 import { cgTickersRoutes } from './routes/cg/tickers.js';
@@ -65,6 +68,9 @@ export function buildApp(): FastifyInstance {
   void app.register(tradesRoutes, { prefix: '/api' });
   void app.register(liquidityRoutes, { prefix: '/api' });
   void app.register(assetRoutes, { prefix: '/api' });
+  void app.register(assetSwapsRoutes, { prefix: '/api' });
+  void app.register(atomicSwapsRoutes, { prefix: '/api' });
+  void app.register(dappsRoutes, { prefix: '/api' });
   void app.register(chartsRoutes, { prefix: '/api' });
   void app.register(ogRoutes);
 
