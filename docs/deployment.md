@@ -134,8 +134,33 @@ services:
       - "127.0.0.1:3000:3000"
     env_file: ./backend/.env
 
+  # Kubo IPFS daemon joined to BEAM's private mainnet swarm. Backs the
+  # public gateway at gateway.beamterminal.0xmx.net/ipfs/<cid>. The
+  # swarm.key + bootstrap addresses are public (taken from beam-ui open
+  # source) and live in backend/ipfs/.
+  ipfs:
+    image: ipfs/kubo:v0.30.0
+    restart: always
+    environment:
+      LIBP2P_FORCE_PNET: "1"
+      IPFS_PROFILE: "server"
+    volumes:
+      - ipfs-data:/data/ipfs
+      - ./backend/ipfs/swarm.key:/data/ipfs/swarm.key:ro
+      - ./backend/ipfs/init.sh:/container-init.d/01-beam-private-swarm.sh:ro
+    ports:
+      - "127.0.0.1:8080:8080"   # gateway (nginx proxies here)
+      - "127.0.0.1:5001:5001"   # admin API (loopback-only)
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
 volumes:
   postgres-data:
+  ipfs-data:
 
 secrets:
   postgres_password:
@@ -160,7 +185,9 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### Cloudflare setup
 
-1. DNS: `A beamterminal.0xmx.net → <VPS IPv4>`, **proxied** (orange cloud).
+1. DNS:
+   - `A beamterminal.0xmx.net → <VPS IPv4>`, **proxied** (orange cloud).
+   - `A gateway.beamterminal.0xmx.net → <VPS IPv4>`, **proxied** — backs the public IPFS gateway served by the Kubo daemon.
 2. SSL/TLS mode: **Full** (origin can later add a self-signed cert without reconfiguration). Flexible works too but is weaker.
 3. Optional: enable **"Always Use HTTPS"** so Cloudflare redirects bare HTTP at the edge — the origin doesn't need a redirect block.
 
@@ -259,6 +286,36 @@ chown -R www-data:www-data /var/www/beamterminal
 ```
 
 Zero-downtime is overkill at this scale — a 5 s API blip on deploy is fine. Migration files are idempotent (the `schema_migrations` table tracks what's been applied), so re-running `migrate.js` after `git pull` is safe.
+
+## IPFS gateway (Kubo, private mainnet swarm)
+
+Brought up by the `ipfs` service in `docker-compose.yml` and fronted by the
+`gateway.beamterminal.0xmx.net` server block in `nginx.conf`.
+
+First-boot sequence on the VPS:
+
+```sh
+cd /root/Beam/BeamTerminal
+docker compose up -d ipfs
+
+# Wait ~30s for the daemon to come up, run init.sh, and dial the four BEAM
+# mainnet bootstrap peers. Check it found them:
+docker compose exec ipfs ipfs swarm peers          # expect ≥1 line
+docker compose exec ipfs ipfs id | head -3         # confirms PNet enabled
+
+# Smoke test against a real dapp CID (Bridge App at time of writing):
+curl -sIL http://127.0.0.1:8080/ipfs/QmPWrArdausWmzB44nygzK8nxjuuQGk9MBNuWyMCHacRtn \
+  --max-time 30 | head -5                          # 200 OK + Content-Length
+```
+
+`docker compose logs -f ipfs` shows libp2p activity. If the daemon refuses to
+start, `LIBP2P_FORCE_PNET=1` means the `swarm.key` volume mount failed — check
+the path in `docker-compose.yml`.
+
+`backend/ipfs/init.sh` only runs on a fresh repo (Kubo's `/container-init.d/`
+hook). After the first boot it's a no-op. To re-apply config changes either
+exec into the container and re-run the relevant `ipfs config …` lines, or wipe
+the `ipfs-data` volume and restart (resync takes ~30s).
 
 ## `.dapp` distribution
 

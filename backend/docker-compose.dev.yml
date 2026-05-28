@@ -46,6 +46,33 @@ services:
     volumes:
       - beamterminal-wallet-api-dev:/data
 
+  # Private-swarm IPFS daemon (Kubo). Joins BEAM's mainnet swarm via the
+  # bootstrap peers + swarm key in `backend/ipfs/`. In production it backs
+  # the public gateway at `gateway.beamterminal.0xmx.net/ipfs/<cid>` that
+  # the frontend's Download button targets. Locally bound to 127.0.0.1
+  # only — wallet/site don't talk to the dev daemon.
+  ipfs:
+    image: ipfs/kubo:v0.30.0
+    container_name: beamterminal-ipfs-dev
+    restart: unless-stopped
+    environment:
+      LIBP2P_FORCE_PNET: "1"   # refuse to start if swarm.key is missing
+      IPFS_PROFILE: "server"   # disables some auto-discovery; saner default for VPS
+    volumes:
+      - beamterminal-ipfs-dev:/data/ipfs
+      - ./ipfs/swarm.key:/data/ipfs/swarm.key:ro
+      - ./ipfs/init.sh:/container-init.d/01-beam-private-swarm.sh:ro
+    ports:
+      - "127.0.0.1:8080:8080"  # gateway
+      - "127.0.0.1:5001:5001"  # api (admin surface; kept loopback)
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
 volumes:
   beamterminal-postgres-dev:
   beamterminal-wallet-api-dev:
+  beamterminal-ipfs-dev:

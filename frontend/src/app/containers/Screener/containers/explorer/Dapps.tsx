@@ -12,7 +12,6 @@ import type {
   ApiDappVersion,
 } from '../../api/types';
 import BeamDappConnector from '@core/BeamDappConnector.js';
-import connector from '@core/connector';
 import CopyIcon from './shared/icons/copy.svg';
 import DownloadIcon from './shared/icons/download.svg';
 import TwitterIcon from './shared/icons/social-twitter.svg';
@@ -193,6 +192,30 @@ const IconButton = styled.button`
   transition: color 0.15s, border-color 0.15s;
   svg { width: 12px; height: 12px; }
   &:hover { color: ${theme.color.accent}; border-color: ${theme.color.accent}; }
+`;
+
+// Anchor styled to match IconButton — used by the .dapp Download link so the
+// browser's native download / right-click "Save as" UX comes for free.
+const IconLink = styled.a`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid ${theme.color.border};
+  border-radius: 4px;
+  color: ${theme.color.muted};
+  cursor: pointer;
+  padding: 3px 6px;
+  font: inherit;
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s;
+  svg { width: 12px; height: 12px; }
+  &:hover { color: ${theme.color.accent}; border-color: ${theme.color.accent}; }
+  &[aria-disabled='true'] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
 `;
 
 const SocialLink = styled.a`
@@ -488,34 +511,15 @@ function dappFilename(name: string | null, version: string | null): string {
 }
 
 // BEAM dapps live on a *private* IPFS swarm (mainnet swarm_key is hard-coded
-// in beam/wallet/ipfs/ipfs_imp.cpp). Public HTTP gateways can't reach them,
-// and the Beam-operated gateway at `BeamDappConnector.ipfsGateway` is offline.
-// The only reliable path is `ipfs_get` on the wallet API — the wallet's local
-// Kubo daemon joins the private swarm and returns the bytes directly. That's
-// the same mechanism `apps_view.cpp` uses to install dapps from the store.
-async function fetchIpfsBytes(cid: string): Promise<Uint8Array> {
-  const result = await connector.callApi('ipfs_get', { hash: cid }, 120_000);
-  const data = result?.data;
-  if (!Array.isArray(data)) throw new Error('Wallet returned no IPFS data');
-  return Uint8Array.from(data);
-}
+// in beam/wallet/ipfs/ipfs_imp.cpp), so the public gateways (ipfs.io,
+// dweb.link, …) can't reach them. We run our own Kubo daemon on the VPS,
+// joined to the same swarm, exposed at this hostname (see `nginx.conf` and
+// `backend/ipfs/`). `?download=true&filename=…` are standard Kubo gateway
+// query params that add `Content-Disposition: attachment; filename=…`.
+const IPFS_GATEWAY = 'https://gateway.beamterminal.0xmx.net/ipfs';
 
-function triggerBlobDownload(bytes: Uint8Array, filename: string) {
-  // Cast through ArrayBuffer to satisfy lib.dom.d.ts's BlobPart typing —
-  // Uint8Array<ArrayBufferLike> is incompatible because it could (in theory)
-  // be backed by SharedArrayBuffer. `Uint8Array.from(number[])` is always
-  // ArrayBuffer-backed, so the assertion is safe.
-  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // Defer revoke so Chrome has time to start the download.
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+function gatewayDownloadUrl(cid: string, filename: string): string {
+  return `${IPFS_GATEWAY}/${cid}?download=true&filename=${encodeURIComponent(filename)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -551,53 +555,23 @@ const CopyKey: React.FC<{ value: string; onCopy: (msg: string) => void; show?: '
 const DownloadBtn: React.FC<{
   cid: string | null | undefined;
   filename: string;
-  onMsg: (m: string) => void;
-}> = ({ cid, filename, onMsg }) => {
-  const [busy, setBusy] = useState(false);
-  // Hidden inside the BEAM Desktop Wallet: the wallet's QtWebEngine profile has
-  // no `downloadRequested` handler, so the Blob `<a download>` trick is dropped
-  // silently. Until the wallet patches that we don't even render the button —
-  // only web mode (when our backend IPFS proxy ships) will offer downloads.
+}> = ({ cid, filename }) => {
+  // Hidden inside the BEAM Desktop Wallet: its QtWebEngine profile has no
+  // `downloadRequested` handler, so any browser download is silently dropped.
   if (BeamDappConnector.isDesktop()) return null;
-  // Web flow is gated on the backend IPFS proxy (a Kubo daemon joined to BEAM's
-  // private swarm, exposed via `/api/dapp/:cid`). Until that ships the button
-  // stays visible-but-disabled so the UI surfaces the "downloads exist on web,
-  // not yet" story without lying about wallet-side downloads working.
-  const proxyReady = false;
-  const disabled = !cid || !proxyReady || busy;
-  const tooltip = !cid
-    ? 'No IPFS CID recorded for this version.'
-    : !proxyReady
-      ? "Download not yet available — BeamTerminal's backend IPFS proxy is still being wired up. Until then the .dapp bundle is only reachable from BEAM's private swarm."
-      : busy
-        ? 'Downloading from IPFS…'
-        : `Download .dapp from IPFS (${cid.slice(0, 8)}…)`;
+  const disabled = !cid;
   return (
-    <IconButton
-      type="button"
-      title={tooltip}
+    <IconLink
+      href={cid ? gatewayDownloadUrl(cid, filename) : undefined}
+      download={cid ? filename : undefined}
+      rel="noopener"
+      title={cid ? `Download .dapp from IPFS (${cid.slice(0, 8)}…)` : 'No IPFS CID recorded for this version.'}
       aria-label="Download .dapp file"
-      disabled={disabled}
-      style={disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
-      onClick={async (e) => {
-        e.stopPropagation();
-        if (!cid || !proxyReady || busy) return;
-        setBusy(true);
-        onMsg('Downloading from IPFS…');
-        try {
-          const bytes = await fetchIpfsBytes(cid);
-          triggerBlobDownload(bytes, filename);
-          onMsg(`Downloaded ${filename}`);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          onMsg(`Download failed: ${msg}`);
-        } finally {
-          setBusy(false);
-        }
-      }}
+      aria-disabled={disabled || undefined}
+      onClick={(e) => e.stopPropagation()}
     >
       <DownloadIcon />
-    </IconButton>
+    </IconLink>
   );
 };
 
@@ -851,7 +825,6 @@ const DappModal: React.FC<{
                 <DownloadBtn
                   cid={dapp.ipfs_id}
                   filename={dappFilename(dapp.name, dapp.version)}
-                  onMsg={onCopy}
                 />
               </KeyRow>
             </Field>
@@ -901,7 +874,6 @@ const DappModal: React.FC<{
                             <DownloadBtn
                               cid={v.ipfs_hash}
                               filename={dappFilename(dapp.name, v.version)}
-                              onMsg={onCopy}
                             />
                           </KeyRow>
                         ) : '—'}
