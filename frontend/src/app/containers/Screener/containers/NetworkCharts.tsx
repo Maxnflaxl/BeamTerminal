@@ -57,21 +57,21 @@ const Page = styled.div`
 
 const CategoryBar = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
 `;
 
 const Toolbar = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   margin-bottom: 12px;
   flex-wrap: wrap;
 `;
 
 const TimeframeGroup = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
 `;
 
 const TfButton = styled.button<{ active?: boolean }>`
@@ -118,7 +118,7 @@ const CellHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   padding: 0 2px 6px;
   margin-bottom: 2px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -136,7 +136,7 @@ const CellTitle = styled.div`
 const CellActions = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   flex-shrink: 0;
 `;
 
@@ -199,7 +199,10 @@ const ExpandIcon: React.FC = () => (
 
 const ModalBackdrop = styled.div`
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(0, 0, 0, 0.65);
   display: flex;
   align-items: center;
@@ -226,7 +229,7 @@ const ModalToolbar = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   margin-bottom: 12px;
   padding-right: 36px;
   flex-wrap: wrap;
@@ -234,7 +237,7 @@ const ModalToolbar = styled.div`
 
 const ModalActionGroup = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
 `;
 
 const ModalBody = styled.div`

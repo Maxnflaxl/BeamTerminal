@@ -15,7 +15,7 @@ const Header = styled.div`
   margin: 24px auto 0;
   padding: 0 20px;
   display: flex;
-  gap: 16px;
+  & > * + * { margin-left: 16px; }
   align-items: center;
   @media (max-width: 640px) {
     padding: 0 12px;
@@ -89,13 +89,13 @@ const ACardMain = styled.div`
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  & > * + * { margin-top: 4px; }
 `;
 
 const ACardTitleRow = styled.div`
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   flex-wrap: wrap;
 `;
 
@@ -174,7 +174,7 @@ const Table = styled.table`
 
 const Cell = styled.div`
   display: flex;
-  gap: 10px;
+  & > * + * { margin-left: 10px; }
   align-items: center;
 `;
 

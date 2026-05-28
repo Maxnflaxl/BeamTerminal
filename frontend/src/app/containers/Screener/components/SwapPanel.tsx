@@ -49,7 +49,7 @@ const UsdHint = styled.span`
 const Row = styled.div`
   display: flex;
   align-items: center;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   min-width: 0;
 `;
 
@@ -74,7 +74,7 @@ const Input = styled.input`
 const TokenBadge = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   background: rgba(255, 255, 255, 0.06);
   padding: 6px 10px;
   border-radius: 20px;

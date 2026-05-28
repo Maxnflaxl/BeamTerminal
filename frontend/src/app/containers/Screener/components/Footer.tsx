@@ -33,7 +33,7 @@ const Inner = styled.div`
 const Col = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  & > * + * { margin-top: 6px; }
 `;
 
 const ColTitle = styled.div`
@@ -62,7 +62,7 @@ const BottomBar = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);
   flex-wrap: wrap;

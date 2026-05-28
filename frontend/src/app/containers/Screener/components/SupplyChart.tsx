@@ -33,7 +33,7 @@ const Legend = styled.div`
   font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   align-items: baseline;
   & .lbl { color: rgba(255,255,255,0.4); }
   & .val { color: #fff; }

@@ -21,14 +21,14 @@ type FilterTab = 'open' | 'all';
 
 const Toolbar = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   flex-wrap: wrap;
   margin: 8px 0 12px;
 `;
 
 const StatsRow = styled.div`
   display: flex;
-  gap: 14px;
+  & > * + * { margin-left: 14px; }
   flex-wrap: wrap;
   margin-bottom: 18px;
 `;

@@ -13,7 +13,7 @@ const Wrap = styled.span`
   align-items: center;
   flex-shrink: 0;
   vertical-align: middle;
-  gap: 2px;
+  & > * + * { margin-left: 2px; }
 
   /* Strip the default right-margin from AssetIcon — it's set for the trade
      panel's text-adjacent layout and creates dead space between the pair's

@@ -25,7 +25,7 @@ const Wrapper = styled.div`
 const Actions = styled.div`
   width: 100%;
   display: flex;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   margin-top: 14px;
 `;
 

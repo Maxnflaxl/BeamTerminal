@@ -33,9 +33,9 @@ const Legend = styled.div`
   font-family: 'SFProDisplay', monospace;
   font-size: 12px;
   display: flex;
-  gap: 14px;
+  & > * + * { margin-left: 14px; }
   align-items: baseline;
-  .item { display: flex; gap: 5px; align-items: baseline; }
+  .item { display: flex; align-items: baseline; & > * + * { margin-left: 5px; } }
   .swatch { width: 9px; height: 9px; border-radius: 2px; align-self: center; }
   .lbl { color: rgba(255, 255, 255, 0.5); }
   .val { color: #fff; }

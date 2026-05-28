@@ -40,7 +40,7 @@ const Legend = styled.div`
   font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
   display: flex;
-  gap: 10px;
+  & > * + * { margin-left: 10px; }
   align-items: center;
   & .lbl { color: rgba(255,255,255,0.4); }
   & .val { color: #fff; margin-left: 2px; }

@@ -193,20 +193,20 @@ function methodTone(cls: string): MethodTone {
 const LogoArea = styled.div`
   display: flex;
   align-items: center;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
 `;
 
 const HeaderRight = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
+  & > * + * { margin-top: 8px; }
 `;
 
 const StatusLine = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   font-size: 11px;
   color: ${theme.color.muted};
 `;
@@ -214,7 +214,7 @@ const StatusLine = styled.div`
 const ContractBar = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 14px 24px;
+  & > * + * { margin-left: 24px; }
   align-items: center;
   background: ${theme.color.surface};
   border: 1px solid ${theme.color.borderDim};
@@ -264,7 +264,7 @@ const PanelHeader = styled.div`
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  & > * + * { margin-left: 10px; }
 `;
 
 const PanelTitle = styled.div`
@@ -280,7 +280,7 @@ const PanelMeta = styled.div`
 const Toolbar = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  & > * + * { margin-left: 10px; }
   align-items: center;
   padding: 12px 16px;
   border-bottom: 1px solid ${theme.color.borderDim};
@@ -295,7 +295,7 @@ const SearchWrap = styled.div`
 const ChipGroup = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
 `;
 
 const Spacer = styled.div` flex: 1; `;
@@ -343,7 +343,7 @@ const Pagination = styled.div`
 `;
 
 const PageInfo = styled.div` color: ${theme.color.muted}; `;
-const PageBtns = styled.div` display: flex; gap: 6px; `;
+const PageBtns = styled.div` display: flex; & > * + * { margin-left: 6px; } `;
 
 const Empty = styled.div`
   padding: 30px;

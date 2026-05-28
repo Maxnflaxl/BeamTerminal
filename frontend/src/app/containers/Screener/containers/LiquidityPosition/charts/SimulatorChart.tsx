@@ -26,7 +26,7 @@ const Tip = styled.div`
 
 const Controls = styled.div`
   display: flex;
-  gap: 24px;
+  & > * + * { margin-left: 24px; }
   flex-wrap: wrap;
   margin-top: 12px;
 `;
@@ -38,7 +38,7 @@ const Control = styled.label`
   color: rgba(255, 255, 255, 0.7);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  & > * + * { margin-top: 6px; }
   & b { color: #00f6d2; }
   & input[type='range'] { width: 100%; accent-color: #00f6d2; }
 `;

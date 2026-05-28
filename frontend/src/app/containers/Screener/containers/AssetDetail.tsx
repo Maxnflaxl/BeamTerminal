@@ -18,7 +18,7 @@ const Page = styled.div`
 const TopBar = styled.div`
   display: flex;
   align-items: center;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   margin-bottom: 20px;
 `;
 
@@ -46,7 +46,7 @@ const Card = styled.div`
 const HeaderRow = styled.div`
   display: flex;
   align-items: center;
-  gap: 16px;
+  & > * + * { margin-left: 16px; }
   padding-bottom: 16px;
   margin-bottom: 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);

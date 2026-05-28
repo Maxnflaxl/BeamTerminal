@@ -26,7 +26,7 @@ const BackButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   height: 37px;
   padding: 0 14px;
   background: rgba(255, 255, 255, 0.1);

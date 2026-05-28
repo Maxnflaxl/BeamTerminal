@@ -5,7 +5,7 @@ const Bar = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   padding: 8px 12px;
   flex-wrap: wrap;
   font-size: 12px;
@@ -15,7 +15,7 @@ const Bar = styled.div`
 const Pages = styled.div`
   display: flex;
   align-items: center;
-  gap: 4px;
+  & > * + * { margin-left: 4px; }
   margin-left: auto;
   button {
     min-width: 26px;

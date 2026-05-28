@@ -117,7 +117,7 @@ const HeaderRight = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
+  & > * + * { margin-top: 8px; }
 `;
 
 const TitleBlock = styled.div`
@@ -128,7 +128,7 @@ const TitleBlock = styled.div`
 const StatusRow = styled.div`
   display: flex;
   align-items: center;
-  gap: 7px;
+  & > * + * { margin-left: 7px; }
   font-size: 11px;
   color: ${theme.color.muted};
   letter-spacing: 0.05em;
@@ -136,7 +136,7 @@ const StatusRow = styled.div`
 
 const CustomNodeRow = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   & input { width: 220px; font-size: 11px; padding: 5px 10px; }
   & button { font-size: 11px; padding: 5px 10px; }
 `;
@@ -144,7 +144,7 @@ const CustomNodeRow = styled.div`
 const PriceBar = styled.div`
   display: flex;
   align-items: center;
-  gap: 16px;
+  & > * + * { margin-left: 16px; }
   padding: 12px 18px;
   background: ${theme.color.surface2};
   border: 1px solid ${theme.color.borderDim};
@@ -222,7 +222,7 @@ const SectionLabel = styled.div`
   margin: 24px 0 12px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   &::after {
     content: '';
     flex: 1;
@@ -261,7 +261,7 @@ const PanelTitle = styled.div`
   color: ${theme.color.muted};
   display: flex;
   align-items: center;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   &::before {
     content: '';
     width: 6px;
@@ -294,7 +294,7 @@ const BlockTimeWrap = styled.div`
 const BlockTimeBars = styled.div`
   display: flex;
   align-items: flex-end;
-  gap: 3px;
+  & > * + * { margin-left: 3px; }
   height: 100px;
 `;
 

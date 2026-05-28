@@ -68,7 +68,7 @@ const AssetPanel = styled.details`
 const CheckboxLabel = styled.label`
   display: flex;
   align-items: center;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   cursor: pointer;
   font-size: 12px;
   color: ${theme.color.text};
@@ -91,7 +91,7 @@ const Spinner = styled.span`
 const TopNav = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   padding: 10px 0 14px;
   margin-bottom: 8px;
   border-bottom: 1px solid ${theme.color.divider};

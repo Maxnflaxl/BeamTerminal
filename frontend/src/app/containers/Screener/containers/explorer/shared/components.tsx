@@ -52,7 +52,7 @@ export const ExplorerHeader = styled.header`
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  & > * + * { margin-left: 16px; }
   margin: 4px 0 20px;
   padding-bottom: 16px;
   border-bottom: 1px solid ${theme.color.divider};
@@ -346,7 +346,7 @@ export const WarnBox = styled.div`
 const NodeSelectorBox = styled.div`
   display: flex;
   align-items: center;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   background: ${theme.color.surface};
   border: 1px solid ${theme.color.borderDim};
   border-radius: ${theme.radius.md};
@@ -378,7 +378,7 @@ export const NodeSelector: React.FC<{
 export const Row = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   align-items: center;
   margin-bottom: 10px;
 `;

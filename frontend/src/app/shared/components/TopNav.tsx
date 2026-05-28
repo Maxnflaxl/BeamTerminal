@@ -16,7 +16,7 @@ const navInner = css`
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  row-gap: 4px;
+  & > * { margin-bottom: 4px; }
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 `;
 

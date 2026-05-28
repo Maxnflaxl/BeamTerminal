@@ -211,7 +211,10 @@ const AutoButton = styled.button`
 
 const WarningModalBackdrop = styled.div`
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 20000;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
@@ -255,7 +258,7 @@ const WarningList = styled.ul`
 const WarningActions = styled.div`
   margin-top: 16px;
   display: flex;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   flex-wrap: wrap;
 `;
 

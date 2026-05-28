@@ -343,7 +343,7 @@ function formatTimestamp(time: number, zone: 'local' | 'utc' = 'utc'): string {
 
 const SearchForm = styled.form`
   display: flex;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   flex: 1;
   min-width: 240px;
 `;
@@ -402,7 +402,7 @@ const DensePage = styled.div`
 const NavTabs = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  & > * + * { margin-left: 14px; }
   margin: 6px 0 14px;
   padding-bottom: 6px;
   border-bottom: 1px solid ${theme.color.divider};
@@ -483,7 +483,7 @@ const Loading = styled.div`
 
 const Pager = styled.div`
   display: flex;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   margin: 8px 0;
 `;
 
@@ -1559,7 +1559,10 @@ const ChartHost = styled.div`
 
 const ChartHostInner = styled.div`
   position: absolute;
-  inset: 36px 8px 8px 8px;
+  top: 36px;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
 `;
 
 const HdrsTableWrap = styled.div`
@@ -1583,7 +1586,7 @@ const ColumnGrid = styled.div`
 const ColumnChip = styled.label`
   display: flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   font-size: 12px;
   cursor: pointer;
   user-select: none;
@@ -1608,7 +1611,7 @@ const ColorSwatch = styled.span<{ color?: string }>`
 
 const ColumnPresets = styled.div`
   display: flex;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   align-items: center;
   font-size: 12px;
   color: ${theme.color.muted};
@@ -1630,7 +1633,7 @@ const ChartControls = styled.div`
   right: 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   z-index: 10;
   font-size: 12px;
   color: ${theme.color.muted};

@@ -21,7 +21,7 @@ const Row = styled.div`
     padding: 0 12px;
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 10px 12px;
+    & > * + * { margin-left: 12px; }
   }
 `;
 

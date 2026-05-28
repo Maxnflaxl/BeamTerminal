@@ -26,12 +26,12 @@ const Tip = styled.div`
 
 const Legend = styled.div`
   display: flex;
-  gap: 16px;
+  & > * + * { margin-left: 16px; }
   flex-wrap: wrap;
   margin-top: 8px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.6);
-  & span { display: inline-flex; align-items: center; gap: 5px; }
+  & span { display: inline-flex; align-items: center; & > * + * { margin-left: 5px; } }
   & i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 `;
 

@@ -15,7 +15,7 @@ export const SectionWrapper = styled.div`
   margin: 10px 0 40px 0;
   display: flex;
   flex-direction: column;
-  gap: var(--pool-section-column-gap);
+  & > * + * { margin-top: var(--pool-section-column-gap); }
   width: 100%;
   height: auto;
   align-items: center;
@@ -94,7 +94,7 @@ export const TradeSummaryValueInner = styled.div`
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
-  gap: 0;
+  & > * + * { margin-left: 0; }
   min-width: 0;
   width: 100%;
   overflow-wrap: anywhere;
@@ -231,7 +231,7 @@ export const SwapBlock = styled.div`
 export const InputRow = styled.div`
   display: flex;
   width: 100%;
-  gap: var(--pool-input-row-gap);
+  & > * + * { margin-left: var(--pool-input-row-gap); }
   align-items: center;
   min-width: 0;
 
@@ -344,7 +344,7 @@ export const EmbeddedActionRow = styled.div`
   width: 100%;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--pool-embedded-action-row-gap);
+  & > * + * { margin-left: var(--pool-embedded-action-row-gap); }
   margin-top: var(--pool-embedded-action-margin-top);
 `;
 

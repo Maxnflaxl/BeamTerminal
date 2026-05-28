@@ -51,7 +51,7 @@ const Sub = styled.p`
 
 const SearchRow = styled.form`
   display: flex;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   flex-wrap: wrap;
   align-items: flex-start;
   position: relative;
@@ -145,7 +145,7 @@ const Hints = styled.div`
     margin-top: 6px;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    & > * + * { margin-left: 8px; }
     align-items: baseline;
   }
 `;
@@ -154,7 +154,7 @@ const Picker = styled.div`
   margin-top: 16px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   align-items: center;
 `;
 
@@ -194,7 +194,7 @@ const CardHead = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  & > * + * { margin-left: 10px; }
   flex-wrap: wrap;
   margin-bottom: 10px;
 `;
@@ -257,7 +257,7 @@ const PnlSub = styled.div`
 
 const Tabs = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   flex-wrap: wrap;
 `;
 
@@ -292,7 +292,7 @@ const BmItem = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   padding: 7px 8px;
   border-radius: 6px;
   cursor: pointer;

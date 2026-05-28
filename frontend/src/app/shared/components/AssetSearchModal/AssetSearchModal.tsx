@@ -100,7 +100,7 @@ const SearchInput = styled.input`
 const TabBar = styled.div`
   display: flex;
   align-items: center;
-  gap: 0;
+  & > * + * { margin-left: 0; }
   padding: 10px 16px 0;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);

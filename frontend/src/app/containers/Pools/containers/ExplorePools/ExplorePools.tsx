@@ -23,7 +23,7 @@ const Header = styled.div`
   max-width: 1100px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  & > * + * { margin-top: 12px; }
   margin-bottom: 12px;
   @media (max-width: 913px) {
     flex-direction: column;
@@ -34,7 +34,7 @@ const Left = styled.div`
   flex: 0 0 260px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   min-width: 0;
   margin-right: 12px;
 
@@ -76,7 +76,7 @@ const Right = styled.div`
 const Sort = styled.div`
   display: flex;
   align-items: center;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   flex-wrap: wrap;
 `;
 

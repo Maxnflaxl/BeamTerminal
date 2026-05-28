@@ -12,7 +12,7 @@ const Head = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   margin-bottom: 18px;
   .icon { width: 40px; height: 40px; flex-shrink: 0; }
   .icon svg { display: block; width: 40px; height: 40px; }
@@ -31,7 +31,7 @@ const Grid = styled.div`
 
 const Cell = styled.div`
   display: flex;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   font-size: 13px;
   .lbl { color: rgba(255, 255, 255, 0.45); white-space: nowrap; }
   .val { color: white; font-family: 'SFProDisplay', monospace; word-break: break-word; }

@@ -35,7 +35,7 @@ export const KindBadge: React.FC<{ kind: number }> = ({ kind }) => (
 const Dots = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  & > * + * { margin-left: 3px; }
 `;
 
 const Dot = styled.span<{ color: string }>`

@@ -66,7 +66,7 @@ const Left = styled.div`
 const TopBar = styled.div`
   display: flex;
   align-items: center;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   padding: 12px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 `;
@@ -106,7 +106,7 @@ const ChartArea = styled.div`
 const Toolbar = styled.div`
   display: flex;
   align-items: center;
-  gap: 4px;
+  & > * + * { margin-left: 4px; }
   padding: 8px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-wrap: wrap;
@@ -226,7 +226,7 @@ const PriceRow = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   .lbl { font-size: 11px; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; }
   .val { font-family: 'SFProDisplay', monospace; font-size: 18px; font-weight: 700; color: white; }
   .native { font-family: 'SFProDisplay', monospace; font-size: 13px; color: rgba(255, 255, 255, 0.6); }
@@ -262,7 +262,7 @@ const PoolRow = styled.div`
   align-items: center;
   padding: 5px 0;
   font-size: 13px;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   .name { display: flex; align-items: center; min-width: 0; }
   .lbl {
     color: rgba(255, 255, 255, 0.85);
@@ -285,7 +285,7 @@ const PoolAssetIcon = styled(AssetIcon)`
 const RateLine = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   font-size: 13px;
   font-family: 'SFProDisplay', monospace;
   .lbl { color: rgba(255, 255, 255, 0.5); font-family: 'ProximaNova', sans-serif; font-size: 13px; }
@@ -325,7 +325,7 @@ const Loading = styled.div`
 const TierBar = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   padding: 8px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-wrap: wrap;

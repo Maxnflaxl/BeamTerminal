@@ -23,11 +23,11 @@ const Header = styled.div`
   padding: 0 20px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  & > * + * { margin-left: 16px; }
 
   @media (max-width: 640px) {
     padding: 0 12px;
-    gap: 10px;
+    & > * + * { margin-left: 10px; }
   }
 `;
 
@@ -51,7 +51,7 @@ const LpButton = styled(Link)`
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   padding: 8px 14px;
   background: rgba(0, 246, 210, 0.12);
   border: 1px solid rgba(0, 246, 210, 0.45);
@@ -92,7 +92,7 @@ const MobileOnly = styled.div`
 
 const SortBar = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   align-items: center;
   flex-wrap: wrap;
   margin: 0 0 12px;
@@ -128,13 +128,13 @@ const CardMain = styled.div`
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  & > * + * { margin-top: 4px; }
 `;
 
 const CardTopRow = styled.div`
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   flex-wrap: wrap;
 `;
 
@@ -181,7 +181,7 @@ const CardSide = styled.div`
   justify-content: space-between;
   font-family: 'SFProDisplay', monospace;
   font-size: 12px;
-  gap: 6px;
+  & > * + * { margin-top: 6px; }
 `;
 
 const Table = styled.table`
@@ -237,7 +237,7 @@ const Table = styled.table`
 const PairCell = styled.div`
   display: flex;
   align-items: center;
-  gap: 10px;
+  & > * + * { margin-left: 10px; }
 `;
 
 const PairName = styled.div`

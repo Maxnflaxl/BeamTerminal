@@ -38,7 +38,7 @@ const Banner = styled.div`
 const Bar = styled.button`
   display: flex;
   align-items: center;
-  gap: 28px;
+  & > * + * { margin-left: 28px; }
   width: 100%;
   padding: 12px 16px;
   background: none;
@@ -50,7 +50,7 @@ const Bar = styled.button`
   flex-wrap: wrap;
   &:hover { background: rgba(255, 255, 255, 0.02); }
   .title { font-size: 17px; font-weight: 700; color: var(--color-green); }
-  .stat { display: flex; flex-direction: column; gap: 1px; }
+  .stat { display: flex; flex-direction: column; & > * + * { margin-top: 1px; } }
   .stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: rgba(255,255,255,0.4); }
   .stat .v { font-family: 'SFProDisplay', monospace; font-size: 14px; color: white; }
   .stat .v .native { color: rgba(255,255,255,0.45); font-size: 12px; margin-left: 4px; }
@@ -83,7 +83,7 @@ const Pooled = styled.div`
 const Controls = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   flex-wrap: wrap;
   margin: 6px 0 4px;
   .group { display: flex; background: rgba(255,255,255,0.04); border-radius: 8px; padding: 2px; }

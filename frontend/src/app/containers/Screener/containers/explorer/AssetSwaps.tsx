@@ -16,7 +16,7 @@ import type {
 const AssetCell = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   white-space: nowrap;
 `;
 
@@ -56,14 +56,14 @@ type FilterTab = 'open' | 'all';
 
 const Toolbar = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   flex-wrap: wrap;
   margin: 8px 0 12px;
 `;
 
 const TopRow = styled.div`
   display: flex;
-  gap: 14px;
+  & > * + * { margin-left: 14px; }
   flex-wrap: wrap;
   margin-bottom: 10px;
 `;

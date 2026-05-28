@@ -21,7 +21,7 @@ const Banner = styled.div`
 const Bar = styled.button`
   display: flex;
   align-items: center;
-  gap: 16px;
+  & > * + * { margin-left: 16px; }
   width: 100%;
   padding: 12px 16px;
   background: none;
@@ -34,7 +34,7 @@ const Bar = styled.button`
   .asset {
     display: flex;
     align-items: center;
-    gap: 8px;
+    & > * + * { margin-left: 8px; }
     font-size: 14px;
     .id { color: rgba(255, 255, 255, 0.45); }
     .nm { color: white; font-weight: 600; }
@@ -56,7 +56,7 @@ const Body = styled.div`
 
 const Tabs = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   padding: 12px 0 4px;
   button {
     padding: 6px 14px;
