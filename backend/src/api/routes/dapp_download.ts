@@ -62,6 +62,12 @@ export const dappDownloadRoutes = async (app: FastifyInstance): Promise<void> =>
         // CIDs are immutable — long browser cache is safe.
         .header('Cache-Control', 'public, max-age=86400, immutable')
         .header('Access-Control-Allow-Origin', '*')
+        // Defense-in-depth: even though we already force attachment + zip,
+        // make sure a misconfigured browser can't sniff this as HTML and
+        // script in our origin.
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('X-Frame-Options', 'DENY')
+        .header('Content-Security-Policy', "default-src 'none'; sandbox; frame-ancestors 'none'")
         .send(bytes);
     },
   );

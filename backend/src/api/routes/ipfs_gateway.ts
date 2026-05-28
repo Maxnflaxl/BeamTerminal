@@ -21,6 +21,16 @@ import { BadRequest, ApiError } from '../error.js';
 // returns raw blob bytes with no MIME metadata. Unknown blobs fall back to
 // `application/octet-stream`, which is what public gateways do too.
 //
+// Security: this serves attacker-controlled bytes on a first-party origin.
+// HTML / SVG / XML / WASM are active content and would otherwise execute in
+// `beamterminal.0xmx.net`'s origin (cookie + storage access). Those types
+// get coerced to octet-stream + forced attachment. Every response also
+// carries CSP `default-src 'none'; sandbox`, `X-Content-Type-Options: nosniff`,
+// and `X-Frame-Options: DENY` so that even a slipped type can't script.
+// Standalone gateways usually mitigate this by serving from a separate
+// cookieless origin (e.g. cf-ipfs.com); we can switch to that pattern
+// later if we ever set cookies on this domain — today the SPA doesn't.
+//
 // Limitations vs a Kubo gateway:
 //   * No range / partial-content support — `ipfs_get` is JSON-RPC and loads
 //     the whole blob into memory both sides.
@@ -85,6 +95,17 @@ function sniffContentType(buf: Buffer): string {
   return 'application/octet-stream';
 }
 
+// MIME types whose payloads can script in the serving origin. We never let
+// these go inline — coerce to octet-stream and force attachment so the
+// browser saves the file instead of rendering it.
+const UNSAFE_INLINE_TYPES = new Set([
+  'text/html; charset=utf-8',
+  'image/svg+xml',
+  'application/xml',
+  'application/xhtml+xml',
+  'application/wasm',
+]);
+
 export const ipfsGatewayRoutes = async (app: FastifyInstance): Promise<void> => {
   app.get<{ Params: { cid: string }; Querystring: { download?: string; filename?: string } }>(
     '/ipfs/:cid',
@@ -105,16 +126,29 @@ export const ipfsGatewayRoutes = async (app: FastifyInstance): Promise<void> => 
         throw new ApiError(504, 'IPFS_FETCH_FAILED', `failed to fetch ${cid}: ${msg}`);
       }
 
-      const contentType = sniffContentType(bytes);
+      const sniffed = sniffContentType(bytes);
+      // Active-content types script in our origin if rendered inline. Coerce
+      // to octet-stream + force attachment so the browser only ever saves
+      // them. See route header comment for the threat model.
+      const isUnsafeInline = UNSAFE_INLINE_TYPES.has(sniffed);
+      const contentType = isUnsafeInline ? 'application/octet-stream' : sniffed;
+
+      const userWantsDownload = req.query.download === 'true' || req.query.download === '1';
+      const forceAttachment = userWantsDownload || isUnsafeInline;
+      const rawFilename = typeof req.query.filename === 'string' ? req.query.filename : undefined;
+
       void reply
         .header('Content-Type', contentType)
         // CIDs are immutable — year-long browser cache + Cloudflare cache.
         .header('Cache-Control', 'public, max-age=31536000, immutable')
-        .header('Access-Control-Allow-Origin', '*');
+        .header('Access-Control-Allow-Origin', '*')
+        // Defense-in-depth in case a sniff slips past — the browser must not
+        // re-guess the type and must not execute anything if it does render.
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('X-Frame-Options', 'DENY')
+        .header('Content-Security-Policy', "default-src 'none'; sandbox; frame-ancestors 'none'");
 
-      const download = req.query.download === 'true' || req.query.download === '1';
-      const rawFilename = typeof req.query.filename === 'string' ? req.query.filename : undefined;
-      if (download) {
+      if (forceAttachment) {
         const filename = sanitizeFilename(rawFilename ?? cid);
         void reply.header('Content-Disposition', `attachment; filename="${filename}"`);
       } else if (rawFilename) {
