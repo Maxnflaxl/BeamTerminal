@@ -601,7 +601,7 @@ export const NetworkCharts: React.FC = () => {
   // twin are listed after the pairs so they fall below in each category.
   const allCharts: ReadonlyArray<ChartSpec & { category: Category }> = [
     // Blockchain — day/total pairs
-    { key: 'transactionsDaily',title: 'Transactions / day',      state: transactionsDaily,  formatter: fmtInt,        category: 'blockchain' },
+    { key: 'transactionsDaily',title: 'Transactions / day',      state: transactionsDaily,  formatter: fmtInt,        category: 'blockchain', overlay: { state: coinbase, label: 'Coinbase' } },
     { key: 'transactionsTotal',title: 'Transactions (total)',    state: transactionsTotal,  formatter: fmtInt,        category: 'blockchain' },
     { key: 'feesDaily',        title: 'Fees / day',              state: feesDaily,          formatter: fmtBeam,       category: 'blockchain' },
     { key: 'feesTotal',        title: 'Fees (total)',            state: feesTotal,          formatter: fmtBeam,       category: 'blockchain' },
@@ -611,7 +611,6 @@ export const NetworkCharts: React.FC = () => {
     { key: 'hashrate',         title: 'Hashrate (Beamhash III)', state: hashrate,           formatter: fmtHashrate,   category: 'blockchain' },
     { key: 'difficulty',       title: 'Difficulty',              state: difficulty,         formatter: fmtDifficulty, category: 'blockchain' },
     { key: 'blockTime',        title: 'Avg block time',          state: blockTime,          formatter: fmtBlockTime,  category: 'blockchain' },
-    { key: 'kernels',          title: 'Kernels / day',           state: kernels,            formatter: fmtInt,        category: 'blockchain', overlay: { state: coinbase, label: 'Coinbase' } },
     { key: 'txosTotal',        title: 'TXOs (total)',            state: txosTotal,          formatter: fmtInt,        category: 'blockchain' },
     { key: 'utxosTotal',       title: 'UTXOs',                   state: utxosTotal,         formatter: fmtInt,        category: 'blockchain' },
     { key: 'contractsTotal',   title: 'Contracts active',        state: contractsTotal,     formatter: fmtInt,        category: 'blockchain' },

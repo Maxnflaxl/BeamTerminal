@@ -143,7 +143,6 @@ export const api = {
 
   charts: {
     hashrate:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/hashrate'),
-    kernels:    (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/kernels'),
     coinbase:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/coinbase'),
     assets:     (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/assets'),
     dexVolume:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/dex-volume'),
