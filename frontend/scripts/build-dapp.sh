@@ -5,7 +5,7 @@ DAPP_NAME="beamterminal"
 MANIFEST_NAME="BeamTerminal"
 MANIFEST_DESCRIPTION="Beam DEX terminal — pairs, charts, trades, swap."
 MANIFEST_VERSION_PREFIX="1.0"
-MANIFEST_ICON="localapp/app/logo.svg"
+MANIFEST_ICON="localapp/app/favicon.svg"
 MANIFEST_URL="localapp/app/index.html"
 MANIFEST_API_VERSION="7.3"
 MANIFEST_MIN_API_VERSION="7.3"
@@ -20,14 +20,14 @@ yarn build:prod
 test -f html/index.html
 test -f html/index.js
 test -f html/styles.css
-test -f src/app/shared/icons/logo-dex.svg
+# The DApp Store icon is the site favicon, which webpack copies into html/.
+test -f html/favicon.svg
 
 # Drop any prior build, including a stale copy sitting in html/ from a previous
 # run — otherwise `cp -r html/*` below would bundle the .dapp inside itself.
 rm -rf "${DAPP_NAME}" "${DAPP_NAME}.dapp" "html/${DAPP_NAME}.dapp"
 mkdir -p "${DAPP_NAME}/app"
 cp -r html/* "${DAPP_NAME}/app/"
-cp src/app/shared/icons/logo-dex.svg "${DAPP_NAME}/app/logo.svg"
 
 cat > "${DAPP_NAME}/manifest.json" <<EOF
 {
