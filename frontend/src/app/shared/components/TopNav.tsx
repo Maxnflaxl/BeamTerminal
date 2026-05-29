@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { css } from '@linaria/core';
 import { ROUTES } from '@app/shared/constants';
+import { isInsideWallet } from '@core/walletEnv';
 
 const navRoot = css`
   width: 100%;
@@ -204,10 +205,12 @@ export const TopNav = () => (
       </div>
 
       <div className={actions}>
-        <a className={downloadBtn} href="/beamterminal.dapp" download="beamterminal.dapp">
-          <DownloadIcon />
-          Download DApp
-        </a>
+        {!isInsideWallet() && (
+          <a className={downloadBtn} href="/beamterminal.dapp" download="beamterminal.dapp">
+            <DownloadIcon />
+            Download DApp
+          </a>
+        )}
       </div>
     </div>
   </nav>
