@@ -549,7 +549,6 @@ export const NetworkCharts: React.FC = () => {
   const hashrate           = useOneShot<ApiChartSeries>(() => api.charts.hashrate());
   const difficulty         = useOneShot<ApiChartSeries>(() => api.charts.difficulty());
   const blockTime          = useOneShot<ApiChartSeries>(() => api.charts.blockTime());
-  const kernels            = useOneShot<ApiChartSeries>(() => api.charts.kernels());
   const coinbase           = useOneShot<ApiChartSeries>(() => api.charts.coinbase());
   const tvl                = useOneShot<ApiChartSeries>(() => api.charts.tvl());
   const dexVolume          = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());

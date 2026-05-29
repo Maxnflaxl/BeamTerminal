@@ -37,9 +37,9 @@ const Inner = styled.div`
   min-height: 220px;
 `;
 
-// Two-swatch legend shown when an overlay line is present (e.g. the Kernels
-// chart's coinbase baseline). Margin-based spacing — fl/grid `gap` isn't
-// supported on the wallet's QtWebEngine 5.15.2 (Chrome 83).
+// Two-swatch legend shown when an overlay line is present (e.g. the
+// Transactions / day chart's coinbase baseline). Margin-based spacing — fl/grid
+// `gap` isn't supported on the wallet's QtWebEngine 5.15.2 (Chrome 83).
 const Legend = styled.div`
   position: absolute;
   top: 8px;
