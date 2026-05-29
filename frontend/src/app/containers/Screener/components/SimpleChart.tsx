@@ -45,6 +45,9 @@ interface Props {
   formatter?: (v: number) => string;
   /** Render the price axis on a base-10 log scale. */
   logScale?: boolean;
+  /** Called after the chart is created so a parent can position overlays
+   *  relative to the time scale. Returns a teardown to run before re-create. */
+  onChartReady?: (chart: IChartApi, container: HTMLDivElement) => (() => void) | void;
 }
 
 function defaultFormatter(v: number): string {
@@ -58,10 +61,15 @@ function defaultFormatter(v: number): string {
   return '0';
 }
 
-export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter, logScale = false }) => {
+export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter, logScale = false, onChartReady }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+  // Stash the latest onChartReady in a ref so callers don't have to memoise
+  // it — listing it in the create-effect's deps would rebuild the entire
+  // chart whenever an inline arrow caller re-renders.
+  const onChartReadyRef = useRef(onChartReady);
+  useEffect(() => { onChartReadyRef.current = onChartReady; }, [onChartReady]);
 
   useEffect(() => {
     const el = innerRef.current;
@@ -98,14 +106,17 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
       lineWidth: 2,
       priceFormat: { type: 'custom', formatter, minMove: 0.000001 },
     });
+    const teardown = onChartReadyRef.current?.(chart, el);
     return () => {
+      if (typeof teardown === 'function') teardown();
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
     };
     // Formatter is only honoured at construction time — re-create on change.
     // logScale is applied via the dedicated effect below so we don't lose
-    // the data on every toggle.
+    // the data on every toggle. onChartReady is read through a ref so a
+    // caller passing a fresh callback identity doesn't trigger a rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formatter]);
 

@@ -333,11 +333,11 @@ export const AssetDetail: React.FC = () => {
             <div className="val">{maxSupplyLabel}</div>
           </InfoCell>
           <InfoCell>
-            <div className="lbl">First seen</div>
+            <div className="lbl">Minted at</div>
             <div className="val">
               {asset.aid === 0
                 ? 'block #1'
-                : asset.first_seen_height !== null ? `block #${asset.first_seen_height}` : '—'}
+                : asset.minted_at_height !== null ? `block #${asset.minted_at_height}` : '—'}
             </div>
           </InfoCell>
           <InfoCell>

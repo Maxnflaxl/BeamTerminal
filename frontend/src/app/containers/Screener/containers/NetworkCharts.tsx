@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { api, type ApiChartPoint, type ApiChartSeries } from '../api/client';
 import { SimpleChart } from '../components/SimpleChart';
+import { ConfidentialAssetsChart } from '../components/ConfidentialAssetsChart';
 
 type Timeframe = '1W' | '1M' | '3M' | 'YTD' | 'ALL';
 const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1W', '1M', '3M', 'YTD', 'ALL'];
@@ -456,11 +457,41 @@ interface ChartCellProps {
   scale?: number;
   formatter?: (v: number) => string;
   logScale?: boolean;
+  chartKey?: string;
   onExpand: () => void;
 }
 
+// Inner chart picker — `assets` gets the icon-strip variant when rendered in
+// the expanded modal (markers need real estate to be useful), and falls back
+// to a plain SimpleChart inside the cramped grid cell. Centralising the
+// switch here keeps both call sites in sync without prop-drilling a render
+// fn.
+const InnerChart: React.FC<{
+  chartKey: string | undefined;
+  expanded?: boolean;
+  series: ReadonlyArray<ApiChartPoint>;
+  title: string;
+  scale?: number;
+  formatter?: (v: number) => string;
+  logScale?: boolean;
+}> = ({ chartKey, expanded, series, title, scale, formatter, logScale }) => {
+  if (chartKey === 'assets') {
+    return (
+      <ConfidentialAssetsChart
+        series={series}
+        title={title}
+        scale={scale}
+        formatter={formatter}
+        logScale={logScale}
+        showMarkers={expanded === true}
+      />
+    );
+  }
+  return <SimpleChart series={series} title={title} scale={scale} formatter={formatter} logScale={logScale} />;
+};
+
 const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
-  { state, title, timeframe, scale, formatter, logScale, onExpand, onToggleLog },
+  { state, title, timeframe, scale, formatter, logScale, chartKey, onExpand, onToggleLog },
 ) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
@@ -481,7 +512,7 @@ const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
       </CellHeader>
       <ChartArea>
         {filtered ? (
-          <SimpleChart series={filtered} title="" scale={scale} formatter={formatter} logScale={logScale} />
+          <InnerChart chartKey={chartKey} series={filtered} title="" scale={scale} formatter={formatter} logScale={logScale} />
         ) : (
           <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
         )}
@@ -632,6 +663,7 @@ export const NetworkCharts: React.FC = () => {
         {charts.map((c) => (
           <ChartCell
             key={c.key}
+            chartKey={c.key}
             state={c.state}
             title={c.title}
             timeframe={timeframe}
@@ -680,6 +712,7 @@ export const NetworkCharts: React.FC = () => {
             </ModalToolbar>
             <ModalBody>
               <ExpandedChart
+                chartKey={expanded.key}
                 state={expanded.state}
                 title={expanded.title}
                 timeframe={timeframe}
@@ -695,13 +728,13 @@ export const NetworkCharts: React.FC = () => {
   );
 };
 
-const ExpandedChart: React.FC<Omit<ChartCellProps, 'onExpand'>> = ({ state, title, timeframe, scale, formatter, logScale }) => {
+const ExpandedChart: React.FC<Omit<ChartCellProps, 'onExpand'>> = ({ chartKey, state, title, timeframe, scale, formatter, logScale }) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
   if (!filtered) return <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>;
-  return <SimpleChart series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} />;
+  return <InnerChart chartKey={chartKey} expanded series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} />;
 };
 
 // IndexerStatusBadge lives in the global Footer (components/Footer.tsx) now.

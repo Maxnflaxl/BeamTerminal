@@ -352,7 +352,8 @@ Catalog of every asset known to the backend. Wholesale (no pagination) — there
       "decimals": 8,
       "is_imposter": false, "imposter_reason": null,
       "emission":  "26279999976873600",        // for aid 0: BEAM current circulation
-      "first_seen_height": null,
+      "minted_at_height": null,                // on-chain registration height
+      "minted_at_ts": null,                    // epoch seconds for minted_at_height
       "minter_cid": null,
       "max_supply": "26280000000000000",       // for aid 0: BEAM total circulation
       "pool_count": 47
@@ -377,7 +378,7 @@ Single asset metadata + every active pool it participates in.
   "decimals": 8,
   "is_imposter": false,
   "emission": "1000000000000000",
-  "first_seen_height": 1234567,
+  "minted_at_height": 1234567,         // on-chain registration height
   "minter_cid": "295fe749…d868",       // null if not minter-issued
   "max_supply": "5000000000000000",    // null if uncapped
   "pools": [

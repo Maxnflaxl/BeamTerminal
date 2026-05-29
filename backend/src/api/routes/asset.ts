@@ -27,7 +27,7 @@ interface AssetRow {
   decimals: number;
   is_imposter: boolean;
   emission: string | null;
-  first_seen_height: string | null;
+  minted_at_height: string | null;
   minter_cid: string | null;
   max_supply: string | null;
   color: string | null;
@@ -65,7 +65,14 @@ interface AssetListRow {
   is_imposter: boolean;
   imposter_reason: string | null;
   emission: string | null;
-  first_seen_height: string | null;
+  // On-chain registration ("mint") height. Sourced from assets.lock_height when
+  // available — that's the real registration block — and falls back to
+  // first_seen_height for legacy rows where lock_height wasn't recorded.
+  minted_at_height: string | null;
+  // Epoch seconds for minted_at_height, resolved through block_metrics
+  // (canonical post-backfill) with a block_timestamps fallback for heights
+  // the live indexer has touched. Null when neither table covers the height.
+  minted_at_ts: string | null;
   minter_cid: string | null;
   max_supply: string | null;
   color: string | null;
@@ -77,10 +84,28 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   // List of every asset known to the backend, with per-asset pool counts.
   // No pagination — there are ~200 assets on mainnet today; small enough to send wholesale.
   app.get('/assets', async (_req, reply) => {
+    // minted_at_height is sourced strictly from lock_height (the on-chain
+    // registration block). We deliberately do NOT fall back to
+    // first_seen_height — that's just when our indexer first noticed the
+    // asset and would mislabel legacy assets with an arbitrary block number.
+    //
+    // The minted_at_ts lookups are scalar subselects with LIMIT 1 rather
+    // than LEFT JOINs because block_metrics' height index is non-unique
+    // (PK is (height, block_ts)) and reorgs can leave more than one row at
+    // the same height — a JOIN would multiply asset rows.
     const { rows } = await q<AssetListRow>(`
       SELECT a.aid::text, a.name, a.short_name, a.unit_name, a.description,
              a.decimals, a.is_imposter, a.imposter_reason,
-             a.emission::text, a.first_seen_height::text,
+             a.emission::text,
+             a.lock_height::text AS minted_at_height,
+             EXTRACT(epoch FROM COALESCE(
+               (SELECT bm.block_ts FROM block_metrics    bm
+                 WHERE bm.height = a.lock_height
+                 ORDER BY bm.block_ts DESC LIMIT 1),
+               (SELECT bt.ts       FROM block_timestamps bt
+                 WHERE bt.height = a.lock_height
+                 LIMIT 1)
+             ))::bigint::text AS minted_at_ts,
              a.minter_cid, a.max_supply::text, a.color, a.logo_url,
              COALESCE(pc.cnt, 0)::text AS pool_count
         FROM assets a
@@ -105,7 +130,8 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         is_imposter: r.is_imposter,
         imposter_reason: r.imposter_reason,
         emission: r.emission,
-        first_seen_height: r.first_seen_height ? Number(r.first_seen_height) : null,
+        minted_at_height: r.minted_at_height ? Number(r.minted_at_height) : null,
+        minted_at_ts: r.minted_at_ts ? Number(r.minted_at_ts) : null,
         minter_cid: r.minter_cid,
         max_supply: r.max_supply,
         color: r.color,
@@ -123,7 +149,8 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
 
     const { rows } = await q<AssetRow>(
       `SELECT aid::text, name, short_name, unit_name, description, decimals,
-              is_imposter, emission::text, first_seen_height::text,
+              is_imposter, emission::text,
+              lock_height::text AS minted_at_height,
               minter_cid, max_supply::text, color, logo_url, owner_cid, owner_kind, owner_addr
          FROM assets
         WHERE aid = $1`,
@@ -189,7 +216,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       decimals: asset.decimals,
       is_imposter: asset.is_imposter,
       emission: asset.emission,
-      first_seen_height: asset.first_seen_height ? Number(asset.first_seen_height) : null,
+      minted_at_height: asset.minted_at_height ? Number(asset.minted_at_height) : null,
       minter_cid: asset.minter_cid,
       max_supply: asset.max_supply,
       color: asset.color,

@@ -270,7 +270,8 @@ export interface ApiAsset {
   decimals: number;
   is_imposter: boolean;
   emission: string | null;
-  first_seen_height: number | null;
+  /** On-chain registration ("mint") height. */
+  minted_at_height: number | null;
   // CID of the Beam Asset Minter that issued this asset (null = not minter-issued).
   minter_cid: string | null;
   // Configured supply cap in groths. Null = no cap (either non-minter asset
@@ -302,7 +303,11 @@ export interface ApiAssetListEntry {
   is_imposter: boolean;
   imposter_reason: string | null;
   emission: string | null;
-  first_seen_height: number | null;
+  /** On-chain registration ("mint") height. */
+  minted_at_height: number | null;
+  /** Epoch seconds for minted_at_height. Null when the height predates the
+   *  block_metrics backfill and no DEX activity has populated block_timestamps. */
+  minted_at_ts: number | null;
   minter_cid: string | null;
   max_supply: string | null;
   color: string | null;
