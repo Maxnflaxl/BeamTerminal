@@ -122,6 +122,20 @@ const KERNELS_SQL = `
    ORDER BY 1
 `;
 
+// Coinbase kernels per day. BEAM emits exactly one coinbase OUTPUT per block,
+// so the coinbase baseline equals the block count per day. Derived from the
+// same block_metrics rows KERNELS_SQL sums over, so the two lines stay mutually
+// consistent and this needs no extra backfill. (`fee == 0` is NOT a coinbase
+// marker — early BEAM allowed zero-fee transactions, so some blocks carry
+// multiple fee-0 kernels.)
+const COINBASE_SQL = `
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
+         COUNT(*)::float8 AS value
+    FROM block_metrics
+   GROUP BY time_bucket(INTERVAL '1 day', block_ts)
+   ORDER BY 1
+`;
+
 // Cumulative count of registered confidential assets, per day.
 // Joins block_metrics (canonical height→ts after backfill) with
 // block_timestamps (sparse but populated by the live indexer for
@@ -403,6 +417,7 @@ function netFetcher(key: keyof NetworkSeries): () => Promise<SeriesPoint[]> {
 const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'hashrate',   sql: HASHRATE_SQL,   maxAgeSec: 600 },
   { name: 'kernels',    sql: KERNELS_SQL,    maxAgeSec: 600 },
+  { name: 'coinbase',   sql: COINBASE_SQL,   maxAgeSec: 600 },
   { name: 'assets',     sql: ASSETS_SQL,     maxAgeSec: 600 },
   { name: 'dex-volume', sql: DEX_VOLUME_SQL, maxAgeSec: 1800 },
   { name: 'difficulty', sql: DIFFICULTY_SQL, maxAgeSec: 600 },
