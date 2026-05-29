@@ -135,16 +135,102 @@ const Toolbar = styled.div`
     background: rgba(255, 255, 255, 0.1);
     margin: 0 6px;
   }
-  .centerOn {
-    margin-left: auto;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 12px;
-    font-family: inherit;
-    padding: 3px 6px;
-    color-scheme: dark;
+`;
+
+// Custom-styled date selector: a real text input on the left (placeholder
+// "CENTER ON YYYY-MM-DD") that the user types into, plus a calendar-icon
+// button on the right that opens the native picker as an alternative. The
+// picker button hosts a transparent <input type="date"> overlay sized to the
+// icon's hit area, so clicking the icon — and only the icon — opens the
+// browser's date picker. That keeps the body of the control typeable while
+// still giving us a one-click picker affordance on Chrome 83, where
+// input.showPicker() doesn't exist yet.
+const CenterOnDate = styled.div`
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 3px 3px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  color-scheme: dark;
+  transition: background 120ms, border-color 120ms;
+  &:focus-within {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--color-green);
+  }
+  input[type='text'] {
+    background: transparent;
+    border: none;
+    color: var(--color-green);
+    font: inherit;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    outline: none;
+    padding: 1px 0;
+    width: 160px;
+    text-transform: uppercase;
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.4);
+      font-weight: 400;
+      letter-spacing: 0.4px;
+    }
+  }
+  .pickerBtn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-left: 4px;
+    border-radius: 3px;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition: background 120ms, color 120ms;
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--color-green);
+    }
+    svg {
+      width: 13px;
+      height: 13px;
+      pointer-events: none;
+    }
+    input[type='date'] {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      border: none;
+      padding: 0;
+      margin: 0;
+      background: transparent;
+      color: transparent;
+      font: inherit;
+      cursor: pointer;
+      color-scheme: dark;
+      &::-webkit-calendar-picker-indicator {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        cursor: pointer;
+      }
+      &::-webkit-datetime-edit,
+      &::-webkit-inner-spin-button,
+      &::-webkit-clear-button { display: none; }
+    }
   }
 `;
 
@@ -355,7 +441,7 @@ export const PairDetail: React.FC = () => {
   const navigate = useNavigate();
 
   const [interval, setInterval_] = useState<Interval>('1h');
-  const [chartStyle, setChartStyle] = useState<'candle' | 'area'>('candle');
+  const [chartStyle, setChartStyle] = useState<'candle' | 'area'>('area');
   const [metric, setMetric] = useState<'price' | 'mc'>('price');
   const [denom, setDenom_] = useState<Denom>('native');
   // Default to inverted (aid1-per-aid2): the rest of the UI — pair title
@@ -369,6 +455,12 @@ export const PairDetail: React.FC = () => {
   const [selectedKind, setSelectedKind] = useState<number | null>(null);
   // Unix-seconds date to center the price chart on (from the toolbar date input).
   const [chartCenterOn, setChartCenterOn] = useState<number | null>(null);
+  // YYYY-MM-DD string mirroring the same selection — drives the placeholder
+  // overlay on the styled date control and lets us render a clear (×) button.
+  const [centerOnDate, setCenterOnDate] = useState<string>('');
+  // Bumped when the user clears the date input and presses Enter — tells the
+  // chart to fitContent() again so the view returns to the default zoom.
+  const [chartFitNonce, setChartFitNonce] = useState(0);
   // The chart defaults to flipped (showing aid1-per-aid2 — i.e., BEAM per
   // BeamX on a BEAM-quoted pair). Match the rate-switcher default so the
   // sidebar reads in the same orientation as the chart and the user doesn't
@@ -620,17 +712,59 @@ export const PairDetail: React.FC = () => {
                 </button>
               </>
             )}
-            <input
-              type="date"
-              className="centerOn"
-              title="Center chart on date"
-              onChange={(e) => {
-                const v = e.target.value; // YYYY-MM-DD
-                if (!v) { setChartCenterOn(null); return; }
-                const ms = Date.parse(`${v}T00:00:00Z`);
-                if (!Number.isNaN(ms)) setChartCenterOn(Math.floor(ms / 1000));
-              }}
-            />
+            <CenterOnDate>
+              <input
+                type="text"
+                inputMode="numeric"
+                spellCheck={false}
+                autoComplete="off"
+                placeholder="CENTER ON YYYY-MM-DD"
+                value={centerOnDate}
+                aria-label="Center chart on date (YYYY-MM-DD)"
+                onChange={(e) => {
+                  // Keep digits + dashes only; cap at YYYY-MM-DD length so
+                  // the input matches what the picker would also emit.
+                  const raw = e.target.value.replace(/[^0-9-]/g, '').slice(0, 10);
+                  setCenterOnDate(raw);
+                  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+                    if (!raw) setChartCenterOn(null);
+                    return;
+                  }
+                  const ms = Date.parse(`${raw}T00:00:00Z`);
+                  if (!Number.isNaN(ms)) setChartCenterOn(Math.floor(ms / 1000));
+                }}
+                onKeyDown={(e) => {
+                  // Empty + Enter → reset the chart zoom to its default fit.
+                  // (Setting centerOn=null on its own only stops centering; it
+                  // doesn't un-zoom what a prior center already did.)
+                  if (e.key === 'Enter' && centerOnDate === '') {
+                    setChartCenterOn(null);
+                    setChartFitNonce((n) => n + 1);
+                  }
+                }}
+              />
+              <span className="pickerBtn" title="Open date picker">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="17" rx="2" />
+                  <line x1="3" y1="9" x2="21" y2="9" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                </svg>
+                <input
+                  type="date"
+                  value={centerOnDate}
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  onChange={(e) => {
+                    const v = e.target.value; // YYYY-MM-DD
+                    setCenterOnDate(v);
+                    if (!v) { setChartCenterOn(null); return; }
+                    const ms = Date.parse(`${v}T00:00:00Z`);
+                    if (!Number.isNaN(ms)) setChartCenterOn(Math.floor(ms / 1000));
+                  }}
+                />
+              </span>
+            </CenterOnDate>
           </Toolbar>
           <ChartContainer>
             <Chart
@@ -641,6 +775,7 @@ export const PairDetail: React.FC = () => {
               volumeSymbol={sym1}
               onReachStart={chartHasMore ? loadOlder : undefined}
               centerOn={chartCenterOn}
+              fitNonce={chartFitNonce}
               tradePreview={(() => {
                 if (!tradePreview || metric !== 'price' || effectiveDenom !== 'native') return null;
                 // Project the effective rate + signed impact into the chart's

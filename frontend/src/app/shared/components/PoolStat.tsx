@@ -52,7 +52,7 @@ const HeaderMeta = styled('div')`
   margin-left: auto;
   justify-content: flex-end;
   flex-wrap: nowrap;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
 `;
 const FeeBadge = styled.div`
   margin: 0;

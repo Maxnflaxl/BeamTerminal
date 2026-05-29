@@ -62,6 +62,10 @@ interface Props {
    *  range around the date; out-of-range dates scroll as far as data allows
    *  (and trip `onReachStart` so older candles lazy-load). */
   centerOn?: number | null;
+  /** Monotonic counter — when it changes, re-fit the chart to all loaded
+   *  candles. Lets the toolbar's "clear date + Enter" gesture restore the
+   *  default zoom even though centering otherwise sticks. */
+  fitNonce?: number;
   /**
    * Optional live trade overlay. When the user types an amount into the swap
    * panel we draw a single horizontal line at the *effective* rate of the
@@ -76,7 +80,7 @@ interface Props {
 }
 
 export const Chart: React.FC<Props> = ({
-  candles, style, denomSymbol, volumeDecimals, volumeSymbol, onReachStart, centerOn, tradePreview,
+  candles, style, denomSymbol, volumeDecimals, volumeSymbol, onReachStart, centerOn, fitNonce, tradePreview,
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -326,6 +330,13 @@ export const Chart: React.FC<Props> = ({
       });
     } catch { /* date outside loaded data — onReachStart will lazy-load older */ }
   }, [centerOn]);
+
+  // Reset zoom on demand (toolbar's clear-date + Enter). Skip the first render
+  // — fitContent already runs once via the candles effect.
+  useEffect(() => {
+    if (fitNonce == null) return;
+    chartRef.current?.timeScale().fitContent();
+  }, [fitNonce]);
 
   // Live trade preview — two horizontal price lines on the main series.
   useEffect(() => {

@@ -100,7 +100,7 @@ export const AssetMetaCard: React.FC<Props> = ({
         {normalizeOptColor(asset.color) && (
           <Cell>
             <span className="lbl">Color:</span>
-            <span className="val" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="val" style={{ display: 'flex', alignItems: 'center' }}>
               <span
                 style={{
                   width: 12,
@@ -108,6 +108,7 @@ export const AssetMetaCard: React.FC<Props> = ({
                   borderRadius: 3,
                   background: normalizeOptColor(asset.color) as string,
                   border: '1px solid rgba(255,255,255,0.2)',
+                  marginRight: 6,
                 }}
               />
               {normalizeOptColor(asset.color)}

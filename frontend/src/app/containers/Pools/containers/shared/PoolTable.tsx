@@ -35,12 +35,12 @@ const Row = styled.tr`
 
 const PairCell = styled('div')`
   ${rowCenter}
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
 `;
 
 const PairText = styled('div')`
   ${rowCenter}
-  gap: 4px;
+  & > * + * { margin-left: 4px; }
 `;
 
 const WarningBadge = styled('span')`
@@ -51,7 +51,7 @@ const WarningBadge = styled('span')`
 
 const TokenCell = styled('div')`
   ${rowCenter}
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
 `;
 
 const EmptyState = styled.div`

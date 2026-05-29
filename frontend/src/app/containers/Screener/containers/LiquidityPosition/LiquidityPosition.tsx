@@ -222,7 +222,7 @@ const Row = styled.div<{ sep?: boolean }>`
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 12px;
+  & > * + * { margin-left: 12px; }
   padding: 5px 0;
   font-size: 13px;
   border-top: ${(p) => (p.sep ? '1px solid rgba(255,255,255,0.06)' : 'none')};
@@ -770,13 +770,13 @@ const Result: React.FC<ResultProps> = ({
           <WideCard>
             <CardHead>
               <CardTitle>Analytics (remaining position)</CardTitle>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
                 <Tabs>
                   <Tab active={tab === 'il'} onClick={() => setTab('il')}>IL curve</Tab>
                   <Tab active={tab === 'scenarios'} onClick={() => setTab('scenarios')}>Scenarios</Tab>
                   <Tab active={tab === 'simulator'} onClick={() => setTab('simulator')}>Simulator</Tab>
                 </Tabs>
-                <SwapBtn onClick={() => setAnalyticsUnit(flip(analyticsUnit))}>in {analyticsUnit === 1 ? n1 : n2} ⇄</SwapBtn>
+                <SwapBtn style={{ marginLeft: 8 }} onClick={() => setAnalyticsUnit(flip(analyticsUnit))}>in {analyticsUnit === 1 ? n1 : n2} ⇄</SwapBtn>
               </div>
             </CardHead>
             {tab === 'il' && <ILCurveChart metrics={m} unit={analyticsUnit} name1={n1} name2={n2} />}

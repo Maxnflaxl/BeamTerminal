@@ -27,7 +27,7 @@ const SelectorBtn = styled('button')`
   flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  & > * + * { margin-left: 8px; }
   width: 100%;
   min-height: 41px;
   height: auto;
@@ -53,7 +53,7 @@ const SelectorBtn = styled('button')`
   }
 
   @media (max-width: 480px) {
-    gap: 4px;
+    & > * + * { margin-left: 4px; }
     padding: 6px 8px 6px 10px;
     font-size: 13px;
   }

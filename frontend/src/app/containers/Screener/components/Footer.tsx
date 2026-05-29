@@ -71,7 +71,7 @@ const BottomBar = styled.div`
 const Badge = styled.span<{ tone: 'ok' | 'lag' | 'err' }>`
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  & > * + * { margin-left: 6px; }
   padding: 4px 9px;
   border-radius: 999px;
   font-family: 'SFProDisplay', monospace;

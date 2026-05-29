@@ -143,7 +143,7 @@ const SectionLabel = styled.div`
 const AssetRow = styled.button<{ excluded?: boolean }>`
   display: flex;
   align-items: center;
-  gap: 10px;
+  & > * + * { margin-left: 10px; }
   width: 100%;
   padding: 9px 16px;
   background: transparent;
@@ -223,7 +223,7 @@ const FilterBtn = styled('button')<{ active: boolean }>`
   padding: 4px 10px;
   cursor: pointer;
   ${rowCenter}
-  gap: 4px;
+  & > * + * { margin-left: 4px; }
   white-space: nowrap;
 `;
 

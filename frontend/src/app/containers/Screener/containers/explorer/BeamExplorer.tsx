@@ -1816,7 +1816,7 @@ function HdrsView(
         <summary>Table options</summary>
         <div
           style={{
-            display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', margin: '8px 0',
+            display: 'flex', flexWrap: 'wrap', alignItems: 'center', margin: '8px 0',
           }}
         >
           <label>
@@ -1828,7 +1828,7 @@ function HdrsView(
               type="number"
             />
           </label>
-          <label>
+          <label style={{ marginLeft: 12 }}>
             Max height:{' '}
             <Input
               style={{ width: 120, display: 'inline-block' }}
@@ -1838,7 +1838,7 @@ function HdrsView(
               placeholder="latest"
             />
           </label>
-          <Btn onClick={() => apply()}>Apply</Btn>
+          <Btn style={{ marginLeft: 12 }} onClick={() => apply()}>Apply</Btn>
         </div>
 
         <ColumnPresets>

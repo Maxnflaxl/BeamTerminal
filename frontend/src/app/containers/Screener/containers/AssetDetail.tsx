@@ -347,7 +347,7 @@ export const AssetDetail: React.FC = () => {
           {normalizeOptColor(asset.color) && (
             <InfoCell>
               <div className="lbl">Color</div>
-              <div className="val" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="val" style={{ display: 'flex', alignItems: 'center' }}>
                 <span
                   style={{
                     width: 12,
@@ -355,6 +355,7 @@ export const AssetDetail: React.FC = () => {
                     borderRadius: 3,
                     background: normalizeOptColor(asset.color) as string,
                     border: '1px solid rgba(255,255,255,0.2)',
+                    marginRight: 6,
                   }}
                 />
                 {normalizeOptColor(asset.color)}
