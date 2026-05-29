@@ -22,7 +22,9 @@ test -f html/index.js
 test -f html/styles.css
 test -f src/app/shared/icons/logo-dex.svg
 
-rm -rf "${DAPP_NAME}" "${DAPP_NAME}.dapp"
+# Drop any prior build, including a stale copy sitting in html/ from a previous
+# run — otherwise `cp -r html/*` below would bundle the .dapp inside itself.
+rm -rf "${DAPP_NAME}" "${DAPP_NAME}.dapp" "html/${DAPP_NAME}.dapp"
 mkdir -p "${DAPP_NAME}/app"
 cp -r html/* "${DAPP_NAME}/app/"
 cp src/app/shared/icons/logo-dex.svg "${DAPP_NAME}/app/logo.svg"
@@ -45,4 +47,8 @@ EOF
   zip -r "../${DAPP_NAME}.dapp" ./*
 )
 
-echo "Created ${DAPP_NAME}.dapp with version ${VERSION}"
+# Publish the bundle into html/ so the deploy's `rsync html/ → /var/www` step
+# serves it at the web root for the nav's "Download DApp" button (/beamterminal.dapp).
+cp "${DAPP_NAME}.dapp" "html/${DAPP_NAME}.dapp"
+
+echo "Created ${DAPP_NAME}.dapp (also copied to html/) with version ${VERSION}"

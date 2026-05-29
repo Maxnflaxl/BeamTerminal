@@ -2,6 +2,7 @@ import React from 'react';
 import { styled } from '@linaria/react';
 import type { ApiStats } from '../api/types';
 import { fmt$, fmtNum } from './format';
+import { BeamIcon } from '@app/shared/icons';
 
 const Bar = styled.div`
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -18,10 +19,10 @@ const Row = styled.div`
   flex-wrap: wrap;
 
   @media (max-width: 640px) {
-    padding: 0 12px;
+    padding: 12px;
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    & > * + * { margin-left: 12px; }
+    grid-template-columns: 1fr 1fr;
+    grid-gap: 8px;
   }
 `;
 
@@ -38,8 +39,14 @@ const Stat = styled.div`
 
   @media (max-width: 640px) {
     margin-right: 0;
-    padding-right: 0;
+    padding: 10px 12px;
     border-right: none;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    &:last-child {
+      padding: 10px 12px;
+    }
   }
 `;
 
@@ -62,6 +69,14 @@ const BeamPx = styled.div`
   font-size: 13px;
   color: rgba(255, 255, 255, 0.6);
   white-space: nowrap;
+  svg {
+    width: 16px;
+    height: 16px;
+    vertical-align: middle;
+    margin-right: 6px;
+    position: relative;
+    top: -1px;
+  }
   b {
     color: white;
     margin-left: 4px;
@@ -69,9 +84,40 @@ const BeamPx = styled.div`
 
   @media (max-width: 640px) {
     margin-left: 0;
-    grid-column: 1 / -1;
-    padding-top: 4px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 10px 12px;
+    background: rgba(0, 246, 210, 0.08);
+    border: 1px solid rgba(0, 246, 210, 0.28);
+    border-radius: 10px;
+    svg {
+      width: 14px;
+      height: 14px;
+      margin-right: 5px;
+    }
+    b {
+      margin-left: 0;
+      margin-top: 2px;
+      font-family: 'SFProDisplay', monospace;
+      font-size: 15px;
+      font-weight: 600;
+    }
+  }
+`;
+
+// Wraps the icon + "BEAM" so the price tile can stack label-over-value on
+// mobile while staying inline ("◈ BEAM $0.01") on desktop.
+const BeamLabel = styled.span`
+  white-space: nowrap;
+
+  @media (max-width: 640px) {
+    display: flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.6);
   }
 `;
 
@@ -103,7 +149,10 @@ export const StatsBar: React.FC<Props> = ({ stats }) => (
         <Value>{stats ? stats.total_trades.toLocaleString('en-US') : '—'}</Value>
       </Stat>
       <BeamPx>
-        BEAM
+        <BeamLabel>
+          <BeamIcon />
+          BEAM
+        </BeamLabel>
         {' '}
         <b>{stats ? fmt$(stats.beam_usd) : '$—'}</b>
       </BeamPx>
