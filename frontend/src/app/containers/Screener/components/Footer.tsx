@@ -71,7 +71,6 @@ const BottomBar = styled.div`
 const Badge = styled.span<{ tone: 'ok' | 'lag' | 'err' }>`
   display: inline-flex;
   align-items: center;
-  & > * + * { margin-left: 6px; }
   padding: 4px 9px;
   border-radius: 999px;
   font-family: 'SFProDisplay', monospace;
@@ -93,6 +92,10 @@ const BadgeDot = styled.span`
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 6px currentColor;
+  /* Match the 9px side padding so the orb has equal breathing room to the
+     label and to the rounded pill border. (Plain margin, not flex gap — the
+     wallet's QtWebEngine/Chrome 83 predates flex gap support.) */
+  margin-right: 9px;
 `;
 
 const IndexerBadge: React.FC = () => {
