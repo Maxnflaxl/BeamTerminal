@@ -20,6 +20,17 @@ interface Props {
   /** When false, render a plain SimpleChart with no icon overlay (used for
    *  the cramped grid cell — the icons only earn their keep at modal size). */
   showMarkers?: boolean;
+  /** Drop the AMM Liquidity Token markers from the strip. These auto-minted
+   *  per-pool LP tokens otherwise swamp the overlay; hidden by default so the
+   *  chart opens decluttered. */
+  hideAmml?: boolean;
+}
+
+// AMM Liquidity Tokens are auto-minted one per DEX pool and share a fixed
+// identity: unit_name "AMML", name "Amm Liquidity Token <aid1>-<aid2>-<kind>".
+// Match the unit_name (covers every one) with the name prefix as a fallback.
+function isAmmLpToken(a: ApiAssetListEntry): boolean {
+  return a.unit_name === 'AMML' || /^Amm Liquidity Token/i.test(a.name ?? '');
 }
 
 // Icon size + per-lane vertical spacing. Lanes stack upward so the bottom-most
@@ -224,7 +235,7 @@ interface PlacedMarker {
 }
 
 export const ConfidentialAssetsChart: React.FC<Props> = ({
-  series, title, scale, formatter, logScale, showMarkers = false,
+  series, title, scale, formatter, logScale, showMarkers = false, hideAmml = true,
 }) => {
   // Bypass the entire overlay machinery when markers aren't wanted (grid cell)
   // — keeps that path a plain SimpleChart with no extra renders, no polling
@@ -247,6 +258,7 @@ export const ConfidentialAssetsChart: React.FC<Props> = ({
       scale={scale}
       formatter={formatter}
       logScale={logScale}
+      hideAmml={hideAmml}
     />
   );
 };
@@ -288,7 +300,7 @@ function assignLanesByTs(
 }
 
 const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> = ({
-  series, title, scale, formatter, logScale,
+  series, title, scale, formatter, logScale, hideAmml = true,
 }) => {
   const { data: assetsData } = useAssets();
   const navigate = useNavigate();
@@ -308,15 +320,18 @@ const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> =
   const dayBucket = useCallback((ts: number): number => Math.floor(ts / 86400) * 86400, []);
 
   // Eligible assets + their static lane assignment. Recomputed only when the
-  // asset list changes — not on pan/zoom. Filters BEAM, imposters, and any
-  // asset whose mint timestamp we couldn't resolve server-side.
+  // asset list (or the AMML toggle) changes — never on pan/zoom. Filters BEAM,
+  // imposters, any asset whose mint timestamp we couldn't resolve server-side,
+  // and — when hideAmml is set — the AMM Liquidity Tokens. Dropping AMML before
+  // lane assignment lets the remaining markers re-pack into fewer lanes.
   const placed = useMemo(() => {
     if (!assetsData) return [];
     const eligible = assetsData.assets.filter(
-      (a) => a.aid !== 0 && !a.is_imposter && a.minted_at_ts != null,
+      (a) => a.aid !== 0 && !a.is_imposter && a.minted_at_ts != null
+        && !(hideAmml && isAmmLpToken(a)),
     );
     return assignLanesByTs(eligible);
-  }, [assetsData]);
+  }, [assetsData, hideAmml]);
 
   // Imperative position update — called on every visible-range / logical-range
   // / resize event under a single rAF, so multiple events per frame collapse

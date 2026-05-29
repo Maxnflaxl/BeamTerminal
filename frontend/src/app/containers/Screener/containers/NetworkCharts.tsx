@@ -458,6 +458,7 @@ interface ChartCellProps {
   formatter?: (v: number) => string;
   logScale?: boolean;
   chartKey?: string;
+  hideAmml?: boolean;
   onExpand: () => void;
 }
 
@@ -474,7 +475,8 @@ const InnerChart: React.FC<{
   scale?: number;
   formatter?: (v: number) => string;
   logScale?: boolean;
-}> = ({ chartKey, expanded, series, title, scale, formatter, logScale }) => {
+  hideAmml?: boolean;
+}> = ({ chartKey, expanded, series, title, scale, formatter, logScale, hideAmml }) => {
   if (chartKey === 'assets') {
     return (
       <ConfidentialAssetsChart
@@ -484,6 +486,7 @@ const InnerChart: React.FC<{
         formatter={formatter}
         logScale={logScale}
         showMarkers={expanded === true}
+        hideAmml={hideAmml}
       />
     );
   }
@@ -571,6 +574,9 @@ export const NetworkCharts: React.FC = () => {
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [category, setCategory] = useState<Category>('blockchain');
+  // The Confidential Assets icon strip opens decluttered — the AMM Liquidity
+  // Tokens are hidden until the user toggles them on.
+  const [hideAmml, setHideAmml] = useState(true);
   const [logPerKey, setLogPerKey] = useState<Record<string, boolean>>({});
   const toggleLog = (k: string): void =>
     setLogPerKey((m) => ({ ...m, [k]: !m[k] }));
@@ -697,6 +703,15 @@ export const NetworkCharts: React.FC = () => {
                 <TfButton onClick={() => download('png')} title="Download chart as PNG">
                   PNG
                 </TfButton>
+                {expanded.key === 'assets' && (
+                  <TfButton
+                    active={!hideAmml}
+                    onClick={() => setHideAmml((v) => !v)}
+                    title="Show / hide AMM Liquidity Token icons"
+                  >
+                    {hideAmml ? 'Show AMML' : 'Hide AMML'}
+                  </TfButton>
+                )}
               </ModalActionGroup>
               <TimeframeGroup>
                 {TIMEFRAMES.map((tf) => (
@@ -719,6 +734,7 @@ export const NetworkCharts: React.FC = () => {
                 scale={expanded.scale}
                 formatter={expanded.formatter}
                 logScale={!!logPerKey[expanded.key]}
+                hideAmml={hideAmml}
               />
             </ModalBody>
           </ModalContent>
@@ -728,13 +744,13 @@ export const NetworkCharts: React.FC = () => {
   );
 };
 
-const ExpandedChart: React.FC<Omit<ChartCellProps, 'onExpand'>> = ({ chartKey, state, title, timeframe, scale, formatter, logScale }) => {
+const ExpandedChart: React.FC<Omit<ChartCellProps, 'onExpand'>> = ({ chartKey, state, title, timeframe, scale, formatter, logScale, hideAmml }) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
   if (!filtered) return <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>;
-  return <InnerChart chartKey={chartKey} expanded series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} />;
+  return <InnerChart chartKey={chartKey} expanded series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} hideAmml={hideAmml} />;
 };
 
 // IndexerStatusBadge lives in the global Footer (components/Footer.tsx) now.
