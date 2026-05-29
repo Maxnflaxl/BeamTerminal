@@ -476,7 +476,9 @@ const InnerChart: React.FC<{
   formatter?: (v: number) => string;
   logScale?: boolean;
   hideAmml?: boolean;
-}> = ({ chartKey, expanded, series, title, scale, formatter, logScale, hideAmml }) => {
+  overlaySeries?: ReadonlyArray<ApiChartPoint>;
+  overlayLabel?: string;
+}> = ({ chartKey, expanded, series, title, scale, formatter, logScale, hideAmml, overlaySeries, overlayLabel }) => {
   if (chartKey === 'assets') {
     return (
       <ConfidentialAssetsChart
@@ -490,7 +492,17 @@ const InnerChart: React.FC<{
       />
     );
   }
-  return <SimpleChart series={series} title={title} scale={scale} formatter={formatter} logScale={logScale} />;
+  return (
+    <SimpleChart
+      series={series}
+      title={title}
+      scale={scale}
+      formatter={formatter}
+      logScale={logScale}
+      overlaySeries={overlaySeries}
+      overlayLabel={overlayLabel}
+    />
+  );
 };
 
 const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
@@ -530,6 +542,7 @@ interface ChartSpec {
   state: FetchState<ApiChartSeries>;
   scale?: number;
   formatter: (v: number) => string;
+  overlay?: { state: FetchState<ApiChartSeries>; label: string };
 }
 
 export const NetworkCharts: React.FC = () => {
@@ -537,6 +550,7 @@ export const NetworkCharts: React.FC = () => {
   const difficulty         = useOneShot<ApiChartSeries>(() => api.charts.difficulty());
   const blockTime          = useOneShot<ApiChartSeries>(() => api.charts.blockTime());
   const kernels            = useOneShot<ApiChartSeries>(() => api.charts.kernels());
+  const coinbase           = useOneShot<ApiChartSeries>(() => api.charts.coinbase());
   const tvl                = useOneShot<ApiChartSeries>(() => api.charts.tvl());
   const dexVolume          = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
   const beamVol            = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
@@ -597,7 +611,7 @@ export const NetworkCharts: React.FC = () => {
     { key: 'hashrate',         title: 'Hashrate (Beamhash III)', state: hashrate,           formatter: fmtHashrate,   category: 'blockchain' },
     { key: 'difficulty',       title: 'Difficulty',              state: difficulty,         formatter: fmtDifficulty, category: 'blockchain' },
     { key: 'blockTime',        title: 'Avg block time',          state: blockTime,          formatter: fmtBlockTime,  category: 'blockchain' },
-    { key: 'kernels',          title: 'Kernels / day',           state: kernels,            formatter: fmtInt,        category: 'blockchain' },
+    { key: 'kernels',          title: 'Kernels / day',           state: kernels,            formatter: fmtInt,        category: 'blockchain', overlay: { state: coinbase, label: 'Coinbase' } },
     { key: 'txosTotal',        title: 'TXOs (total)',            state: txosTotal,          formatter: fmtInt,        category: 'blockchain' },
     { key: 'utxosTotal',       title: 'UTXOs',                   state: utxosTotal,         formatter: fmtInt,        category: 'blockchain' },
     { key: 'contractsTotal',   title: 'Contracts active',        state: contractsTotal,     formatter: fmtInt,        category: 'blockchain' },
@@ -735,6 +749,7 @@ export const NetworkCharts: React.FC = () => {
                 formatter={expanded.formatter}
                 logScale={!!logPerKey[expanded.key]}
                 hideAmml={hideAmml}
+                overlay={expanded.overlay}
               />
             </ModalBody>
           </ModalContent>
@@ -744,13 +759,32 @@ export const NetworkCharts: React.FC = () => {
   );
 };
 
-const ExpandedChart: React.FC<Omit<ChartCellProps, 'onExpand'>> = ({ chartKey, state, title, timeframe, scale, formatter, logScale, hideAmml }) => {
+const ExpandedChart: React.FC<
+  Omit<ChartCellProps, 'onExpand'> & { overlay?: { state: FetchState<ApiChartSeries>; label: string } }
+> = ({ chartKey, state, title, timeframe, scale, formatter, logScale, hideAmml, overlay }) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
+  const filteredOverlay = useMemo(
+    () => (overlay?.state.data ? filterByTimeframe(overlay.state.data.series, timeframe) : null),
+    [overlay?.state.data, timeframe],
+  );
   if (!filtered) return <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>;
-  return <InnerChart chartKey={chartKey} expanded series={filtered} title={title} scale={scale} formatter={formatter} logScale={logScale} hideAmml={hideAmml} />;
+  return (
+    <InnerChart
+      chartKey={chartKey}
+      expanded
+      series={filtered}
+      title={title}
+      scale={scale}
+      formatter={formatter}
+      logScale={logScale}
+      hideAmml={hideAmml}
+      overlaySeries={filteredOverlay ?? undefined}
+      overlayLabel={overlay?.label}
+    />
+  );
 };
 
 // IndexerStatusBadge lives in the global Footer (components/Footer.tsx) now.

@@ -4,6 +4,7 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
+  LineStyle,
   PriceScaleMode,
   type IChartApi,
   type ISeriesApi,
@@ -36,6 +37,37 @@ const Inner = styled.div`
   min-height: 220px;
 `;
 
+// Two-swatch legend shown when an overlay line is present (e.g. the Kernels
+// chart's coinbase baseline). Margin-based spacing — fl/grid `gap` isn't
+// supported on the wallet's QtWebEngine 5.15.2 (Chrome 83).
+const Legend = styled.div`
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  font-family: 'SFProDisplay', monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+
+  & > * + * { margin-left: 12px; }
+`;
+
+const LegendItem = styled.span`
+  display: inline-flex;
+  align-items: center;
+
+  & > i {
+    display: inline-block;
+    width: 14px;
+    height: 0;
+    margin-right: 5px;
+    border-top-width: 2px;
+  }
+`;
+
 interface Props {
   series: ReadonlyArray<ApiChartPoint>;
   title: string;
@@ -48,6 +80,13 @@ interface Props {
   /** Called after the chart is created so a parent can position overlays
    *  relative to the time scale. Returns a teardown to run before re-create. */
   onChartReady?: (chart: IChartApi, container: HTMLDivElement) => (() => void) | void;
+  /** Optional comparison line drawn on the same right axis (e.g. a baseline).
+   *  When present, a dashed second series is rendered and a legend is shown. */
+  overlaySeries?: ReadonlyArray<ApiChartPoint>;
+  /** Legend label for the overlay line. */
+  overlayLabel?: string;
+  /** Overlay line colour. Defaults to a muted amber. */
+  overlayColor?: string;
 }
 
 function defaultFormatter(v: number): string {
@@ -61,10 +100,11 @@ function defaultFormatter(v: number): string {
   return '0';
 }
 
-export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter, logScale = false, onChartReady }) => {
+export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter, logScale = false, onChartReady, overlaySeries, overlayLabel, overlayColor = '#f5a623' }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+  const overlayRef = useRef<ISeriesApi<'Line'> | null>(null);
   // Stash the latest onChartReady in a ref so callers don't have to memoise
   // it — listing it in the create-effect's deps would rebuild the entire
   // chart whenever an inline arrow caller re-renders.
@@ -112,6 +152,7 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      overlayRef.current = null;
     };
     // Formatter is only honoured at construction time — re-create on change.
     // logScale is applied via the dedicated effect below so we don't lose
@@ -139,9 +180,48 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
     if (data.length > 0) chartRef.current?.timeScale().fitContent();
   }, [series, scale]);
 
+  // Optional overlay comparison line — created lazily on the same right axis,
+  // updated on data/scale change, and removed if the prop clears. Mirrors the
+  // logScale/data effects' chartRef access pattern.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (overlaySeries && overlaySeries.length > 0) {
+      if (!overlayRef.current) {
+        overlayRef.current = chart.addLineSeries({
+          color: overlayColor,
+          lineWidth: 2,
+          lineStyle: LineStyle.Dashed,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+      }
+      overlayRef.current.setData(
+        overlaySeries.map((p) => ({ time: p.ts as UTCTimestamp, value: p.value * scale })),
+      );
+    } else if (overlayRef.current) {
+      chart.removeSeries(overlayRef.current);
+      overlayRef.current = null;
+    }
+  }, [overlaySeries, scale, overlayColor]);
+
   return (
     <Wrap>
-      {title ? <Header>{title}</Header> : null}
+      {overlaySeries && overlayLabel ? (
+        <Legend>
+          <LegendItem>
+            <i style={{ borderTopColor: '#00f6d2', borderTopStyle: 'solid' }} />
+            {title || 'Total'}
+          </LegendItem>
+          <LegendItem>
+            <i style={{ borderTopColor: overlayColor, borderTopStyle: 'dashed' }} />
+            {overlayLabel}
+          </LegendItem>
+        </Legend>
+      ) : (
+        title ? <Header>{title}</Header> : null
+      )}
       <Inner ref={innerRef} />
     </Wrap>
   );
