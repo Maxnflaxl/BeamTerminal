@@ -341,15 +341,24 @@ const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> =
     const chart = chartRef.current;
     if (!chart) return;
     const ts = chart.timeScale();
+    // `timeScale().width()` is the plot area — its right edge is exactly the
+    // left edge of the price-axis gutter. timeToCoordinate returns x in that
+    // [0, plotW] space, but the chip is centred on x (translate -50%), so its
+    // outer half would otherwise spill ICON_PX/2 over the right price axis (or
+    // off the left). Nudge edge markers inward so the whole icon stays inside
+    // the plot; hide ones panned fully past an edge rather than pinning them.
+    const plotW = ts.width();
+    const half = ICON_PX / 2;
     for (const { asset } of placed) {
       const el = markerNodes.current.get(asset.aid);
       if (!el || asset.minted_at_ts == null) continue;
       const x = ts.timeToCoordinate(dayBucket(asset.minted_at_ts) as UTCTimestamp);
-      if (x == null) {
+      if (x == null || x < -half || x > plotW + half) {
         el.style.display = 'none';
       } else {
+        const cx = Math.min(Math.max(x, half), plotW - half);
         el.style.display = '';
-        el.style.transform = `translate3d(${x}px, 0, 0)`;
+        el.style.transform = `translate3d(${cx}px, 0, 0)`;
       }
     }
   }, [placed, dayBucket]);
