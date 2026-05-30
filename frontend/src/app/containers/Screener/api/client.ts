@@ -164,10 +164,23 @@ export const api = {
     feesTotal:           (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/fees-total'),
     contractCallsDaily:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/contract-calls-daily'),
     contractCallsTotal:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/contract-calls-total'),
+    // Multi-series: cumulative locked balance per asset in the BlackHole contract.
+    blackhole:           (): Promise<ApiBlackholeBody> => get<ApiBlackholeBody>('/charts/blackhole'),
   },
 };
 
 export interface ApiChartPoint { ts: number; value: number }
 export interface ApiChartSeries { series: ApiChartPoint[] }
+
+// One line per asset locked in the BlackHole burn contract. `value` is the
+// asset's cumulative locked balance in native units; `color` is the asset's
+// brand colour (OPT_COLOR) when known, else null (the chart assigns a fallback).
+export interface ApiBlackholeSeries {
+  aid: number;
+  label: string;
+  color: string | null;
+  points: ApiChartPoint[];
+}
+export interface ApiBlackholeBody { series: ApiBlackholeSeries[] }
 
 export { ApiError };

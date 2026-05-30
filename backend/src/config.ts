@@ -33,6 +33,17 @@ const Env = z.object({
     .regex(CID_HEX, 'DAPP_STORE_CID must be 64 lowercase hex chars')
     .optional()
     .default('e2d24b686e8d31a0fe97eade9cd23281e7059b74b5757bdb96c820ef9e2af41c'),
+  // "Black Hole" burn contract — a deposit-only shader (Env::FundsLock, no
+  // withdraw), so per-asset balances are monotonically increasing. Backs the
+  // /charts/blackhole DeFi chart, read live from the explorer (no indexing).
+  // Mainnet default is the deployed CID; set to empty string in env to disable
+  // the chart on networks where it isn't deployed.
+  BLACKHOLE_CID: z
+    .string()
+    .regex(CID_HEX, 'BLACKHOLE_CID must be 64 lowercase hex chars')
+    .or(z.literal(''))
+    .optional()
+    .default('5ab408982b148210e88f180114f10222a2235eafeede0a3a224fda0e523e17b7'),
   // Wallet API JSON-RPC base URL. When unset, the asset-swap-offers subsystem
   // is disabled (no daemon to ask). For dev: http://localhost:10005 once
   // `docker compose up wallet-api` has booted; for prod: an internal URL.

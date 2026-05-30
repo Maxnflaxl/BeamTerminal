@@ -2,10 +2,18 @@ import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { q } from '../../db.js';
 import { fetchNetworkSeries, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
+import { fetchBlackholeSeries } from '../../services/blackhole.js';
 
 interface SeriesPoint {
   ts: number;
   value: number;
+}
+
+// The cache and routes serve an opaque JSON body keyed by `series`. For most
+// charts that's a flat `SeriesPoint[]`; multi-series charts (e.g. blackhole)
+// put their own array shape there. The cache treats it as a black box.
+interface ChartBody {
+  series: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -373,11 +381,14 @@ function toSeries(rows: ReadonlyArray<Row>): SeriesPoint[] {
 // ---------------------------------------------------------------------------
 interface ChartDef {
   name: string;
-  /** SQL run by `runQuery`. Mutually exclusive with `fetch`. */
+  /** SQL run by `runQuery`. Mutually exclusive with `fetch` / `fetchBody`. */
   sql?: string;
   /** Custom fetcher when the data isn't a single Postgres aggregate (e.g.
    *  pulling from the explorer's /hdrs endpoint). Returns a ready series. */
   fetch?: () => Promise<SeriesPoint[]>;
+  /** Custom fetcher returning a full response body — for charts whose `series`
+   *  isn't a flat `SeriesPoint[]` (e.g. the multi-series blackhole chart). */
+  fetchBody?: () => Promise<ChartBody>;
   /** Browser cache hint (the server-side cache is independent). */
   maxAgeSec: number;
 }
@@ -429,60 +440,63 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'fees-total',          fetch: netFetcher('total_fee_groth'),       maxAgeSec: 600 },
   { name: 'contract-calls-daily',fetch: netFetcher('daily_contract_calls'),  maxAgeSec: 600 },
   { name: 'contract-calls-total',fetch: netFetcher('total_contract_calls'),  maxAgeSec: 600 },
+  // Multi-series: one cumulative line per asset locked in the BlackHole contract.
+  { name: 'blackhole',           fetchBody: fetchBlackholeSeries,             maxAgeSec: 1800 },
 ];
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
 interface CacheEntry {
-  series: SeriesPoint[] | null;
+  body: ChartBody | null;
   /** SHA-1 of the JSON body, used to short-circuit If-None-Match requests
    *  with a 304 once the client has cached this version. */
   etag: string | null;
   refreshedAt: number;
-  inflight: Promise<SeriesPoint[]> | null;
+  inflight: Promise<ChartBody> | null;
 }
 
 const cache = new Map<string, CacheEntry>();
 
-function computeEtag(series: SeriesPoint[]): string {
-  // Stable JSON of just `{series:[...]}` since that's what the route returns.
-  const body = JSON.stringify({ series });
-  return `"${createHash('sha1').update(body).digest('hex')}"`;
+function computeEtag(body: ChartBody): string {
+  return `"${createHash('sha1').update(JSON.stringify(body)).digest('hex')}"`;
 }
 
-async function runQuery(def: ChartDef): Promise<SeriesPoint[]> {
+async function runQuery(def: ChartDef): Promise<ChartBody> {
   const t0 = Date.now();
-  let series: SeriesPoint[];
-  if (def.fetch) {
-    series = await def.fetch();
+  let body: ChartBody;
+  if (def.fetchBody) {
+    body = await def.fetchBody();
+  } else if (def.fetch) {
+    body = { series: await def.fetch() };
   } else if (def.sql) {
     const { rows } = await q<Row>(def.sql);
-    series = toSeries(rows);
+    body = { series: toSeries(rows) };
   } else {
     throw new Error(`chart ${def.name} has neither sql nor fetch`);
   }
+  const n = Array.isArray(body.series) ? body.series.length : 0;
   // eslint-disable-next-line no-console -- Fastify pino logger is per-request.
-  console.log(`[charts] ${def.name} refreshed: ${series.length} pts in ${Date.now() - t0}ms`);
-  return series;
+  console.log(`[charts] ${def.name} refreshed: ${n} pts in ${Date.now() - t0}ms`);
+  return body;
 }
 
-async function refresh(def: ChartDef): Promise<SeriesPoint[]> {
+async function refresh(def: ChartDef): Promise<ChartBody> {
   const existing = cache.get(def.name);
   if (existing?.inflight) return existing.inflight;
   const inflight = runQuery(def);
   cache.set(def.name, {
-    series: existing?.series ?? null,
+    body:   existing?.body   ?? null,
     etag:   existing?.etag   ?? null,
     refreshedAt: existing?.refreshedAt ?? 0,
     inflight,
   });
   try {
-    const series = await inflight;
-    cache.set(def.name, { series, etag: computeEtag(series), refreshedAt: Date.now(), inflight: null });
-    return series;
+    const body = await inflight;
+    cache.set(def.name, { body, etag: computeEtag(body), refreshedAt: Date.now(), inflight: null });
+    return body;
   } catch (err) {
     cache.set(def.name, {
-      series: existing?.series ?? null,
+      body:   existing?.body   ?? null,
       etag:   existing?.etag   ?? null,
       refreshedAt: existing?.refreshedAt ?? 0,
       inflight: null,
@@ -491,12 +505,12 @@ async function refresh(def: ChartDef): Promise<SeriesPoint[]> {
   }
 }
 
-async function getSeries(def: ChartDef): Promise<SeriesPoint[]> {
+async function getBody(def: ChartDef): Promise<ChartBody> {
   const entry = cache.get(def.name);
-  if (entry?.series && !entry.inflight) return entry.series;
+  if (entry?.body && !entry.inflight) return entry.body;
   if (entry?.inflight) {
     // First-request-after-boot waits for the in-flight pre-warm.
-    return entry.series ?? entry.inflight;
+    return entry.body ?? entry.inflight;
   }
   return refresh(def);
 }
@@ -529,9 +543,9 @@ export function startChartCacheRefresher(): void {
 export async function chartsRoutes(app: FastifyInstance): Promise<void> {
   for (const def of CHART_DEFS) {
     app.get(`/charts/${def.name}`, async (req, reply) => {
-      const series = await getSeries(def);
+      const body = await getBody(def);
       const entry = cache.get(def.name);
-      const etag = entry?.etag ?? computeEtag(series);
+      const etag = entry?.etag ?? computeEtag(body);
 
       void reply.header('cache-control', `public, max-age=${def.maxAgeSec}`);
       void reply.header('etag', etag);
@@ -546,7 +560,7 @@ export async function chartsRoutes(app: FastifyInstance): Promise<void> {
           return null;
         }
       }
-      return { series };
+      return body;
     });
   }
 }

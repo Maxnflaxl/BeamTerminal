@@ -128,6 +128,10 @@ export interface ContractQuery {
   hMax?: number;
   /** Max number of call entries returned (set to 0 to skip the call list entirely). */
   nMaxTxs?: number;
+  /** Format `amount` cells as human-readable decimal strings (e.g.
+   *  "60,011,001.00000000") instead of raw groth integers. Also what the
+   *  explorer's own contract page uses for its Locked Funds / Funds tables. */
+  exp_am?: boolean;
 }
 
 export async function getContract(query: ContractQuery): Promise<ContractResponse> {
@@ -137,6 +141,7 @@ export async function getContract(query: ContractQuery): Promise<ContractRespons
   if (query.hMin !== undefined) params.set('hMin', String(query.hMin));
   if (query.hMax !== undefined) params.set('hMax', String(query.hMax));
   if (query.nMaxTxs !== undefined) params.set('nMaxTxs', String(query.nMaxTxs));
+  if (query.exp_am) params.set('exp_am', '1');
   return fetchJson<ContractResponse>(`/contract?${params.toString()}`);
 }
 
