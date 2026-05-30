@@ -68,21 +68,21 @@ Verify changes with `yarn build:prod` — the pinned TypeScript flags false posi
 
 ## Deployment
 
-Runs under docker-compose (Postgres, indexer, API, wallet API), with the explorer node managed separately and nginx terminating TLS at the edge. Full runbook in `[docs/deployment.md](docs/deployment.md)`.
+Runs under docker-compose (Postgres, indexer, API, wallet API), with the explorer node managed separately and nginx terminating TLS at the edge. Full runbook in [`docs/deployment.md`](docs/deployment.md).
 
 ## Documentation
 
-Design and decisions live in `[docs/](docs/README.md)`.
+Design and decisions live in [`docs/`](docs/README.md).
 
 
 | Doc                                       | Covers                                      |
 | ----------------------------------------- | ------------------------------------------- |
-| `[architecture.md](docs/architecture.md)` | Process layout, data flow, failure modes    |
-| `[indexer.md](docs/indexer.md)`           | Polling loop, parsers, reorg / finality     |
-| `[database.md](docs/database.md)`         | Schema, hypertables, continuous aggregates  |
-| `[api.md](docs/api.md)`                   | UI-facing endpoints                         |
-| `[CoinGecko.md](docs/CoinGecko.md)`       | CoinGecko-compliant public endpoints        |
-| `[frontend.md](docs/frontend.md)`         | Page-by-page UI plan, mobile, wallet bridge |
-| `[deployment.md](docs/deployment.md)`     | Build, run, and update steps; IPFS swarm    |
+| [`architecture.md`](docs/architecture.md) | Process layout, data flow, failure modes    |
+| [`indexer.md`](docs/indexer.md)           | Polling loop, parsers, reorg / finality     |
+| [`database.md`](docs/database.md)         | Schema, hypertables, continuous aggregates  |
+| [`api.md`](docs/api.md)                   | UI-facing endpoints                         |
+| [`CoinGecko.md`](docs/CoinGecko.md)       | CoinGecko-compliant public endpoints        |
+| [`frontend.md`](docs/frontend.md)         | Page-by-page UI plan, mobile, wallet bridge |
+| [`deployment.md`](docs/deployment.md)     | Build, run, and update steps; IPFS swarm    |
 
 
