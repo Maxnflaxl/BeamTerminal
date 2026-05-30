@@ -167,6 +167,11 @@ const ASSETS_SQL = `
 //   - per-day BEAM-paired cross-rates (best-liquidity pool per asset),
 // then JOINs against trade_daily. Replaces the previous per-row LATERAL
 // pattern which was O(N²) on pool_state_snapshots.
+//
+// Finally projects onto a calendar-day spine (first trading day → today) with
+// COALESCE(…, 0): a day with no trades produces no `trade_daily` row, so without
+// this the series silently truncated at the last day with a trade and left gaps
+// mid-history. Now every quiet day renders as an explicit 0.
 const DEX_VOLUME_SQL = `
   WITH oracle_day AS (
     SELECT time_bucket(INTERVAL '1 day', ts) AS day,
@@ -225,12 +230,26 @@ const DEX_VOLUME_SQL = `
       LEFT JOIN oracle_day  od  ON od.day  = td.day
       LEFT JOIN beam_paired bp1 ON bp1.day = td.day AND bp1.asset_aid = p.aid1
       LEFT JOIN beam_paired bp2 ON bp2.day = td.day AND bp2.asset_aid = p.aid2
+  ),
+  daily_usd AS (
+    SELECT day, SUM(usd_value)::float8 AS value
+      FROM priced
+     WHERE usd_value IS NOT NULL
+     GROUP BY day
+  ),
+  -- Calendar-day spine from the first trading day to today, so no-trade days
+  -- render as an explicit 0 instead of vanishing.
+  spine AS (
+    SELECT generate_series(
+             (SELECT MIN(day) FROM daily_usd),
+             time_bucket(INTERVAL '1 day', now()),
+             INTERVAL '1 day'
+           ) AS day
   )
-  SELECT EXTRACT(epoch FROM day)::bigint AS ts,
-         SUM(usd_value)::float8 AS value
-    FROM priced
-   WHERE usd_value IS NOT NULL
-   GROUP BY day
+  SELECT EXTRACT(epoch FROM s.day)::bigint AS ts,
+         COALESCE(d.value, 0)::float8 AS value
+    FROM spine s
+    LEFT JOIN daily_usd d ON d.day = s.day
    ORDER BY 1
 `;
 
@@ -275,6 +294,13 @@ const BEAM_VOL_SQL = `
 // for BEAM-quoted pools, best BEAM-paired pool's reserve ratio otherwise).
 // Dust pools (TVL < $100) and pools without a full 30-return window are
 // excluded so thin/new markets don't spike the index.
+//
+// A no-trade day yields no new close → no return → no recompute, so the raw
+// index would dead-end at the last day with a trade. We carry the last value
+// forward (LOCF) across those days up to today: a presentation-only fill that
+// leaves the computed points untouched. Filling with 0 would be wrong here — a
+// quiet day isn't "zero volatility" — and injecting 0-returns would deflate the
+// index during the (frequent) quiet stretches.
 const DEX_VOL_SQL = `
   WITH oracle_day AS (
     SELECT time_bucket(INTERVAL '1 day', ts) AS day,
@@ -345,15 +371,37 @@ const DEX_VOL_SQL = `
            count(r)       OVER w AS n
       FROM pool_returns
     WINDOW w AS (PARTITION BY pool_id ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+  ),
+  index_daily AS (
+    SELECT pv.day,
+           (SUM(pv.vol * pt.tvl_usd) / NULLIF(SUM(pt.tvl_usd), 0))::float8 AS value
+      FROM pool_vol pv
+      JOIN pool_tvl pt ON pt.pool_id = pv.pool_id AND pt.day = pv.day
+     WHERE pv.n >= 30 AND pv.vol IS NOT NULL
+       AND pt.tvl_usd IS NOT NULL AND pt.tvl_usd >= 100
+     GROUP BY pv.day
+  ),
+  -- Calendar-day spine from the first index day to today.
+  spine AS (
+    SELECT generate_series(
+             (SELECT MIN(day) FROM index_daily),
+             time_bucket(INTERVAL '1 day', now()),
+             INTERVAL '1 day'
+           ) AS day
+  ),
+  -- LOCF: count() ignores NULLs, so each gap inherits the group id of the last
+  -- real point; first_value then carries that point's value forward.
+  filled AS (
+    SELECT s.day,
+           id.value,
+           count(id.value) OVER (ORDER BY s.day) AS grp
+      FROM spine s
+      LEFT JOIN index_daily id ON id.day = s.day
   )
-  SELECT EXTRACT(epoch FROM pv.day)::bigint AS ts,
-         (SUM(pv.vol * pt.tvl_usd) / NULLIF(SUM(pt.tvl_usd), 0))::float8 AS value
-    FROM pool_vol pv
-    JOIN pool_tvl pt ON pt.pool_id = pv.pool_id AND pt.day = pv.day
-   WHERE pv.n >= 30 AND pv.vol IS NOT NULL
-     AND pt.tvl_usd IS NOT NULL AND pt.tvl_usd >= 100
-   GROUP BY pv.day
-   ORDER BY pv.day
+  SELECT EXTRACT(epoch FROM day)::bigint AS ts,
+         first_value(value) OVER (PARTITION BY grp ORDER BY day) AS value
+    FROM filled
+   ORDER BY day
 `;
 
 interface Row {
