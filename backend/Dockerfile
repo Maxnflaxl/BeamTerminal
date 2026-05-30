@@ -21,6 +21,10 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable
+# Fonts for @resvg/resvg-js (used by /pair/:id/chart.png and /og/*). Without
+# these, SVG <text> renders as empty glyphs in the rasterized PNG because the
+# slim node:22-alpine base has no fonts installed at all.
+RUN apk add --no-cache fontconfig ttf-dejavu
 COPY package.json yarn.lock .yarnrc.yml ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
