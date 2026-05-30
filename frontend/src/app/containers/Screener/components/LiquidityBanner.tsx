@@ -1,14 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
-import type { ApiPair, LiquidityInterval, LiquiditySource } from '../api/types';
+import type { ApiPair, ApiPairTier, LiquidityInterval, LiquiditySource } from '../api/types';
 import { usePoolLiquidity, usePagedLpEvents, useAsset } from '../hooks';
 import {
   fmt$, fmtNum, fmtPct, fmtPrice, fmtDateFull,
 } from './format';
 import { PoolHistoryChart, type SeriesVisibility } from './PoolHistoryChart';
 import { Pager } from './Pager';
+import { LiquidityModal } from './LiquidityModal';
+import { CreatePoolModal } from './CreatePoolModal';
+import { tierFeePct } from './modalChrome';
+import { useWallet } from '../wallet';
 
-const TIER_FEE_PCT: Record<number, number> = { 0: 0.05, 1: 0.3, 2: 1 };
 const LP_PAGE_SIZE = 50;
 
 const TIMEFRAMES: Array<{ label: string; days: number | null; interval: LiquidityInterval }> = [
@@ -131,6 +134,26 @@ const TierCard = styled.div`
   .type { font-weight: 600; color: white; }
   .lp { color: rgba(255, 255, 255, 0.55); }
   .res { margin-top: 2px; }
+  .muted { color: rgba(255, 255, 255, 0.4); }
+`;
+
+const TierActions = styled.div`
+  display: flex;
+  & > * + * { margin-left: 6px; }
+  margin-top: 8px;
+`;
+
+const TierBtn = styled.button<{ tone: 'add' | 'withdraw' }>`
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid ${(p) => (p.tone === 'withdraw' ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 246, 210, 0.45)')};
+  background: ${(p) => (p.tone === 'withdraw' ? 'transparent' : 'rgba(0, 246, 210, 0.12)')};
+  color: ${(p) => (p.tone === 'withdraw' ? 'rgba(255, 255, 255, 0.75)' : '#00f6d2')};
+  &:hover { filter: brightness(1.15); }
 `;
 
 const TableWrap = styled.div`
@@ -181,7 +204,13 @@ interface Props {
  *  pooled totals, the Pool History chart, the fee-tier row, and the paginated
  *  Liquidity-Providers (LP events) table. Scoped to the current pool. */
 export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
+  // Liquidity actions are wallet-only: shown inside the BEAM wallet, hidden on
+  // the public web (isInsideWallet, surfaced as `inWallet`).
+  const { inWallet } = useWallet();
   const [open, setOpen] = useState(false);
+  // Add/Withdraw modal for a tier, or Create-pool for a missing tier.
+  const [liqModal, setLiqModal] = useState<{ mode: 'add' | 'withdraw'; kind: 0 | 1 | 2; r1: number | null; r2: number | null } | null>(null);
+  const [createKind, setCreateKind] = useState<0 | 1 | 2 | null>(null);
   const [visible, setVisible] = useState<SeriesVisibility>('both');
   const [tfIndex, setTfIndex] = useState(0);
   const [source, setSource] = useState<LiquiditySource>('total');
@@ -224,7 +253,30 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
     if (!Number.isNaN(ms)) setCenterOn(Math.floor(ms / 1000));
   };
 
+  // Existing tiers carry their LP id + reserves (Add/Withdraw). Missing ones get
+  // a Create button — but ONLY in the combined-pair view, where `p.tiers` is the
+  // authoritative full set. When `p` is a single-tier response (a selected or
+  // deep-linked tier) we don't know which other tiers exist, so we must not mark
+  // them "not created" (that would offer a doomed Create and hide real actions).
+  const existingTiers: Array<Pick<ApiPairTier, 'kind' | 'lp_token' | 'reserve1_human' | 'reserve2_human'>> = p.tiers ?? [{
+    kind: p.kind, lp_token: p.lp_token, reserve1_human: p.reserve1_human, reserve2_human: p.reserve2_human,
+  }];
+  const allTiers = p.tiers
+    ? ([0, 1, 2] as const).map((k) => {
+      const t = existingTiers.find((x) => x.kind === k);
+      return t
+        ? { kind: k, exists: true, lpToken: t.lp_token as number | null, r1: t.reserve1_human, r2: t.reserve2_human }
+        : { kind: k, exists: false, lpToken: null as number | null, r1: null, r2: null };
+    })
+    : existingTiers.map((t) => ({
+      kind: t.kind, exists: true, lpToken: t.lp_token as number | null, r1: t.reserve1_human, r2: t.reserve2_human,
+    }));
+  // On the public web we just show the existing pools' stats — no Add/Withdraw
+  // and no "create missing tier".
+  const displayTiers = inWallet ? allTiers : allTiers.filter((t) => t.exists);
+
   return (
+    <>
     <Banner>
       <Bar type="button" onClick={() => setOpen((v) => !v)}>
         <span className="title">
@@ -348,39 +400,64 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
           />
 
           <TiersGrid>
-            {(p.tiers ?? [{
-              pool_id: p.pair_id,
-              kind: p.kind,
-              kind_label: p.kind_label,
-              lp_token: p.lp_token,
-              tvl_usd: p.tvl_usd,
-              volume_24h_usd: p.volume_24h_usd,
-              reserve1_human: p.reserve1_human,
-              reserve2_human: p.reserve2_human,
-              price_native: p.price_native,
-            }]).map((t) => (
+            {displayTiers.map((t) => (
               <TierCard key={t.kind}>
                 <div className="type">
                   Pool type:
                   {' '}
-                  {(TIER_FEE_PCT[t.kind] ?? 0).toFixed(2)}
+                  {tierFeePct(t.kind).toFixed(2)}
                   % fees
                 </div>
-                <div className="lp">
-                  LP asset ID:
-                  {' '}
-                  {t.lp_token}
-                </div>
-                <div className="res">
-                  {fmtNum(t.reserve1_human, 2)}
-                  {' '}
-                  {sym1}
-                </div>
-                <div className="res">
-                  {fmtNum(t.reserve2_human, 2)}
-                  {' '}
-                  {sym2}
-                </div>
+                {t.exists ? (
+                  <>
+                    <div className="lp">
+                      LP asset ID:
+                      {' '}
+                      {t.lpToken}
+                    </div>
+                    <div className="res">
+                      {fmtNum(t.r1, 2)}
+                      {' '}
+                      {sym1}
+                    </div>
+                    <div className="res">
+                      {fmtNum(t.r2, 2)}
+                      {' '}
+                      {sym2}
+                    </div>
+                    {inWallet && (
+                      <TierActions>
+                        <TierBtn
+                          tone="add"
+                          type="button"
+                          onClick={() => setLiqModal({
+                            mode: 'add', kind: t.kind, r1: t.r1, r2: t.r2,
+                          })}
+                        >
+                          Add Liquidity
+                        </TierBtn>
+                        <TierBtn
+                          tone="withdraw"
+                          type="button"
+                          onClick={() => setLiqModal({
+                            mode: 'withdraw', kind: t.kind, r1: t.r1, r2: t.r2,
+                          })}
+                        >
+                          Withdraw
+                        </TierBtn>
+                      </TierActions>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="lp muted">not created</div>
+                    <TierActions>
+                      <TierBtn tone="add" type="button" onClick={() => setCreateKind(t.kind)}>
+                        Create pool
+                      </TierBtn>
+                    </TierActions>
+                  </>
+                )}
               </TierCard>
             ))}
           </TiersGrid>
@@ -433,5 +510,25 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
         </Body>
       )}
     </Banner>
+    {liqModal && (
+      <LiquidityModal
+        mode={liqModal.mode}
+        pair={p}
+        kind={liqModal.kind}
+        reserve1Human={liqModal.r1}
+        reserve2Human={liqModal.r2}
+        onClose={() => setLiqModal(null)}
+      />
+    )}
+    {createKind !== null && (
+      <CreatePoolModal
+        initialAid1={p.aid1}
+        initialAid2={p.aid2}
+        initialKind={createKind}
+        lockPair
+        onClose={() => setCreateKind(null)}
+      />
+    )}
+    </>
   );
 };

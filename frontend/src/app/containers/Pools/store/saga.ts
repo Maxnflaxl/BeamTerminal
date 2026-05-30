@@ -97,7 +97,7 @@ export function* loadParamsSaga(action: ReturnType<typeof actions.loadAppParams.
 }
 function* navigateToHome(txid: string) {
   if (txid) {
-    yield put(navigate(ROUTES.POOLS.BASE));
+    yield put(navigate(ROUTES.NAV.DEX));
   }
 }
 function* getStatus(txid: string) {

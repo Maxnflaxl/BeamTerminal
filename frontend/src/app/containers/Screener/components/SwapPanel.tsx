@@ -4,7 +4,9 @@ import React, {
 import { styled } from '@linaria/react';
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import type { ApiPair, ApiPairTier } from '../api/types';
-import { fmt$, fmtPrice, fmtPriceImpact } from './format';
+import {
+  fmt$, fmtPrice, fmtPriceImpact, toGroths, fromGroths,
+} from './format';
 import { useWallet, invokeTrade } from '../wallet';
 import { useAssetColor } from '../assetColors';
 
@@ -200,9 +202,6 @@ interface Side {
   decimals: number;
 }
 
-const GROTHS = (whole: number, decimals: number): number => Math.floor(whole * 10 ** decimals);
-const fromGroths = (groths: number, decimals: number): number => groths / 10 ** decimals;
-
 /**
  * Estimate `dy` from a constant-product pool with a fee:
  *   dy = r2 * dx / (r1 + dx) * (1 - fee)
@@ -307,7 +306,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
         //   callAid2 = the "pay" side  → callAid1 = the "receive" side
         const callAid1 = receive.aid;
         const callAid2 = pay.aid;
-        const val2_pay = GROTHS(v, pay.decimals);
+        const val2_pay = toGroths(v, pay.decimals);
         // Quote every candidate tier in parallel, then keep the highest `buy`
         // (exactly dex-app's findBestPool rule). Single-tier views quote once.
         const quotes = await Promise.all(candidates.map(async (c) => {
@@ -376,7 +375,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
     try {
       const callAid1 = receive.aid;
       const callAid2 = pay.aid;
-      const val2_pay = confirmedQuote ? confirmedQuote.pay : GROTHS(v, pay.decimals);
+      const val2_pay = confirmedQuote ? confirmedQuote.pay : toGroths(v, pay.decimals);
       const val1_buy = confirmedQuote ? confirmedQuote.buy : 0;
       const res = await invokeTrade({
         aid1: callAid1,

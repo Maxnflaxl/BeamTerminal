@@ -143,7 +143,7 @@ const downloadBtn = css`
 `;
 
 const items = [
-  { to: ROUTES.NAV.PAIRS, label: 'Trade' },
+  { to: ROUTES.NAV.DEX, label: 'DEX' },
   { to: ROUTES.NAV.ASSETS, label: 'Assets' },
   { to: ROUTES.NAV.ATOMIC_SWAPS, label: 'Atomic swaps' },
   { to: ROUTES.NAV.ASSET_SWAPS, label: 'Asset swaps' },
@@ -186,7 +186,7 @@ const DownloadIcon = () => (
 export const TopNav = () => (
   <nav className={navRoot}>
     <div className={navInner}>
-      <NavLink to={ROUTES.NAV.PAIRS} end className={brand}>
+      <NavLink to={ROUTES.NAV.DEX} end className={brand}>
         <TerminalLogo />
         <span className={wordmark}>BeamTerminal</span>
       </NavLink>
@@ -196,7 +196,7 @@ export const TopNav = () => (
           <NavLink
             key={item.to}
             to={item.to}
-            end={item.to === ROUTES.NAV.PAIRS}
+            end={item.to === ROUTES.NAV.DEX}
             className={navLink}
           >
             {item.label}

@@ -10,6 +10,7 @@ import type {
   ApiCandle, ApiPair, Interval, Denom,
 } from '../api/types';
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { ROUTES } from '@app/shared/constants';
 import { Chart } from '../components/Chart';
 import { IconsPair } from '../components/IconsPair';
 import { KindBadge, TiersBadge } from '../components/KindBadge';
@@ -18,6 +19,7 @@ import { useAssetColor } from '../assetColors';
 import { AssetMetaBanner } from '../components/AssetMetaBanner';
 import { LiquidityBanner } from '../components/LiquidityBanner';
 import { Pager } from '../components/Pager';
+import { tierFeePct } from '../components/modalChrome';
 import {
   fmt$, fmtPct, fmtPrice, fmtDate, fmtDateFull, fmtNum, fmtPriceImpact, pairUrlId,
 } from '../components/format';
@@ -25,9 +27,6 @@ import {
 const TRADES_PAGE_SIZE = 50;
 
 const INTERVALS: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
-
-// Per-tier fee % for display alongside the rate.
-const TIER_FEE_PCT: Record<number, number> = { 0: 0.05, 1: 0.3, 2: 1 };
 
 const Page = styled.div`
   width: 100%;
@@ -599,7 +598,7 @@ export const PairDetail: React.FC = () => {
       <Layout>
       <Left>
         <TopBar>
-          <BackBtn onClick={() => navigate('/pairs')}>←</BackBtn>
+          <BackBtn onClick={() => navigate(ROUTES.NAV.DEX)}>←</BackBtn>
           <IconsPair aid1={p.aid1} aid2={p.aid2} size={32} />
           <div>
             <TopTitle>
@@ -627,7 +626,7 @@ export const PairDetail: React.FC = () => {
                 active={selectedKind === t.kind}
                 onClick={() => setSelectedKind(t.kind)}
               >
-                {(TIER_FEE_PCT[t.kind] ?? 0).toFixed(2)}
+                {tierFeePct(t.kind).toFixed(2)}
                 %
               </TierPill>
             ))}
@@ -949,8 +948,8 @@ export const PairDetail: React.FC = () => {
             <span className="lbl">Fee tier</span>
             <span className="val">
               {selectedKind === null && tiers.length > 1
-                ? `Auto · ${tiers.map((t) => `${(TIER_FEE_PCT[t.kind] ?? 0).toFixed(2)}%`).join(' / ')}`
-                : `${(TIER_FEE_PCT[p.kind] ?? 0).toFixed(2)}%`}
+                ? `Auto · ${tiers.map((t) => `${tierFeePct(t.kind).toFixed(2)}%`).join(' / ')}`
+                : `${tierFeePct(p.kind).toFixed(2)}%`}
             </span>
           </StatRow>
           <StatRow>

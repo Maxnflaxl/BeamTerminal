@@ -5,7 +5,7 @@ import connector from '@core/connector';
 import { useNavigate } from 'react-router-dom';
 import Title from '@app/shared/components/Title';
 import { BackButton, Button } from '@app/shared/components/index';
-import { ROUTES, ROUTES_PATH } from '@app/shared/constants';
+import { ROUTES } from '@app/shared/constants';
 import { IconPlus } from '@app/shared/icons';
 
 interface WindowProps {
@@ -61,10 +61,10 @@ const Window: React.FC<WindowProps> = ({
   const rootRef = useRef();
   const navigate = useNavigate();
   const onPreviousClick = () => {
-    navigate(ROUTES.POOLS.BASE);
+    navigate(ROUTES.NAV.DEX);
   };
   const createPoolNavigation = useCallback(() => {
-    navigate(ROUTES_PATH.POOLS.CREATE_POOL);
+    navigate(ROUTES.NAV.DEX);
   }, [navigate]);
   return (
     <>

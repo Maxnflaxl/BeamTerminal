@@ -1,7 +1,7 @@
 export const ROUTES = {
   NAV: {
-    PAIRS: '/pairs',
-    LIQUIDITY: '/pairs/liquidity',
+    DEX: '/dex',
+    LIQUIDITY: '/dex/liquidity',
     ASSETS: '/assets',
     EXPLORER: '/explorer',
     EXPLORER_CHARTS: '/explorer/charts',
@@ -17,35 +17,5 @@ export const ROUTES = {
     ASSET_SWAPS: '/asset-swaps',
     DAPPS: '/dapps',
     PRIVACY: '/privacy',
-    // Legacy targets kept so existing dex-app components that import them
-    // still compile during the strip. Unused at runtime.
-    TRADE: '/pairs',
-    POOLS: '/pairs',
-    POOL: '/pairs',
-  },
-  POOLS: {
-    BASE: '/pairs',
-    CREATE_POOL: '/create',
-    ADD_LIQUIDITY: '/add_liquidity',
-    TRADE_POOL: '/trade_pool/',
-    WITHDRAW_POOL: '/withdraw_pool/',
-    ACCUMULATOR_REWARDS: '/accumulator_rewards/',
-  },
-};
-
-export const ROUTES_PATH = {
-  NAV: {
-    TRADE: '/trade',
-    POOLS: '/pools',
-    POOL: '/pool',
-    ASSET_INFO: '/asset/:id',
-  },
-  POOLS: {
-    BASE: '/trade',
-    CREATE_POOL: '/create',
-    ADD_LIQUIDITY: '/add_liquidity',
-    TRADE_POOL: '/trade_pool/',
-    WITHDRAW_POOL: '/withdraw_pool/',
-    ACCUMULATOR_REWARDS: '/accumulator_rewards/',
   },
 };

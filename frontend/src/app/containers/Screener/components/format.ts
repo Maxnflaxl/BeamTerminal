@@ -107,3 +107,23 @@ export function pairUrlId(aid1: number, aid2: number, kind: number): string {
 export function pairKey(aid1: number, aid2: number): string {
   return `${aid1}_${aid2}`;
 }
+
+/** Whole units → on-chain groths (the asset's smallest unit) for `decimals`.
+ *  Float-based; fine for swap quotes/display. For tx amounts that must be exact
+ *  (and can exceed 2^53 groths), use `toGrothsStr`. */
+export const toGroths = (whole: number, decimals: number): number => Math.floor(whole * 10 ** decimals);
+
+/** On-chain groths → whole units. */
+export const fromGroths = (groths: number, decimals: number): number => groths / 10 ** decimals;
+
+/** Exact decimal-string → integer-groths string, with no float math, so a
+ *  fund-moving tx amount never loses precision above 2^53 groths. Truncates
+ *  past `decimals` fractional digits (the chain has no finer unit). */
+export function toGrothsStr(amount: string, decimals: number): string {
+  const s = (amount ?? '').trim();
+  if (!s || s === '.') return '0';
+  const [intPart = '', fracPart = ''] = s.split('.');
+  const frac = `${fracPart}${'0'.repeat(decimals)}`.slice(0, decimals);
+  const digits = `${intPart}${frac}`.replace(/^0+(?=\d)/, '');
+  return digits === '' ? '0' : digits;
+}

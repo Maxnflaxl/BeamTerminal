@@ -45,8 +45,8 @@ const trackStyle = css`
 `;
 
 const routes = [
-  { path: '*', element: <Navigate to={ROUTES.NAV.PAIRS} replace /> },
-  { path: ROUTES.NAV.PAIRS, element: <PairsList /> },
+  { path: '*', element: <Navigate to={ROUTES.NAV.DEX} replace /> },
+  { path: ROUTES.NAV.DEX, element: <PairsList /> },
   { path: ROUTES.NAV.LIQUIDITY, element: <LiquidityPosition /> },
   { path: ROUTES.NAV.PAIR_DETAIL, element: <PairDetail /> },
   { path: ROUTES.NAV.ASSETS, element: <AssetsList /> },

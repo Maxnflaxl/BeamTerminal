@@ -71,8 +71,10 @@ export interface ICreatePool {
   kind: number;
 }
 export interface IAddLiquidity extends ICreatePool {
-  val1: number;
-  val2: number;
+  // Groth amounts. Accept exact integer strings (see format.toGrothsStr) so
+  // large tx amounts aren't truncated by JS-number precision.
+  val1: number | string;
+  val2: number | string;
   bPredictOnly: number;
 }
 export interface ITrade extends ICreatePool {
@@ -82,7 +84,7 @@ export interface ITrade extends ICreatePool {
 }
 
 export interface IWithdraw extends ICreatePool {
-  ctl: number;
+  ctl: number | string;
   bPredictOnly?: number;
 }
 

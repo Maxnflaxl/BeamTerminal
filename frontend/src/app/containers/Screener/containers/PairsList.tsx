@@ -11,6 +11,16 @@ import { Sparkline } from '../components/Sparkline';
 import {
   fmt$, fmtPct, fmtPrice, pairKey,
 } from '../components/format';
+import { useFavorites } from '../favorites';
+import { useMyCreatedPairs, useWallet } from '../wallet';
+import { CreatePoolModal } from '../components/CreatePoolModal';
+import IconFavorite from '@app/shared/icons/icon-favorite.svg';
+import IconFavoriteFilled from '@app/shared/icons/icon-favorite-filled.svg';
+
+// DEX-page row filters. `mine` (pairs the connected wallet created) is sourced
+// from the AMM shader and only offered when a wallet is connected; the rest are
+// derived from the public pairs feed + localStorage favorites.
+type DexFilter = 'all' | 'mine' | 'liquid' | 'empty' | 'fav';
 
 const Page = styled.div`
   width: 100%;
@@ -62,6 +72,29 @@ const LpButton = styled(Link)`
   white-space: nowrap;
   transition: background 120ms, border-color 120ms;
   &:hover { background: rgba(0, 246, 210, 0.22); }
+
+  @media (max-width: 640px) {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+`;
+
+const CreatePoolBtn = styled.button`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--color-green);
+  border: 1px solid var(--color-green);
+  border-radius: 8px;
+  color: var(--color-dark-blue);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 120ms;
+  &:hover { filter: brightness(1.08); }
 
   @media (max-width: 640px) {
     font-size: 12px;
@@ -262,6 +295,36 @@ const Empty = styled.div`
   color: rgba(255, 255, 255, 0.5);
 `;
 
+// Row-filter pills (All / My / Liquid / Empty / Favorites). Reuses the SortPill
+// look; visible on both desktop and mobile, unlike the mobile-only SortBar.
+const FilterBar = styled.div`
+  max-width: 1400px;
+  margin: 12px auto 0;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  & > * { margin: 0 6px 6px 0; }
+
+  @media (max-width: 640px) {
+    padding: 0 12px;
+  }
+`;
+
+const StarButton = styled.button`
+  background: none;
+  border: none;
+  padding: 4px;
+  margin: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+  opacity: 0.85;
+  &:hover { opacity: 1; }
+  svg { display: block; width: 16px; height: 16px; }
+`;
+
 interface SortableHeaderProps {
   field: SortKey;
   current: SortKey;
@@ -300,13 +363,30 @@ export const PairsList: React.FC = () => {
     return () => clearTimeout(t);
   }, [searchInput]);
 
+  const [filter, setFilter] = useState<DexFilter>('all');
+  const [createOpen, setCreateOpen] = useState(false);
+  // MY filter + Create Pool are wallet-only (shown inside the BEAM wallet, hidden
+  // on the public web). `inWallet` is isInsideWallet() from walletEnv.
+  const { inWallet } = useWallet();
+  const { favorites, toggle } = useFavorites();
+  // Only poll the AMM shader for "my created pools" while the MY filter is active.
+  const { createdKeys } = useMyCreatedPairs(filter === 'mine');
+
+  // The MY pill only exists inside the wallet; fall back to ALL on the web so the
+  // list doesn't get stuck showing an empty, unreachable filter.
+  React.useEffect(() => {
+    if (!inWallet && filter === 'mine') setFilter('all');
+  }, [inWallet, filter]);
+
   const stats = useStats();
   const { data, loading, error } = usePairs(
     useMemo(
       () => ({
         sort_by: sortBy,
         order,
-        limit: 100,
+        // 500 == the backend's grouped SQL window, so this pulls every pair —
+        // needed for EMPTY (zero-TVL pairs sort to the bottom) to be complete.
+        limit: 500,
         group: 'pair' as const,
         ...(debouncedSearch ? { search: debouncedSearch } : {}),
       }),
@@ -325,6 +405,34 @@ export const PairsList: React.FC = () => {
 
   const pairs: ApiPair[] = data?.pairs ?? [];
 
+  const filtered = useMemo(() => {
+    switch (filter) {
+      case 'mine': return pairs.filter((p) => createdKeys.has(pairKey(p.aid1, p.aid2)));
+      case 'liquid': return pairs.filter((p) => p.tvl_usd != null && p.tvl_usd > 0);
+      case 'empty': return pairs.filter((p) => !p.tvl_usd);
+      case 'fav': return pairs.filter((p) => favorites.has(pairKey(p.aid1, p.aid2)));
+      default: return pairs;
+    }
+  }, [pairs, filter, createdKeys, favorites]);
+
+  const filterPills: ReadonlyArray<[DexFilter, string]> = [
+    ['all', 'All'],
+    ...(inWallet ? [['mine', 'My'] as [DexFilter, string]] : []),
+    ['liquid', 'Liquid'],
+    ['empty', 'Empty'],
+    ['fav', 'Favorites'],
+  ];
+
+  const emptyMessage = (() => {
+    switch (filter) {
+      case 'mine': return 'You haven’t created any pairs yet.';
+      case 'liquid': return 'No pairs with liquidity.';
+      case 'empty': return 'No empty pairs.';
+      case 'fav': return 'No favorite pairs yet — tap the ★ to add one.';
+      default: return 'No pairs found.';
+    }
+  })();
+
   return (
     <Page>
       <StatsBar stats={stats.data} />
@@ -336,7 +444,21 @@ export const PairsList: React.FC = () => {
           onChange={(e) => setSearchInput(e.target.value)}
         />
         <LpButton to={ROUTES.NAV.LIQUIDITY}>◆ Liquidity Positions</LpButton>
+        {inWallet && (
+          <CreatePoolBtn type="button" onClick={() => setCreateOpen(true)}>+ Create Pool</CreatePoolBtn>
+        )}
       </Header>
+      <FilterBar>
+        {filterPills.map(([value, label]) => (
+          <SortPill
+            key={value}
+            active={filter === value}
+            onClick={() => setFilter(value)}
+          >
+            {label}
+          </SortPill>
+        ))}
+      </FilterBar>
       <TableWrap>
         {error ? (
           <Empty>
@@ -345,8 +467,8 @@ export const PairsList: React.FC = () => {
           </Empty>
         ) : loading && pairs.length === 0 ? (
           <Loading>Loading pairs…</Loading>
-        ) : pairs.length === 0 ? (
-          <Empty>No pairs found.</Empty>
+        ) : filtered.length === 0 ? (
+          <Empty>{emptyMessage}</Empty>
         ) : (
           <>
           <MobileOnly>
@@ -368,7 +490,7 @@ export const PairsList: React.FC = () => {
                 </SortPill>
               ))}
             </SortBar>
-            {pairs.map((p, idx) => {
+            {filtered.map((p, idx) => {
               const chg = fmtPct(p.price_change_24h);
               return (
                 <Card
@@ -413,6 +535,13 @@ export const PairsList: React.FC = () => {
                     </CardStats>
                   </CardMain>
                   <CardSide>
+                    <StarButton
+                      type="button"
+                      aria-label="Toggle favorite"
+                      onClick={(e) => { e.stopPropagation(); toggle(p.aid1, p.aid2); }}
+                    >
+                      {favorites.has(pairKey(p.aid1, p.aid2)) ? <IconFavoriteFilled /> : <IconFavorite />}
+                    </StarButton>
                     <Sparkline values={(p.sparkline_7d ?? []).map((v) => (v > 0 ? 1 / v : 0))} />
                   </CardSide>
                 </Card>
@@ -423,6 +552,7 @@ export const PairsList: React.FC = () => {
           <Table>
             <thead>
               <tr>
+                <th style={{ width: 32 }} aria-label="Favorite" />
                 <th style={{ width: 40 }}>#</th>
                 <th>Pair</th>
                 <th style={{ width: 60 }}>Tier</th>
@@ -445,13 +575,22 @@ export const PairsList: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {pairs.map((p, idx) => {
+              {filtered.map((p, idx) => {
                 const chg = fmtPct(p.price_change_24h);
                 return (
                   <tr
                     key={p.pair_id}
                     onClick={() => navigate(`/pair/${pairKey(p.aid1, p.aid2)}`)}
                   >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <StarButton
+                        type="button"
+                        aria-label="Toggle favorite"
+                        onClick={(e) => { e.stopPropagation(); toggle(p.aid1, p.aid2); }}
+                      >
+                        {favorites.has(pairKey(p.aid1, p.aid2)) ? <IconFavoriteFilled /> : <IconFavorite />}
+                      </StarButton>
+                    </td>
                     <td className="neutral">{idx + 1}</td>
                     <td>
                       <PairCell>
@@ -497,6 +636,7 @@ export const PairsList: React.FC = () => {
           </>
         )}
       </TableWrap>
+      {createOpen && <CreatePoolModal onClose={() => setCreateOpen(false)} />}
     </Page>
   );
 };
