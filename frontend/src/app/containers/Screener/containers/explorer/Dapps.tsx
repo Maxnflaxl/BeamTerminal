@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import {
-  Page, Card, ExplorerHeader, H1, H2, H3, Subtitle, Muted, TabBtn,
+  Page, Card, ExplorerHeader, H1, H3, Subtitle, Muted, TabBtn,
   Pill, DataTable, ScrollX, ErrorBox, theme,
 } from './shared';
 import { api } from '../../api/client';
@@ -1052,18 +1052,6 @@ export const Dapps: React.FC = () => {
                 </ScrollX>
               )
         )}
-      </Card>
-
-      <Card>
-        <H2>About the BEAM DApp Store</H2>
-        <Muted>
-          The DApp Store is a single on-chain contract (mainnet CID <Mono>e2d24b…2af41c</Mono>) that
-          tracks publishers and their published dapps. The wallet ships a local app-shader
-          (<code>dapps_store_app.wasm</code>) that wraps every call to the contract. The indexer
-          runs that shader server-side to read the current publisher / dapp tables, and mines the
-          explorer's calls-history table to stamp each publisher with their real on-chain
-          first-seen / last-updated heights.
-        </Muted>
       </Card>
 
       {openDapp ? (

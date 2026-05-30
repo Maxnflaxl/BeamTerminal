@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import {
-  Page, Card, ExplorerHeader, H1, H3, Subtitle, Muted, TabBtn,
+  Page, Card, ExplorerHeader, H1, Subtitle, Muted, TabBtn,
   Pill, DataTable, ScrollX, ErrorBox, theme,
 } from './shared';
 import { BeamIcon as BeamIconSvg } from '@app/shared/icons';
@@ -260,15 +260,6 @@ export const AssetSwaps: React.FC = () => {
                 </DataTable>
               </ScrollX>
             )}
-      </Card>
-
-      <Card>
-        <H3>About asset swaps</H3>
-        <Muted>
-          Asset swaps are peer-to-peer atomic trades between two BEAM-side assets — independent of the AMM and unrelated to the DEX contract.
-          Each offer is broadcast over the wallet's DexBoard gossip channel (SBBS), held by every wallet that subscribes, and settled directly between the two parties when accepted.
-          There's no on-chain registry of open offers; what you see here is whatever the BeamTerminal-hosted wallet-api saw last poll.
-        </Muted>
       </Card>
     </Page>
   );

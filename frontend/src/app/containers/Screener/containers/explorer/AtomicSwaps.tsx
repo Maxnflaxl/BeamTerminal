@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
 import {
-  Page, Card, ExplorerHeader, H1, H2, H3, Subtitle, Muted, TabBtn,
+  Page, Card, ExplorerHeader, H1, H2, Subtitle, Muted, TabBtn,
   Pill, DataTable, ScrollX, ErrorBox, Row, theme,
 } from './shared';
 import { api } from '../../api/client';
@@ -184,15 +184,6 @@ export const AtomicSwaps: React.FC = () => {
         <Row>
           <Muted>Updates every {REFRESH_MS / 1000}s. Counter-currency labels rely on the build-dependent <code>swap_currency</code> enum mapping in the indexer.</Muted>
         </Row>
-      </Card>
-
-      <Card>
-        <H3>About atomic swaps</H3>
-        <Muted>
-          Atomic swaps trade BEAM against another L1 chain (BTC, LTC, QTUM, DOGE, DASH, ETH, plus tokens DAI/USDT/WBTC) without trusting an intermediary.
-          The offers shown here are gossiped between BEAM wallets — they appear while open and disappear on fill/cancel/expiry.
-          The "State" column reflects whether the BeamTerminal indexer still sees the offer in the latest list.
-        </Muted>
       </Card>
     </Page>
   );
