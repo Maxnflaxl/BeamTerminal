@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import {
-  Page, Card, ExplorerHeader, H1, Subtitle, Muted, TabBtn,
+  Page, Card, ExplorerHeader, H1, Muted, TabBtn,
   Pill, DataTable, ScrollX, ErrorBox, theme,
 } from './shared';
 import { BeamIcon as BeamIconSvg } from '@app/shared/icons';
@@ -196,7 +196,6 @@ export const AssetSwaps: React.FC = () => {
       <ExplorerHeader>
         <div>
           <H1>Asset swaps</H1>
-          <Subtitle>Wallet-gossiped DEX-style asset-to-asset offers (no external chain).</Subtitle>
         </div>
       </ExplorerHeader>
 

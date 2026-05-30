@@ -117,7 +117,6 @@ export const AtomicSwaps: React.FC = () => {
 
       <Card>
         <H2>Currently offered</H2>
-        <Muted>From the explorer's <code>/swap_totals</code>. Per-currency units follow the BEAM build's swap-currency enum.</Muted>
         {totals ? (
           <StatsRow>
             <StatBox>
@@ -182,7 +181,7 @@ export const AtomicSwaps: React.FC = () => {
               </ScrollX>
             )}
         <Row>
-          <Muted>Updates every {REFRESH_MS / 1000}s. Counter-currency labels rely on the build-dependent <code>swap_currency</code> enum mapping in the indexer.</Muted>
+          <Muted>Updates every {REFRESH_MS / 1000}s.</Muted>
         </Row>
       </Card>
     </Page>
