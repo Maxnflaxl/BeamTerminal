@@ -1,9 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { styled } from '@linaria/react';
 import {
-  createChart,
-  ColorType,
-  CrosshairMode,
   LineStyle,
   type IChartApi,
   type IPriceLine,
@@ -16,32 +13,12 @@ import {
 } from 'lightweight-charts';
 import type { ApiCandle } from '../api/types';
 import { fmtPriceSub, fmtNum } from './format';
+import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend, clearChildren, makeSpan } from './chartTheme';
 
-const Wrap = styled.div`
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 520px;
-`;
-
-const Inner = styled.div`
-  width: 100%;
-  height: 100%;
-  min-height: 520px;
-`;
-
-const Legend = styled.div`
-  position: absolute;
-  top: 8px;
-  left: 12px;
-  z-index: 10;
-  pointer-events: none;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+const Legend = styled(ChartLegend)`
   display: flex;
-  & > * + * { margin-left: 10px; }
   align-items: center;
+  & > * + * { margin-left: 10px; }
   & .lbl { color: rgba(255,255,255,0.4); }
   & .val { color: #fff; margin-left: 2px; }
   & .chg.up   { color: #00f6d2; }
@@ -109,50 +86,27 @@ export const Chart: React.FC<Props> = ({
     const el = innerRef.current;
     if (!el) return undefined;
 
-    const chart = createChart(el, {
-      autoSize: true,
-      layout: {
-        background: { type: ColorType.Solid, color: '#042548' },
-        textColor: 'rgba(255, 255, 255, 0.55)',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: 0, labelBackgroundColor: '#00f6d2' },
-        horzLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: 0, labelBackgroundColor: '#00f6d2' },
-      },
-      rightPriceScale: {
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        // Reserve the bottom ~22% for the volume histogram overlay.
-        scaleMargins: { top: 0.08, bottom: 0.24 },
-      },
-      timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        timeVisible: true,
-        secondsVisible: false,
-        rightOffset: 5,
-      },
+    const chart = createBeamChart(el, {
+      // Reserve the bottom ~22% for the volume histogram overlay.
+      rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.24 } },
+      timeScale: { timeVisible: true, rightOffset: 5 },
     });
 
     chartRef.current = chart;
 
     if (style === 'candle') {
       seriesRef.current = chart.addCandlestickSeries({
-        upColor: '#00f6d2',
-        downColor: '#f25f5b',
-        borderUpColor: '#00f6d2',
-        borderDownColor: '#f25f5b',
-        wickUpColor: '#00f6d2',
-        wickDownColor: '#f25f5b',
+        upColor: CHART_COLORS.accent,
+        downColor: CHART_COLORS.down,
+        borderUpColor: CHART_COLORS.accent,
+        borderDownColor: CHART_COLORS.down,
+        wickUpColor: CHART_COLORS.accent,
+        wickDownColor: CHART_COLORS.down,
         priceFormat: { type: 'custom', formatter: (p: number) => fmtPriceSub(p), minMove: 0.00000001 },
       });
     } else {
       seriesRef.current = chart.addAreaSeries({
-        lineColor: '#00f6d2',
+        lineColor: CHART_COLORS.accent,
         topColor: 'rgba(0, 246, 210, 0.28)',
         bottomColor: 'rgba(0, 246, 210, 0.02)',
         lineWidth: 2,
@@ -174,15 +128,8 @@ export const Chart: React.FC<Props> = ({
     const lg = legendRef.current;
     let nodes: { [k: string]: HTMLSpanElement } | null = null;
     if (lg) {
-      // `Element.replaceChildren()` requires Chrome 86+ — the desktop wallet's
-      // QtWebEngine is older. Clear children the long way.
-      while (lg.firstChild) lg.removeChild(lg.firstChild);
-      const make = (cls: string, txt = ''): HTMLSpanElement => {
-        const s = document.createElement('span');
-        s.className = cls;
-        s.textContent = txt;
-        return s;
-      };
+      clearChildren(lg);
+      const make = makeSpan;
       const row = document.createElement('div');
       const labels: Array<['lbl' | 'val', string]> = [
         ['lbl', 'O '], ['val', ''], ['lbl', ' H '], ['val', ''],
@@ -363,9 +310,9 @@ export const Chart: React.FC<Props> = ({
   }, [tradePreview]);
 
   return (
-    <Wrap ref={wrapRef}>
-      <Inner ref={innerRef} />
+    <ChartWrap ref={wrapRef} minH="520px">
+      <ChartInner ref={innerRef} />
       <Legend ref={legendRef} />
-    </Wrap>
+    </ChartWrap>
   );
 };

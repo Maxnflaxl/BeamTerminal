@@ -1,40 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { styled } from '@linaria/react';
-import {
-  createChart,
-  ColorType,
-  CrosshairMode,
-  LineStyle,
-  type IChartApi,
-  type ISeriesApi,
-  type LineData,
-  type UTCTimestamp,
-} from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, LineData, UTCTimestamp } from 'lightweight-charts';
 import { fmtNum } from './format';
+import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend, clearChildren, makeSpan } from './chartTheme';
 
-const Wrap = styled.div`
-  position: relative;
-  width: 100%;
-  height: 220px;
-`;
-
-const Inner = styled.div`
-  width: 100%;
-  height: 100%;
-`;
-
-const Legend = styled.div`
-  position: absolute;
-  top: 8px;
-  left: 12px;
-  z-index: 10;
-  pointer-events: none;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+const Legend = styled(ChartLegend)`
   display: flex;
-  & > * + * { margin-left: 6px; }
   align-items: baseline;
+  & > * + * { margin-left: 6px; }
   & .lbl { color: rgba(255,255,255,0.4); }
   & .val { color: #fff; }
   & .unit { color: rgba(255,255,255,0.4); margin-left: 4px; }
@@ -64,29 +37,11 @@ export const SupplyChart: React.FC<Props> = ({ points, unit }) => {
     const el = innerRef.current;
     if (!el) return undefined;
 
-    const chart = createChart(el, {
-      autoSize: true,
-      layout: {
-        background: { type: ColorType.Solid, color: '#042548' },
-        textColor: 'rgba(255, 255, 255, 0.55)',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#00f6d2' },
-        horzLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#00f6d2' },
-      },
-      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)' },
-      timeScale: { borderColor: 'rgba(255, 255, 255, 0.1)', timeVisible: false, secondsVisible: false, rightOffset: 5 },
-    });
+    const chart = createBeamChart(el, { timeScale: { rightOffset: 5 } });
     chartRef.current = chart;
 
     const series = chart.addLineSeries({
-      color: '#00f6d2',
+      color: CHART_COLORS.accent,
       lineWidth: 2,
       lineType: 2, // WithSteps — supply changes are discrete
       priceFormat: { type: 'custom', formatter: (v: number) => fmtNum(v, 0), minMove: 1 },
@@ -97,16 +52,10 @@ export const SupplyChart: React.FC<Props> = ({ points, unit }) => {
     const lg = legendRef.current;
     let nodes: { lbl: HTMLSpanElement; val: HTMLSpanElement; unit: HTMLSpanElement } | null = null;
     if (lg) {
-      while (lg.firstChild) lg.removeChild(lg.firstChild);
-      const mk = (cls: string, txt = ''): HTMLSpanElement => {
-        const s = document.createElement('span');
-        s.className = cls;
-        s.textContent = txt;
-        return s;
-      };
-      const lbl = mk('lbl', 'Supply');
-      const val = mk('val', '');
-      const u = mk('unit', unit ?? '');
+      clearChildren(lg);
+      const lbl = makeSpan('lbl', 'Supply');
+      const val = makeSpan('val', '');
+      const u = makeSpan('unit', unit ?? '');
       lg.appendChild(lbl);
       lg.appendChild(val);
       lg.appendChild(u);
@@ -134,17 +83,28 @@ export const SupplyChart: React.FC<Props> = ({ points, unit }) => {
   useEffect(() => {
     const s = seriesRef.current;
     if (!s) return;
-    const data: LineData[] = points
+    // lightweight-charts requires strictly-ascending, unique timestamps; supply
+    // history can carry two events in the same block (same ts), so sort and
+    // collapse same-ts points (last value wins) to avoid a setData assertion.
+    const data: LineData[] = [];
+    const sorted = points
       .filter((p) => p.ts > 0 && Number.isFinite(p.supply))
-      .map((p) => ({ time: p.ts as UTCTimestamp, value: p.supply }));
+      .slice()
+      .sort((a, b) => a.ts - b.ts);
+    for (const p of sorted) {
+      const time = p.ts as UTCTimestamp;
+      const last = data[data.length - 1];
+      if (last && last.time === time) last.value = p.supply;
+      else data.push({ time, value: p.supply });
+    }
     s.setData(data);
     if (data.length > 0) chartRef.current?.timeScale().fitContent();
   }, [points]);
 
   return (
-    <Wrap>
-      <Inner ref={innerRef} />
+    <ChartWrap h="220px">
+      <ChartInner ref={innerRef} />
       <Legend ref={legendRef} />
-    </Wrap>
+    </ChartWrap>
   );
 };

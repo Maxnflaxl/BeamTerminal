@@ -1,8 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { styled } from '@linaria/react';
 import {
-  createChart,
-  ColorType,
   CrosshairMode,
   LineStyle,
   PriceScaleMode,
@@ -12,46 +10,14 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import type { ApiChartPoint } from '../api/client';
-
-const Wrap = styled.div`
-  width: 100%;
-  height: 100%;
-  min-height: 220px;
-  position: relative;
-`;
-
-const Header = styled.div`
-  position: absolute;
-  top: 8px;
-  left: 12px;
-  z-index: 10;
-  pointer-events: none;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-`;
-
-const Inner = styled.div`
-  width: 100%;
-  height: 100%;
-  min-height: 220px;
-`;
+import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend } from './chartTheme';
 
 // Two-swatch legend shown when an overlay line is present (e.g. the
 // Transactions / day chart's coinbase baseline). Margin-based spacing — fl/grid
 // `gap` isn't supported on the wallet's QtWebEngine 5.15.2 (Chrome 83).
-const Legend = styled.div`
-  position: absolute;
-  top: 8px;
-  left: 12px;
-  z-index: 10;
-  pointer-events: none;
+const Legend = styled(ChartLegend)`
   display: flex;
   align-items: center;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-
   & > * + * { margin-left: 12px; }
 `;
 
@@ -114,33 +80,14 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
   useEffect(() => {
     const el = innerRef.current;
     if (!el) return undefined;
-    const chart = createChart(el, {
-      autoSize: true,
-      layout: {
-        background: { type: ColorType.Solid, color: '#042548' },
-        textColor: 'rgba(255, 255, 255, 0.55)',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Magnet,
-        vertLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: 0, labelBackgroundColor: '#00f6d2' },
-        horzLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: 0, labelBackgroundColor: '#00f6d2' },
-      },
-      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)' },
-      timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        timeVisible: false,
-        secondsVisible: false,
-        minBarSpacing: 0.01,
-      },
+    // Magnet crosshair (snaps to the series) — unique to this chart.
+    const chart = createBeamChart(el, {
+      crosshair: { mode: CrosshairMode.Magnet },
+      timeScale: { minBarSpacing: 0.01 },
     });
     chartRef.current = chart;
     seriesRef.current = chart.addAreaSeries({
-      lineColor: '#00f6d2',
+      lineColor: CHART_COLORS.accent,
       topColor: 'rgba(0, 246, 210, 0.28)',
       bottomColor: 'rgba(0, 246, 210, 0.02)',
       lineWidth: 2,
@@ -207,11 +154,11 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
   }, [overlaySeries, scale, overlayColor]);
 
   return (
-    <Wrap>
+    <ChartWrap minH="220px">
       {overlaySeries && overlayLabel ? (
         <Legend>
           <LegendItem>
-            <i style={{ borderTopColor: '#00f6d2', borderTopStyle: 'solid' }} />
+            <i style={{ borderTopColor: CHART_COLORS.accent, borderTopStyle: 'solid' }} />
             {title || 'Total'}
           </LegendItem>
           <LegendItem>
@@ -220,9 +167,9 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
           </LegendItem>
         </Legend>
       ) : (
-        title ? <Header>{title}</Header> : null
+        title ? <ChartLegend>{title}</ChartLegend> : null
       )}
-      <Inner ref={innerRef} />
-    </Wrap>
+      <ChartInner ref={innerRef} />
+    </ChartWrap>
   );
 };

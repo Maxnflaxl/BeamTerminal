@@ -3,7 +3,7 @@ import { styled } from '@linaria/react';
 import { api, type ApiChartPoint, type ApiChartSeries, type ApiBlackholeBody, type ApiBlackholeSeries } from '../api/client';
 import { SimpleChart } from '../components/SimpleChart';
 import { ConfidentialAssetsChart } from '../components/ConfidentialAssetsChart';
-import { BlackholeChart, buildBlackholeColors } from '../components/BlackholeChart';
+import { BlackholeChart, buildBlackholeColors, buildBlackholeLineStyles, LINE_STYLE_DASH } from '../components/BlackholeChart';
 
 type Timeframe = '1W' | '1M' | '3M' | 'YTD' | 'ALL';
 const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1W', '1M', '3M', 'YTD', 'ALL'];
@@ -373,9 +373,12 @@ function fmtVol(v: number): string {
 }
 
 // Native token units (no currency symbol) for the Black Hole chart axis/tooltip.
+// Bounded width (k/M/B/T suffixes) so axis labels never grow long enough to
+// resize the (pinned) price-axis gutter.
 function fmtNative(v: number): string {
   if (!Number.isFinite(v)) return '';
   const abs = Math.abs(v);
+  if (abs >= 1e12) return (v / 1e12).toFixed(2) + 'T';
   if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
   if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
   if (abs >= 1e3) return (v / 1e3).toFixed(2) + 'k';
@@ -525,6 +528,7 @@ function blackholeSvg(
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
   const colors = buildBlackholeColors(series);
+  const styles = buildBlackholeLineStyles(series);
   const allPts = series.flatMap((s) => s.points);
   if (allPts.length === 0) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#888" font-family="sans-serif">No data</text></svg>`;
@@ -564,7 +568,9 @@ function blackholeSvg(
     const d = s.points
       .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.ts).toFixed(1)},${py(p.value).toFixed(1)}`)
       .join(' ');
-    return `<path d="${d}" fill="none" stroke="${colors.get(s.aid)}" stroke-width="1.5"/>`;
+    const dash = LINE_STYLE_DASH[styles.get(s.aid) ?? 'solid'];
+    const dashAttr = dash ? ` stroke-dasharray="${dash}"` : '';
+    return `<path d="${d}" fill="none" stroke="${colors.get(s.aid)}" stroke-width="1.5"${dashAttr}/>`;
   });
   // Wrapped legend just under the title.
   let lx = pad.l;
@@ -574,8 +580,10 @@ function blackholeSvg(
     const text = `${s.label} #${s.aid}`;
     const w = 18 + text.length * 6.2;
     if (lx + w > W - pad.r) { lx = pad.l; ly += 14; }
+    const dash = LINE_STYLE_DASH[styles.get(s.aid) ?? 'solid'];
+    const dashAttr = dash ? ` stroke-dasharray="${dash}"` : '';
     legend.push(
-      `<line x1="${lx}" y1="${ly - 3}" x2="${lx + 12}" y2="${ly - 3}" stroke="${colors.get(s.aid)}" stroke-width="2"/>` +
+      `<line x1="${lx}" y1="${ly - 3}" x2="${lx + 12}" y2="${ly - 3}" stroke="${colors.get(s.aid)}" stroke-width="2"${dashAttr}/>` +
       `<text x="${lx + 16}" y="${ly}" fill="${label}">${escapeXml(text)}</text>`,
     );
     lx += w;
@@ -648,6 +656,32 @@ const InnerChart: React.FC<{
   );
 };
 
+// Shared grid-cell chrome (title + lin/log toggle + expand button + plot area).
+// Both the single-series ChartCell and the multi-series BlackholeCell wrap their
+// chart body in it, so the cell shell lives in exactly one place.
+const ChartShell: React.FC<{
+  title: string;
+  logScale?: boolean;
+  onExpand: () => void;
+  onToggleLog: () => void;
+  children: React.ReactNode;
+}> = ({ title, logScale, onExpand, onToggleLog, children }) => (
+  <Cell>
+    <CellHeader>
+      <CellTitle>{title}</CellTitle>
+      <CellActions>
+        <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
+          {logScale ? 'log' : 'lin'}
+        </ScaleToggle>
+        <ExpandButton onClick={onExpand} title="Expand chart" aria-label="Expand chart">
+          <ExpandIcon />
+        </ExpandButton>
+      </CellActions>
+    </CellHeader>
+    <ChartArea>{children}</ChartArea>
+  </Cell>
+);
+
 const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
   { state, title, timeframe, scale, formatter, logScale, chartKey, onExpand, onToggleLog },
 ) => {
@@ -656,32 +690,18 @@ const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
     [state.data, timeframe],
   );
   return (
-    <Cell>
-      <CellHeader>
-        <CellTitle>{title}</CellTitle>
-        <CellActions>
-          <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
-            {logScale ? 'log' : 'lin'}
-          </ScaleToggle>
-          <ExpandButton onClick={onExpand} title="Expand chart" aria-label="Expand chart">
-            <ExpandIcon />
-          </ExpandButton>
-        </CellActions>
-      </CellHeader>
-      <ChartArea>
-        {filtered ? (
-          <InnerChart chartKey={chartKey} series={filtered} title="" scale={scale} formatter={formatter} logScale={logScale} />
-        ) : (
-          <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
-        )}
-      </ChartArea>
-    </Cell>
+    <ChartShell title={title} logScale={logScale} onExpand={onExpand} onToggleLog={onToggleLog}>
+      {filtered ? (
+        <InnerChart chartKey={chartKey} series={filtered} title="" scale={scale} formatter={formatter} logScale={logScale} />
+      ) : (
+        <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
+      )}
+    </ChartShell>
   );
 };
 
-// Grid cell for the multi-series Black Hole chart. Mirrors ChartCell's chrome
-// (title, lin/log toggle, expand) but renders BlackholeChart from the
-// multi-series payload instead of the single-series InnerChart path.
+// Grid cell for the multi-series Black Hole chart — same shell as ChartCell,
+// but renders BlackholeChart from the multi-series payload.
 const BlackholeCell: React.FC<{
   state: FetchState<ApiBlackholeBody>;
   title: string;
@@ -696,26 +716,13 @@ const BlackholeCell: React.FC<{
     [state.data, timeframe],
   );
   return (
-    <Cell>
-      <CellHeader>
-        <CellTitle>{title}</CellTitle>
-        <CellActions>
-          <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
-            {logScale ? 'log' : 'lin'}
-          </ScaleToggle>
-          <ExpandButton onClick={onExpand} title="Expand chart" aria-label="Expand chart">
-            <ExpandIcon />
-          </ExpandButton>
-        </CellActions>
-      </CellHeader>
-      <ChartArea>
-        {filtered && filtered.length > 0 ? (
-          <BlackholeChart series={filtered} logScale={logScale} formatter={formatter} />
-        ) : (
-          <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
-        )}
-      </ChartArea>
-    </Cell>
+    <ChartShell title={title} logScale={logScale} onExpand={onExpand} onToggleLog={onToggleLog}>
+      {filtered && filtered.length > 0 ? (
+        <BlackholeChart series={filtered} logScale={logScale} formatter={formatter} />
+      ) : (
+        <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
+      )}
+    </ChartShell>
   );
 };
 
@@ -815,7 +822,7 @@ export const NetworkCharts: React.FC = () => {
     { key: 'tvl',                title: 'DEX TVL',                state: tvl,                formatter: fmtUsd, category: 'defi' },
     { key: 'beamVol',            title: 'BEAM Volatility Index (30d)', state: beamVol,       formatter: fmtVol, category: 'defi' },
     { key: 'dexVol',             title: 'DEX Volatility Index (30d)',  state: dexVol,        formatter: fmtVol, category: 'defi' },
-    { key: 'blackhole',          title: 'Black Hole (assets locked)',  multiState: blackhole, formatter: fmtNative, category: 'defi' },
+    { key: 'blackhole',          title: 'Black Hole (assets burned)',  multiState: blackhole, formatter: fmtNative, category: 'defi' },
   ];
 
   const charts = allCharts.filter((c) => c.category === category);
@@ -1025,7 +1032,7 @@ const ExpandedBlackhole: React.FC<{
   if (!filtered || filtered.length === 0) {
     return <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>;
   }
-  return <BlackholeChart series={filtered} logScale={logScale} formatter={formatter} />;
+  return <BlackholeChart series={filtered} logScale={logScale} formatter={formatter} showMarkers />;
 };
 
 // IndexerStatusBadge lives in the global Footer (components/Footer.tsx) now.

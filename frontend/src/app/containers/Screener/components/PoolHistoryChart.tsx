@@ -1,40 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import { styled } from '@linaria/react';
-import {
-  createChart,
-  ColorType,
-  CrosshairMode,
-  LineStyle,
-  type IChartApi,
-  type ISeriesApi,
-  type LineData,
-  type UTCTimestamp,
-} from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, LineData, UTCTimestamp } from 'lightweight-charts';
 import type { ApiPoolLiquidityPoint } from '../api/types';
 import { fmtNum } from './format';
+import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend, clearChildren, makeSpan } from './chartTheme';
 
-const Wrap = styled.div`
-  position: relative;
-  width: 100%;
-  height: 320px;
-`;
-
-const Inner = styled.div`
-  width: 100%;
-  height: 100%;
-`;
-
-const Legend = styled.div`
-  position: absolute;
-  top: 8px;
-  left: 12px;
-  z-index: 10;
-  pointer-events: none;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 12px;
+const Legend = styled(ChartLegend)`
   display: flex;
-  & > * + * { margin-left: 14px; }
   align-items: baseline;
+  & > * + * { margin-left: 14px; }
   .item { display: flex; align-items: baseline; & > * + * { margin-left: 5px; } }
   .swatch { width: 9px; height: 9px; border-radius: 2px; align-self: center; }
   .lbl { color: rgba(255, 255, 255, 0.5); }
@@ -43,7 +17,7 @@ const Legend = styled.div`
 
 // sym1 (aid1, e.g. BEAM) teal; sym2 (aid2) white — matches BeamAssets' Pooled
 // BEAM / Pooled BEAMX colouring.
-const COLOR1 = '#00f6d2';
+const COLOR1 = CHART_COLORS.accent;
 const COLOR2 = '#ffffff';
 
 export type SeriesVisibility = 'both' | '1' | '2';
@@ -77,25 +51,7 @@ export const PoolHistoryChart: React.FC<Props> = ({
     const el = innerRef.current;
     if (!el) return undefined;
 
-    const chart = createChart(el, {
-      autoSize: true,
-      layout: {
-        background: { type: ColorType.Solid, color: '#042548' },
-        textColor: 'rgba(255, 255, 255, 0.55)',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#00f6d2' },
-        horzLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#00f6d2' },
-      },
-      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)' },
-      timeScale: { borderColor: 'rgba(255, 255, 255, 0.1)', timeVisible: false, secondsVisible: false, rightOffset: 5 },
-    });
+    const chart = createBeamChart(el, { timeScale: { rightOffset: 5 } });
     chartRef.current = chart;
 
     s1Ref.current = chart.addLineSeries({
@@ -113,18 +69,14 @@ export const PoolHistoryChart: React.FC<Props> = ({
     const lg = legendRef.current;
     let nodes: { v1: HTMLSpanElement; v2: HTMLSpanElement } | null = null;
     if (lg) {
-      while (lg.firstChild) lg.removeChild(lg.firstChild);
+      clearChildren(lg);
       const mkItem = (color: string, label: string): { item: HTMLDivElement; val: HTMLSpanElement } => {
         const item = document.createElement('div');
         item.className = 'item';
-        const sw = document.createElement('span');
-        sw.className = 'swatch';
+        const sw = makeSpan('swatch');
         sw.style.background = color;
-        const lbl = document.createElement('span');
-        lbl.className = 'lbl';
-        lbl.textContent = label;
-        const val = document.createElement('span');
-        val.className = 'val';
+        const lbl = makeSpan('lbl', label);
+        const val = makeSpan('val');
         item.appendChild(sw);
         item.appendChild(lbl);
         item.appendChild(val);
@@ -192,9 +144,9 @@ export const PoolHistoryChart: React.FC<Props> = ({
   }, [centerOn, series]);
 
   return (
-    <Wrap>
-      <Inner ref={innerRef} />
+    <ChartWrap h="320px">
+      <ChartInner ref={innerRef} />
       <Legend ref={legendRef} />
-    </Wrap>
+    </ChartWrap>
   );
 };
