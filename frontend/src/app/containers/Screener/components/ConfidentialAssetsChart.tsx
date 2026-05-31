@@ -6,6 +6,7 @@ import { styled } from '@linaria/react';
 import type { IChartApi, UTCTimestamp } from 'lightweight-charts';
 
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { BlockHeight } from '@app/shared/components/BlockHeight';
 import { SimpleChart } from './SimpleChart';
 import { useAssets } from '../hooks';
 import type { ApiChartPoint } from '../api/client';
@@ -599,7 +600,7 @@ const HoveredPopover: React.FC<HoveredPopoverProps> = ({
       {asset.minted_at_height != null ? (
         <PopRow>
           <span>Block</span>
-          <span>#{asset.minted_at_height.toLocaleString('en-US')}</span>
+          <span>#<BlockHeight height={asset.minted_at_height} ts={asset.minted_at_ts} tooltip={false} /></span>
         </PopRow>
       ) : null}
       <PopRow>

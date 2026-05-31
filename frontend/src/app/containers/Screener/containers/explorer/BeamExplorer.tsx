@@ -2,6 +2,7 @@ import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { styled } from '@linaria/react';
 import {
   createChart, ColorType, CrosshairMode,
@@ -12,6 +13,7 @@ import {
   Btn, Input, Select, Pill,
   DataTable, ScrollX, ErrorBox, Row, theme,
 } from './shared';
+import { useBlockTimestamp, type BlockUrlResolver } from '../../../../shared/components/BlockHeight';
 
 // ---------------------------------------------------------------------------
 // Explorer node config
@@ -474,6 +476,29 @@ const Pos = styled.span` color: ${theme.color.success}; `;
 const Neg = styled.span` color: ${theme.color.danger}; `;
 const Muted = styled.span` color: ${theme.color.muted}; font-style: italic; `;
 
+const BlockLinkWrap = styled.span`
+  position: relative;
+  display: inline-flex;
+`;
+
+const BlockHoverTip = styled.span`
+  /* Portaled into <body> with fixed coords (set inline) and centered over the
+     height, so table/panel overflow can't clip it. */
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 9999;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 11px;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+`;
+
 const Loading = styled.div`
   color: ${theme.color.muted};
   padding: 24px;
@@ -518,14 +543,46 @@ function AssetLink({ aid, ctx }: { aid: number | string; ctx: RenderCtx }): JSX.
 }
 
 function BlockLink({ h, ctx }: { h: number | string; ctx: RenderCtx }): JSX.Element {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const [hovered, setHovered] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const heightNum = Number(h);
+  const valid = Number.isFinite(heightNum);
+  const resolveUrl = useCallback<BlockUrlResolver>(
+    (height) => `${getNodeUrl(ctx.network)}block?exp_am=1&height=${height}`,
+    [ctx.network],
+  );
+  const { ts, loading } = useBlockTimestamp(valid ? heightNum : null, {
+    enabled: hovered && valid,
+    resolveUrl,
+  });
+  const tipText = loading
+    ? 'Loading…'
+    : typeof ts === 'number' ? new Date(ts * 1000).toLocaleString() : 'timestamp unavailable';
+  const onEnter = (): void => {
+    const el = wrapRef.current;
+    if (el) {
+      const r = el.getBoundingClientRect();
+      setPos({ x: r.left + r.width / 2, y: r.top });
+    }
+    setHovered(true);
+  };
   return (
-    <Link
-      onClick={(e) => { e.preventDefault(); ctx.go({ type: 'block', height: String(h) }); }}
-      href="#"
-      style={{ color: theme.color.info }}
+    <BlockLinkWrap
+      ref={wrapRef}
+      onMouseEnter={onEnter}
+      onMouseLeave={() => setHovered(false)}
     >
-      {String(h)}
-    </Link>
+      <Link
+        onClick={(e) => { e.preventDefault(); ctx.go({ type: 'block', height: String(h) }); }}
+        href="#"
+        style={{ color: theme.color.info }}
+      >
+        {String(h)}
+      </Link>
+      {hovered && valid && pos
+        && createPortal(<BlockHoverTip style={{ left: pos.x, top: pos.y - 8 }}>{tipText}</BlockHoverTip>, document.body)}
+    </BlockLinkWrap>
   );
 }
 
@@ -2048,8 +2105,12 @@ export const BeamExplorer: React.FC = () => {
     e.preventDefault();
     const q = search.trim();
     if (!q) return;
-    if (q.length < 10 && /^\d+$/.test(q)) {
-      go({ type: 'block', height: q, kernel: undefined });
+    // Tolerate copy-pasted block heights with thousands separators (e.g.
+    // "3,863,512" as rendered elsewhere in the terminal); kernel ids are hex
+    // and never contain these, so strip them only for the numeric test.
+    const cleaned = q.replace(/[\s,_]/g, '');
+    if (cleaned.length < 10 && /^\d+$/.test(cleaned)) {
+      go({ type: 'block', height: cleaned, kernel: undefined });
     } else {
       go({ type: 'block', kernel: q, height: undefined });
     }

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
+import { BlockHeight } from '@app/shared/components/BlockHeight';
 import { useAsset, useAssetHistory, usePairs } from '../hooks';
 import { fmt$, fmtNum, pairUrlId } from '../components/format';
 import { KindBadge } from '../components/KindBadge';
@@ -335,9 +336,13 @@ export const AssetDetail: React.FC = () => {
           <InfoCell>
             <div className="lbl">Minted at</div>
             <div className="val">
-              {asset.aid === 0
-                ? 'block #1'
-                : asset.minted_at_height !== null ? `block #${asset.minted_at_height}` : '—'}
+              {asset.aid === 0 ? (
+                'block #1'
+              ) : asset.minted_at_height !== null ? (
+                <>block #<BlockHeight height={asset.minted_at_height} /></>
+              ) : (
+                '—'
+              )}
             </div>
           </InfoCell>
           <InfoCell>

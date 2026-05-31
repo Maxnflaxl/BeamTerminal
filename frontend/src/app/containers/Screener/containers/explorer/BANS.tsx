@@ -20,6 +20,7 @@ import {
   ErrorBox,
   theme,
 } from './shared';
+import { BlockHeight } from '../../../../shared/components/BlockHeight';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -27,8 +28,8 @@ import {
 
 const CID = 'af4550f1f8a6051ffeffea06e0cb978f8076fdfc2101d2273d4e62c86540bc5e';
 const PAGE_SIZE = 50;
-const ACTIVITY_LIMIT = 25;
-const CONTRACT_NMAXTXS = 200;
+const ACTIVITY_PAGE_SIZE = 25;
+const CONTRACT_NMAXTXS = 500;
 const POLL_MS = 60_000;
 const BLOCK_SECONDS = 60;
 
@@ -209,6 +210,29 @@ const StatusLine = styled.div`
   & > * + * { margin-left: 6px; }
   font-size: 11px;
   color: ${theme.color.muted};
+`;
+
+const JumpNav = styled.nav`
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  & > * + * { margin-left: 6px; }
+  /* Match the page background so the sticky bar blends in (no visible band)
+     while staying opaque enough to cover content scrolling under it. */
+  background: ${theme.color.bg};
+  padding: 8px 0;
+  margin-bottom: 16px;
+`;
+
+const JumpLabel = styled.span`
+  color: ${theme.color.muted};
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  margin-right: 4px;
 `;
 
 const ContractBar = styled.div`
@@ -440,9 +464,24 @@ export const BANS: React.FC = () => {
   const [saleOnly, setSaleOnly] = useState(false);
   const [sort, setSort] = useState<SortState>({ key: 'name', dir: 1 });
   const [page, setPage] = useState(0);
+  const [activityPage, setActivityPage] = useState(0);
 
   const apiBaseRef = useRef(apiBase);
   apiBaseRef.current = apiBase;
+
+  // Section anchors for the jump-nav.
+  const overviewRef = useRef<HTMLDivElement>(null);
+  const domainsRef = useRef<HTMLDivElement>(null);
+  const activityRef = useRef<HTMLDivElement>(null);
+  const scrollTo = useCallback((ref: React.RefObject<HTMLElement>) => {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  // Resolve block timestamps from the same explorer node the user picked.
+  const blockUrl = useCallback(
+    (h: number) => `${apiBase.replace(/\/$/, '')}/block?height=${h}`,
+    [apiBase],
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -543,7 +582,47 @@ export const BANS: React.FC = () => {
 
   const sortArrow = (key: SortKey): string | null => (sort.key === key ? (sort.dir > 0 ? '▲' : '▼') : null);
 
-  const recent = activity.slice(0, ACTIVITY_LIMIT);
+  // ---- Activity pagination (over every loaded call, not just the latest) ----
+  const activityPages = Math.max(1, Math.ceil(activity.length / ACTIVITY_PAGE_SIZE));
+  const safeActivityPage = Math.min(Math.max(0, activityPage), activityPages - 1);
+  const activityStart = safeActivityPage * ACTIVITY_PAGE_SIZE;
+  const recent = activity.slice(activityStart, activityStart + ACTIVITY_PAGE_SIZE);
+
+  useEffect(() => {
+    if (activityPage > activityPages - 1) setActivityPage(Math.max(0, activityPages - 1));
+  }, [activityPages, activityPage]);
+
+  const domainsPager = (
+    <Pagination>
+      <PageInfo>
+        {filtered.length === 0
+          ? 'Page 0 of 0'
+          : `Page ${safePage + 1} of ${pages} · ${start + 1}–${Math.min(start + PAGE_SIZE, filtered.length)} of ${filtered.length}`}
+      </PageInfo>
+      <PageBtns>
+        <Btn type="button" data-variant="ghost" disabled={safePage === 0} onClick={() => setPage(0)}>⏮</Btn>
+        <Btn type="button" data-variant="ghost" disabled={safePage === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Prev</Btn>
+        <Btn type="button" data-variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage((p) => p + 1)}>Next ›</Btn>
+        <Btn type="button" data-variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage(pages - 1)}>⏭</Btn>
+      </PageBtns>
+    </Pagination>
+  );
+
+  const activityPager = (
+    <Pagination>
+      <PageInfo>
+        {activity.length === 0
+          ? 'Page 0 of 0'
+          : `Page ${safeActivityPage + 1} of ${activityPages} · ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, activity.length)} of ${activity.length}`}
+      </PageInfo>
+      <PageBtns>
+        <Btn type="button" data-variant="ghost" disabled={safeActivityPage === 0} onClick={() => setActivityPage(0)}>⏮</Btn>
+        <Btn type="button" data-variant="ghost" disabled={safeActivityPage === 0} onClick={() => setActivityPage((p) => Math.max(0, p - 1))}>‹ Prev</Btn>
+        <Btn type="button" data-variant="ghost" disabled={safeActivityPage >= activityPages - 1} onClick={() => setActivityPage((p) => p + 1)}>Next ›</Btn>
+        <Btn type="button" data-variant="ghost" disabled={safeActivityPage >= activityPages - 1} onClick={() => setActivityPage(activityPages - 1)}>⏭</Btn>
+      </PageBtns>
+    </Pagination>
+  );
 
   return (
     <Page>
@@ -568,6 +647,13 @@ export const BANS: React.FC = () => {
         </HeaderRight>
       </ExplorerHeader>
 
+      <JumpNav>
+        <JumpLabel>Jump to</JumpLabel>
+        <TabBtn type="button" onClick={() => scrollTo(overviewRef)}>Overview</TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(domainsRef)}>Domains</TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(activityRef)}>Activity</TabBtn>
+      </JumpNav>
+
       {error && <ErrorBox>{error}</ErrorBox>}
 
       <ContractBar>
@@ -576,11 +662,11 @@ export const BANS: React.FC = () => {
           <CidMono onClick={() => copyText(CID)} title="Click to copy">{CID}</CidMono>
         </div>
         <div><BarLabel>Kind</BarLabel><BarValue>{kind || '—'}</BarValue></div>
-        <div><BarLabel>Tip height</BarLabel><BarValue>{fmtNum(tipHeight)}</BarValue></div>
-        <div><BarLabel>Deployed at</BarLabel><BarValue>{fmtNum(deployedAt)}</BarValue></div>
+        <div><BarLabel>Tip height</BarLabel><BarValue><BlockHeight height={tipHeight} resolveUrl={blockUrl} /></BarValue></div>
+        <div><BarLabel>Deployed at</BarLabel><BarValue><BlockHeight height={deployedAt} resolveUrl={blockUrl} /></BarValue></div>
       </ContractBar>
 
-      <StatGrid>
+      <StatGrid ref={overviewRef}>
         <StatCard>
           <Label>Total domains</Label>
           <Value style={{ color: theme.color.accent }}>{fmtNum(kpi.total)}</Value>
@@ -608,7 +694,7 @@ export const BANS: React.FC = () => {
         </StatCard>
       </StatGrid>
 
-      <Panel>
+      <Panel ref={domainsRef}>
         <PanelHeader>
           <PanelTitle>Domains</PanelTitle>
           <PanelMeta>
@@ -635,6 +721,7 @@ export const BANS: React.FC = () => {
           <Spacer />
           <Btn type="button" data-variant="ghost" onClick={() => { void load(); }}>Refresh</Btn>
         </Toolbar>
+        {domainsPager}
         <ScrollX>
           <DataTable>
             <thead>
@@ -667,7 +754,7 @@ export const BANS: React.FC = () => {
                         </OwnerBlob>
                       </td>
                       <td>
-                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtNum(d.expiration)}</span>
+                        <BlockHeight height={d.expiration} tip={tipHeight} resolveUrl={blockUrl} />
                         {eta && <Eta>{eta}</Eta>}
                       </td>
                       <td>
@@ -693,30 +780,19 @@ export const BANS: React.FC = () => {
             </tbody>
           </DataTable>
         </ScrollX>
-        <Pagination>
-          <PageInfo>
-            {filtered.length === 0
-              ? 'Page 0 of 0'
-              : `Page ${safePage + 1} of ${pages} · ${start + 1}–${Math.min(start + PAGE_SIZE, filtered.length)} of ${filtered.length}`}
-          </PageInfo>
-          <PageBtns>
-            <Btn type="button" data-variant="ghost" disabled={safePage === 0} onClick={() => setPage(0)}>⏮</Btn>
-            <Btn type="button" data-variant="ghost" disabled={safePage === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Prev</Btn>
-            <Btn type="button" data-variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage((p) => p + 1)}>Next ›</Btn>
-            <Btn type="button" data-variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage(pages - 1)}>⏭</Btn>
-          </PageBtns>
-        </Pagination>
+        {domainsPager}
       </Panel>
 
-      <Panel>
+      <Panel ref={activityRef}>
         <PanelHeader>
           <PanelTitle>Recent registry activity</PanelTitle>
           <PanelMeta>
-            {recent.length > 0
-              ? `Showing latest ${recent.length} of ${activity.length} loaded calls`
+            {activity.length > 0
+              ? `Showing ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, activity.length)} of ${activity.length} loaded calls`
               : '—'}
           </PanelMeta>
         </PanelHeader>
+        {activity.length > 0 && activityPager}
         <div>
           {recent.length === 0 ? (
             <Empty>No recent activity loaded.</Empty>
@@ -727,7 +803,7 @@ export const BANS: React.FC = () => {
               const firstKey = argKeys[0];
               return (
                 <ActivityRow key={`${a.height}-${idx}`}>
-                  <HCell>{`h ${fmtNum(a.height)}`}</HCell>
+                  <HCell>h <BlockHeight height={a.height} tip={tipHeight} resolveUrl={blockUrl} /></HCell>
                   <div><Pill data-tone={methodTone(cls)}>{a.method || '—'}</Pill></div>
                   <Target>
                     {a.name ? (
@@ -758,6 +834,7 @@ export const BANS: React.FC = () => {
             })
           )}
         </div>
+        {activity.length > 0 && activityPager}
       </Panel>
     </Page>
   );
