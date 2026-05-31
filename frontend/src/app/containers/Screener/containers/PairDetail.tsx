@@ -28,6 +28,60 @@ const TRADES_PAGE_SIZE = 50;
 
 const INTERVALS: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
+const INTERVAL_SECONDS: Record<Interval, number> = {
+  '1m': 60,
+  '5m': 300,
+  '15m': 900,
+  '1h': 3600,
+  '4h': 14_400,
+  '1d': 86_400,
+};
+
+// Above this many points we leave the series sparse rather than synthesize a
+// huge run of flat bars — guards illiquid pairs whose loaded candles span a
+// big window on a fine timeframe (e.g. weekly trades viewed on 1m).
+const MAX_DENSE_CANDLES = 5000;
+
+/**
+ * Forward-fill no-trade buckets so they keep their slot on the time axis.
+ *
+ * Continuous-aggregate candles only exist for buckets that had trades, and
+ * lightweight-charts spaces data points *ordinally* (not by real time) — so a
+ * sparse series renders no-trade days adjacent and their dates vanish from the
+ * axis. Insert a flat doji (open=high=low=close=prev close, zero volume) for
+ * each missing bucket between the first and last loaded candle. `rawCandles`
+ * is strictly ascending; the loop never drops a real candle, so a misaligned
+ * bucket only mis-sizes a gap rather than corrupting the series.
+ */
+function densifyCandles(candles: ApiCandle[], bucketSeconds: number): ApiCandle[] {
+  if (candles.length < 2) return candles;
+  const first = candles[0]!.time;
+  const last = candles[candles.length - 1]!.time;
+  const span = Math.floor((last - first) / bucketSeconds) + 1;
+  // Already gapless, or too sparse to fill without exploding the array.
+  if (span <= candles.length || span > MAX_DENSE_CANDLES) return candles;
+
+  const out: ApiCandle[] = [candles[0]!];
+  for (let i = 1; i < candles.length; i += 1) {
+    const prev = candles[i - 1]!;
+    const cur = candles[i]!;
+    const missing = Math.round((cur.time - prev.time) / bucketSeconds) - 1;
+    for (let g = 1; g <= missing; g += 1) {
+      out.push({
+        time: prev.time + g * bucketSeconds,
+        open: prev.close,
+        high: prev.close,
+        low: prev.close,
+        close: prev.close,
+        volume: '0',
+        trade_count: 0,
+      });
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 const Page = styled.div`
   width: 100%;
   max-width: 100%;
@@ -532,7 +586,9 @@ export const PairDetail: React.FC = () => {
   // disabled in MC mode (we're charting a single asset's market cap).
   const chartFlipped = flipChart && effectiveDenom === 'native' && metric === 'price';
   const candles = useMemo<ApiCandle[]>(() => {
-    let out = rawCandles;
+    // Fill no-trade buckets first so the flip/MC transforms below carry through
+    // to the synthetic candles too (a flat candle inverts/scales to a flat one).
+    let out = densifyCandles(rawCandles, INTERVAL_SECONDS[interval]);
     if (chartFlipped) {
       out = out.map((c) => ({
         ...c,
@@ -568,7 +624,7 @@ export const PairDetail: React.FC = () => {
       });
     }
     return out;
-  }, [rawCandles, chartFlipped, metric, supplyTimeline]);
+  }, [rawCandles, chartFlipped, metric, supplyTimeline, interval]);
   const { items: tradeItems, total: tradesTotal } = usePagedTrades(dataId, tradesPage, TRADES_PAGE_SIZE);
 
   if (pairLoading || !pair) {
