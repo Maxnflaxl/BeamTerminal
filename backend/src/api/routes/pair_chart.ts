@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { q } from '../../db.js';
 import { BadRequest } from '../error.js';
 import { resolvePair } from '../repos/pairs.js';
-import { fetchCandles, type Interval } from '../repos/ohlcv.js';
+import { fetchCandles, densifyCandles, INTERVALS, type Interval } from '../repos/ohlcv.js';
 
 /**
  * GET /pair/:id/chart.png
@@ -192,11 +192,14 @@ export async function pairChartRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { interval, limit } = rangeToCandles(days);
-    const [candles, syms] = await Promise.all([
+    const [rawCandles, syms] = await Promise.all([
       fetchCandles({ pair: resolved, interval, limit, denom: 'usd' }),
       loadSymbols(resolved.aid1, resolved.aid2),
     ]);
 
+    // Forward-fill no-trade buckets so the line steps flat across gaps, matching
+    // the web chart instead of drawing a diagonal interpolation between trades.
+    const candles = densifyCandles(rawCandles, INTERVALS[interval].seconds);
     const series = candles.map((c) => ({ t: c.time, v: c.close }));
     const sym1 = syms.get(resolved.aid1)?.short_name ?? `aid${resolved.aid1}`;
     const sym2 = syms.get(resolved.aid2)?.short_name ?? `aid${resolved.aid2}`;

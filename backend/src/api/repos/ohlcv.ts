@@ -46,6 +46,53 @@ interface OracleHistoryRow {
   beam_usd: string;
 }
 
+/**
+ * Forward-fill no-trade buckets with flat candles (open=high=low=close=prev
+ * close, zero volume). Continuous-aggregate candles only exist for buckets that
+ * had trades, so the series is sparse — consumers that render it want the gaps
+ * shown as flat price, not collapsed off an ordinal axis (the web chart) or
+ * interpolated as a diagonal (the chart.png export). `candles` must be ascending
+ * by time. Skips filling when it would synthesize more than `maxPoints` bars
+ * (an illiquid pair whose loaded candles span a big window on a fine timeframe),
+ * degrading to the sparse series rather than exploding the array.
+ *
+ * NOT applied inside `fetchCandles`: the JSON /pairs/:id/ohlcv endpoint must
+ * keep returning only real candles (its `limit`/`more.to` pagination counts
+ * rows), and the web frontend densifies client-side.
+ */
+export function densifyCandles(
+  candles: Candle[],
+  bucketSeconds: number,
+  maxPoints = 5000,
+): Candle[] {
+  if (candles.length < 2) return candles;
+  const first = candles[0]!.time;
+  const last = candles[candles.length - 1]!.time;
+  const span = Math.floor((last - first) / bucketSeconds) + 1;
+  // Already gapless, or too sparse to fill without exploding the array.
+  if (span <= candles.length || span > maxPoints) return candles;
+
+  const out: Candle[] = [candles[0]!];
+  for (let i = 1; i < candles.length; i += 1) {
+    const prev = candles[i - 1]!;
+    const cur = candles[i]!;
+    const missing = Math.round((cur.time - prev.time) / bucketSeconds) - 1;
+    for (let g = 1; g <= missing; g += 1) {
+      out.push({
+        time: prev.time + g * bucketSeconds,
+        open: prev.close,
+        high: prev.close,
+        low: prev.close,
+        close: prev.close,
+        volume: '0',
+        trade_count: 0,
+      });
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 export interface FetchCandlesOpts {
   pair: ResolvedPair;
   interval: Interval;
