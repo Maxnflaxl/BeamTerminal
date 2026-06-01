@@ -479,6 +479,8 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'transactions-total',  fetch: netFetcher('total_txs'),             maxAgeSec: 600 },
   { name: 'txos-total',          fetch: netFetcher('total_mw_outputs'),      maxAgeSec: 600 },
   { name: 'utxos-total',         fetch: netFetcher('total_utxos'),           maxAgeSec: 600 },
+  { name: 'size-total',          fetch: netFetcher('total_size_bytes'),      maxAgeSec: 600 },
+  { name: 'archive-total',       fetch: netFetcher('total_archive_bytes'),   maxAgeSec: 600 },
   { name: 'shielded-ins-daily',  fetch: netFetcher('daily_sh_inputs'),       maxAgeSec: 600 },
   { name: 'shielded-ins-total',  fetch: netFetcher('total_sh_inputs'),       maxAgeSec: 600 },
   { name: 'shielded-outs-daily', fetch: netFetcher('daily_sh_outputs'),      maxAgeSec: 600 },

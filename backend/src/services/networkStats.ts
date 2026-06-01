@@ -19,7 +19,7 @@ import { request } from 'undici';
  * are noisy across the protocol upgrades; daily is what users actually want).
  */
 
-const COLS = 'TKFUBPOYZ' as const;
+const COLS = 'TKFUBPOYZCA' as const;
 const DH = 1440;
 const PAGE_SIZE = 2_000;
 
@@ -39,6 +39,8 @@ export interface NetworkSeries {
   total_sh_inputs:     ChartPoint[];
   daily_sh_outputs:    ChartPoint[];
   total_sh_outputs:    ChartPoint[];
+  total_size_bytes:    ChartPoint[];   // Size.Compressed — current chain DB size
+  total_archive_bytes: ChartPoint[];   // Size.Archive — current archive size
 }
 
 interface ExplorerRow {
@@ -163,6 +165,8 @@ export async function fetchNetworkSeries(): Promise<NetworkSeries> {
     total_sh_inputs:      passthrough(rows, 'Y'),
     daily_sh_outputs:     deltaSeries(rows, 'Z'),
     total_sh_outputs:     passthrough(rows, 'Z'),
+    total_size_bytes:     passthrough(rows, 'C'),
+    total_archive_bytes:  passthrough(rows, 'A'),
   };
   logger.info({ rows: rows.length, ms: Date.now() - t0 }, 'network series fetched');
   return series;

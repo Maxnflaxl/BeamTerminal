@@ -21,6 +21,7 @@ import { ogRoutes } from './routes/og.js';
 import { pairChartRoutes } from './routes/pair_chart.js';
 import { cgTickersRoutes } from './routes/cg/tickers.js';
 import { cgHistoricalTradesRoutes } from './routes/cg/historical_trades.js';
+import { searchRoutes } from './routes/search.js';
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
@@ -66,6 +67,7 @@ export function buildApp(): FastifyInstance {
   void app.register(healthRoutes, { prefix: '/api' });
   void app.register(statsRoutes, { prefix: '/api' });
   void app.register(pairsRoutes, { prefix: '/api' });
+  void app.register(searchRoutes, { prefix: '/api' });
   void app.register(lpPositionRoutes, { prefix: '/api' });
   void app.register(ohlcvRoutes, { prefix: '/api' });
   void app.register(tradesRoutes, { prefix: '/api' });

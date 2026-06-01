@@ -166,6 +166,8 @@ export async function syncAssetsCatalog(): Promise<number> {
       picked.lock_height ?? null,
       meta.color ?? null,
       meta.logo_url ?? null,
+      meta.site_url ?? null,
+      meta.long_description ?? null,
       picked.owner_cid,
       ownerKind,
       picked.owner_addr,
@@ -173,22 +175,24 @@ export async function syncAssetsCatalog(): Promise<number> {
 
     await q(
       `INSERT INTO assets (
-         aid, name, short_name, unit_name, description, decimals, emission, lock_height, color, logo_url, owner_cid, owner_kind, owner_addr, last_updated_at
+         aid, name, short_name, unit_name, description, decimals, emission, lock_height, color, logo_url, website, long_description, owner_cid, owner_kind, owner_addr, last_updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
        ON CONFLICT (aid) DO UPDATE SET
-         name            = EXCLUDED.name,
-         short_name      = EXCLUDED.short_name,
-         unit_name       = EXCLUDED.unit_name,
-         description     = EXCLUDED.description,
-         emission        = EXCLUDED.emission,
-         lock_height     = COALESCE(EXCLUDED.lock_height, assets.lock_height),
-         color           = EXCLUDED.color,
-         logo_url        = EXCLUDED.logo_url,
-         owner_cid       = EXCLUDED.owner_cid,
-         owner_kind      = COALESCE(EXCLUDED.owner_kind, assets.owner_kind),
-         owner_addr      = EXCLUDED.owner_addr,
-         last_updated_at = now()`,
+         name             = EXCLUDED.name,
+         short_name       = EXCLUDED.short_name,
+         unit_name        = EXCLUDED.unit_name,
+         description      = EXCLUDED.description,
+         emission         = EXCLUDED.emission,
+         lock_height      = COALESCE(EXCLUDED.lock_height, assets.lock_height),
+         color            = EXCLUDED.color,
+         logo_url         = EXCLUDED.logo_url,
+         website          = EXCLUDED.website,
+         long_description = EXCLUDED.long_description,
+         owner_cid        = EXCLUDED.owner_cid,
+         owner_kind       = COALESCE(EXCLUDED.owner_kind, assets.owner_kind),
+         owner_addr       = EXCLUDED.owner_addr,
+         last_updated_at  = now()`,
       params,
     );
     upserted++;
