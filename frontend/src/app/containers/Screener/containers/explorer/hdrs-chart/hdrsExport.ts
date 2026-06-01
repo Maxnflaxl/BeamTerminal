@@ -1,7 +1,7 @@
 // Export builders for the HdrsChart extended view. Generic download plumbing
 // lives in chart-compare/download; this file only builds the CSV/SVG strings.
 
-import type { DeltaTableModel } from '../../../components/chart-compare/types';
+import type { DeltaMode, DeltaTableModel } from '../../../components/chart-compare/types';
 
 export interface HdrsExportRow {
   height: number;
@@ -48,6 +48,7 @@ export interface HdrsSvgModel {
   verticals: { x: number; label?: string }[];       // comparison-point lines (+ date pill), x in [0, width]
   topPills?: { x: number; text: string }[];          // x-delta pills above the plot, x in [0, width]
   deltaTable?: DeltaTableModel;                       // per-series value/Δ table rendered below the chart
+  deltaMode?: DeltaMode;                              // labels the table header (Consecutive / Baseline)
 }
 
 const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -114,9 +115,11 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
     const dataLeft = 8 + 96; // 96px series-label column
     const colW = (W - 8 - dataLeft) / dt.columns.length;
     const colRight = (i: number): number => dataLeft + (i + 1) * colW - 6;
-    tableEls.push(`<text x="8" y="${yT + 12}" fill="${label}" font-size="10" font-weight="600">Series</text>`);
+    const modeLabel = m.deltaMode === 'baseline' ? 'Baseline' : 'Consecutive';
+    tableEls.push(`<text x="8" y="${yT + 12}" fill="${label}" font-size="10" font-weight="600">Series (${modeLabel})</text>`);
     dt.columns.forEach((c, i) => {
-      tableEls.push(`<text x="${colRight(i).toFixed(1)}" y="${yT + 12}" text-anchor="end" fill="${c.isToday ? '#00f6d2' : label}" font-size="9" font-weight="600">${escapeXml(c.isToday ? 'today' : c.xLabel)}</text>`);
+      const head = (c.isBaseline ? '◎ ' : '') + (c.isToday ? 'today' : c.xLabel);
+      tableEls.push(`<text x="${colRight(i).toFixed(1)}" y="${yT + 12}" text-anchor="end" fill="${c.isToday ? '#00f6d2' : label}" font-size="9" font-weight="600">${escapeXml(head)}</text>`);
     });
     tableEls.push(`<line x1="8" y1="${yT + 16}" x2="${W - 8}" y2="${yT + 16}" stroke="rgba(255,255,255,0.1)"/>`);
     dt.rows.forEach((row, r) => {

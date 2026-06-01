@@ -1,5 +1,5 @@
 import React, {
-  useCallback, useEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
@@ -2076,6 +2076,7 @@ function HdrsChart({
   // Cursor: nearest row index under the mouse (null when not hovering).
   const [cursor, setCursor] = useState<number | null>(null);
   const plotRef = useRef<SVGSVGElement>(null);
+  const axisRef = useRef<HTMLDivElement>(null);
 
   // Comparison points keyed by sample row index (cap 4, one per sample).
   // Own state for the inline instance; the embedded (modal) instance instead
@@ -2182,6 +2183,25 @@ function HdrsChart({
     document.addEventListener('mouseup', end);
     return () => document.removeEventListener('mouseup', end);
   }, [dragIdx]);
+
+  // Hide x-axis tick labels that visually collide with a comparison-point date
+  // pill. Measured against the live DOM, so it's correct at any plot width
+  // (a fixed viewBox-unit estimate under/over-shoots as the chart resizes).
+  useLayoutEffect(() => {
+    const root = axisRef.current;
+    if (!root) return undefined;
+    const measure = (): void => {
+      const pills = Array.from(root.querySelectorAll<HTMLElement>('[data-xpill]')).map((p) => p.getBoundingClientRect());
+      root.querySelectorAll<HTMLElement>('[data-xtick]').forEach((t) => {
+        t.style.visibility = '';
+        const r = t.getBoundingClientRect();
+        if (pills.some((p) => r.left < p.right + 2 && r.right > p.left - 2)) t.style.visibility = 'hidden';
+      });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [pts.keys, activeXSource, n, series]);
 
   if (n === 0) {
     return (
@@ -2296,6 +2316,13 @@ function HdrsChart({
     return { a, b, midX: (xAt(a) + xAt(b)) / 2, text: xDeltaLabel(a, b) };
   });
 
+  // Hide x-axis tick labels that would collide with a comparison-point date pill
+  // (the pill wins). ~5.4 viewBox units per char approximates a label's width.
+  const visibleXTicks = xTicks.filter((t) => {
+    const labelW = fmtXLabel(t.value).length * 5.4;
+    return !pointIdx.some((idx) => Math.abs(xAt(idx) - t.x) < labelW);
+  });
+
   // Extended-view exports (built lazily on click). The SVG/PNG is a normalized
   // snapshot: one polyline per series + the comparison-point vertical lines.
   const exportCsv = (): void => {
@@ -2327,10 +2354,11 @@ function HdrsChart({
         .map((tv) => ({ y: yFor(s, tv), label: fmtSeriesVal(s.code, s.isTime, tv) }))
         .filter((a) => a.y >= 0 && a.y <= PLOT_H),
     })),
-    xLabels: xTicks.map((t) => ({ x: t.x, text: fmtXLabel(t.value) })),
+    xLabels: visibleXTicks.map((t) => ({ x: t.x, text: fmtXLabel(t.value) })),
     verticals: pointIdx.map((idx) => ({ x: xAt(idx), label: fmtXLabel(xValues[idx] ?? 0) })),
     topPills: pills.map((p) => ({ x: p.midX, text: p.text })),
     deltaTable: pointIdx.length > 0 ? deltaModel : undefined,
+    deltaMode: pts.mode,
   });
 
   const exportSvg = (): void => downloadBlob(buildHdrsSvg(buildSvgModel()), 'block-headers.svg', 'image/svg+xml');
@@ -2503,7 +2531,7 @@ function HdrsChart({
             {/* Bottom x-axis: source-aware ticks + boxed cursor X value. Ticks
                 are integers for row/height and YYYY-MM-DD HH:MM for timestamp.
                 The cursor box shows the selected source's value at the row. */}
-            <div style={{ position: 'relative', height: 18, marginTop: 2 }}>
+            <div ref={axisRef} style={{ position: 'relative', height: 18, marginTop: 2 }}>
               {xTicks.map((t, ti) => {
                 // Nudge the first/last labels inward (left-/right-align instead
                 // of centre) so they don't clip at the plot edges — equivalent
@@ -2514,6 +2542,7 @@ function HdrsChart({
                 return (
                   <span
                     key={`xt-${ti}-${t.value}`}
+                    data-xtick=""
                     style={{
                       position: 'absolute',
                       left: `${(t.x / PLOT_W) * 100}%`,
@@ -2552,6 +2581,7 @@ function HdrsChart({
               {pointIdx.map((idx) => (
                 <span
                   key={`xpt-${idx}`}
+                  data-xpill=""
                   style={{
                     position: 'absolute',
                     left: `${(xAt(idx) / PLOT_W) * 100}%`,
