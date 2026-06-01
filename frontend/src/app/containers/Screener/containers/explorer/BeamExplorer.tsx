@@ -1746,25 +1746,43 @@ function niceTimeTicks(rawMin: number, rawMax: number, targetTicks = 5): {
   const MONTH = 2629746; // 30.44 days
   const YEAR = 31556952; // 365.24 days
   const range = max - min;
-  let unit: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year';
-  let primaryStep: number;
-  if (range < HOUR) { unit = 'minute'; primaryStep = Math.ceil(range / targetTicks / MIN) * MIN; } else if (range < DAY) { unit = 'hour'; primaryStep = Math.ceil(range / targetTicks / HOUR) * HOUR; } else if (range < WEEK * 2) { unit = 'day'; primaryStep = Math.ceil(range / targetTicks / DAY) * DAY; } else if (range < MONTH * 2) { unit = 'week'; primaryStep = Math.ceil(range / targetTicks / WEEK) * WEEK; } else if (range < YEAR) { unit = 'month'; primaryStep = Math.ceil(range / targetTicks / MONTH) * MONTH; } else { unit = 'year'; primaryStep = Math.ceil(range / targetTicks / YEAR) * YEAR; }
-  if (!(primaryStep > 0)) primaryStep = MIN;
+  // Curated "nice" steps (seconds), ascending — pick the smallest that yields
+  // about `targetTicks` ticks. Sub-hour steps keep short windows (minutes–hours)
+  // from collapsing to a single hour-boundary label.
+  const STEPS = [
+    MIN, 2 * MIN, 5 * MIN, 10 * MIN, 15 * MIN, 20 * MIN, 30 * MIN,
+    HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR,
+    DAY, 2 * DAY, WEEK, 2 * WEEK, MONTH, 2 * MONTH, 3 * MONTH, 6 * MONTH,
+    YEAR, 2 * YEAR, 5 * YEAR,
+  ];
+  const ideal = range / Math.max(1, targetTicks);
+  let primaryStep = STEPS[STEPS.length - 1]!;
+  for (const s of STEPS) { if (s >= ideal) { primaryStep = s; break; } }
+  // Snap niceMin DOWN to a boundary aligned to the step (local calendar for
+  // day+ steps; arithmetic flooring within the hour/day for sub-day steps).
   const d = new Date(min * 1000);
   let niceMin: number;
-  switch (unit) {
-    case 'minute': niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()).getTime() / 1000; break;
-    case 'hour': niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime() / 1000; break;
-    case 'day': niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000; break;
-    case 'week': niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay() + 1).getTime() / 1000; break;
-    case 'month': niceMin = new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000; break;
-    case 'year': niceMin = new Date(d.getFullYear(), 0, 1).getTime() / 1000; break;
-    default: niceMin = min;
+  if (primaryStep < HOUR) {
+    const stepMin = primaryStep / MIN;
+    const fm = Math.floor(d.getMinutes() / stepMin) * stepMin;
+    niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), fm).getTime() / 1000;
+  } else if (primaryStep < DAY) {
+    const stepHr = primaryStep / HOUR;
+    const fh = Math.floor(d.getHours() / stepHr) * stepHr;
+    niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), fh).getTime() / 1000;
+  } else if (primaryStep < WEEK) {
+    niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000;
+  } else if (primaryStep < MONTH) {
+    niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime() / 1000;
+  } else if (primaryStep < YEAR) {
+    niceMin = new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000;
+  } else {
+    niceMin = new Date(d.getFullYear(), 0, 1).getTime() / 1000;
   }
   let niceMax = niceMin;
-  for (let i = 0; niceMax <= max && i < 1000; i += 1) niceMax += primaryStep;
+  for (let i = 0; niceMax <= max && i < 5000; i += 1) niceMax += primaryStep;
   const values: number[] = [];
-  for (let v = niceMin, i = 0; v <= niceMax && i < 1000; v += primaryStep, i += 1) values.push(v);
+  for (let v = niceMin, i = 0; v <= niceMax && i < 5000; v += primaryStep, i += 1) values.push(v);
   if (values.length === 0) values.push(niceMin, niceMax);
   return { values, min: niceMin, max: niceMax };
 }
@@ -2311,6 +2329,8 @@ function HdrsChart({
     })),
     xLabels: xTicks.map((t) => ({ x: t.x, text: fmtXLabel(t.value) })),
     verticals: pointIdx.map((idx) => ({ x: xAt(idx), label: fmtXLabel(xValues[idx] ?? 0) })),
+    topPills: pills.map((p) => ({ x: p.midX, text: p.text })),
+    deltaTable: pointIdx.length > 0 ? deltaModel : undefined,
   });
 
   const exportSvg = (): void => downloadBlob(buildHdrsSvg(buildSvgModel()), 'block-headers.svg', 'image/svg+xml');
@@ -2341,7 +2361,12 @@ function HdrsChart({
         </label>
         {!embedded && (
           <ChartIconBtn type="button" title="Expand chart" aria-label="Expand chart" onClick={() => setExpanded(true)}>
-            &#10562;
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="7 1 11 1 11 5" />
+              <polyline points="5 11 1 11 1 7" />
+              <line x1="11" y1="1" x2="7" y2="5" />
+              <line x1="1" y1="11" x2="5" y2="7" />
+            </svg>
           </ChartIconBtn>
         )}
         {pts.keys.length > 0 && (

@@ -1,6 +1,8 @@
 // Export builders for the HdrsChart extended view. Generic download plumbing
 // lives in chart-compare/download; this file only builds the CSV/SVG strings.
 
+import type { DeltaTableModel } from '../../../components/chart-compare/types';
+
 export interface HdrsExportRow {
   height: number;
   ts: number | null;
@@ -44,6 +46,8 @@ export interface HdrsSvgModel {
   series: HdrsSvgSeries[];
   xLabels: { x: number; text: string }[];          // x in [0, width]
   verticals: { x: number; label?: string }[];       // comparison-point lines (+ date pill), x in [0, width]
+  topPills?: { x: number; text: string }[];          // x-delta pills above the plot, x in [0, width]
+  deltaTable?: DeltaTableModel;                       // per-series value/Δ table rendered below the chart
 }
 
 const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -87,13 +91,48 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
       );
     }
   });
-  // Layout bands: TOP holds the title + wrapped legend, BOT holds the x-axis
-  // labels; the plot content (grid/series/verticals/x-labels, all authored in
-  // 0..W × 0..H coords) is translated down into the plot band. Everything stays
-  // within the viewBox so nothing is clipped in a standalone SVG/PNG file.
+  // Top x-delta pills (between adjacent markers), drawn at the top of the plot.
+  const topPills = (m.topPills || []).map((p) => {
+    const w = p.text.length * 5.4 + 8;
+    return `<rect x="${(p.x - w / 2).toFixed(1)}" y="2" width="${w.toFixed(1)}" height="13" rx="3" fill="#00f6d2"/>`
+      + `<text x="${p.x.toFixed(1)}" y="11.5" text-anchor="middle" fill="#04222f" font-size="9" font-weight="600">${escapeXml(p.text)}</text>`;
+  });
+  // Layout bands: TOP holds the title + wrapped legend, BOT the x-axis labels,
+  // TABLE the per-series delta readout. Plot content (authored in 0..W × 0..H)
+  // is translated into the plot band; everything stays within the viewBox.
   const TOP = 44;
   const BOT = 24;
-  const totalH = TOP + H + BOT;
+  const dt = m.deltaTable;
+  const tableRows = dt ? dt.rows.length : 0;
+  const ROWH = 26;
+  const tableH = tableRows > 0 ? 22 + tableRows * ROWH : 0;
+  const totalH = TOP + H + BOT + tableH;
+  // Per-series delta table below the chart (mirrors the on-screen DeltaPanel).
+  const tableEls: string[] = [];
+  if (dt && tableRows > 0) {
+    const yT = TOP + H + BOT;
+    const dataLeft = 8 + 96; // 96px series-label column
+    const colW = (W - 8 - dataLeft) / dt.columns.length;
+    const colRight = (i: number): number => dataLeft + (i + 1) * colW - 6;
+    tableEls.push(`<text x="8" y="${yT + 12}" fill="${label}" font-size="10" font-weight="600">Series</text>`);
+    dt.columns.forEach((c, i) => {
+      tableEls.push(`<text x="${colRight(i).toFixed(1)}" y="${yT + 12}" text-anchor="end" fill="${c.isToday ? '#00f6d2' : label}" font-size="9" font-weight="600">${escapeXml(c.isToday ? 'today' : c.xLabel)}</text>`);
+    });
+    tableEls.push(`<line x1="8" y1="${yT + 16}" x2="${W - 8}" y2="${yT + 16}" stroke="rgba(255,255,255,0.1)"/>`);
+    dt.rows.forEach((row, r) => {
+      const ry = yT + 32 + r * ROWH;
+      tableEls.push(`<text x="8" y="${ry.toFixed(1)}" fill="${row.series.color}" font-size="10" font-weight="600">${escapeXml(row.series.label)}</text>`);
+      row.cells.forEach((cell, i) => {
+        tableEls.push(`<text x="${colRight(i).toFixed(1)}" y="${ry.toFixed(1)}" text-anchor="end" fill="#ffffff" font-size="10">${escapeXml(cell.text)}</text>`);
+        if (cell.deltaText) {
+          const dc = cell.sign === 1 ? '#00f6d2' : cell.sign === -1 ? '#f25f5b' : label;
+          const arrow = cell.sign === 1 ? '▲ ' : cell.sign === -1 ? '▼ ' : '';
+          const pct = cell.deltaPctText ? ` (${cell.deltaPctText})` : '';
+          tableEls.push(`<text x="${colRight(i).toFixed(1)}" y="${(ry + 11).toFixed(1)}" text-anchor="end" fill="${dc}" font-size="8">${escapeXml(arrow + cell.deltaText + pct)}</text>`);
+        }
+      });
+    });
+  }
   // Wrapped legend just under the title.
   let lx = 8;
   const legend = m.series.map((s) => {
@@ -114,6 +153,8 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
     ...paths,
     ...xLabels,
     ...axes,
+    ...topPills,
     `</g>`,
+    ...tableEls,
   ].join('') + '</svg>';
 }
