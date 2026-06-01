@@ -15,6 +15,9 @@ import { computeDeltas } from '../../components/chart-compare/computeDeltas';
 import { DeltaPanel } from '../../components/chart-compare/DeltaPanel';
 import { ChartModal } from '../../components/chart-compare/ChartModal';
 import type { SeriesDescriptor, ResolvedPoint } from '../../components/chart-compare/types';
+import { downloadBlob, downloadSvgAsPng } from '../../components/chart-compare/download';
+import { buildHdrsCsv, buildHdrsSvg } from './hdrs-chart/hdrsExport';
+import type { HdrsExportRow, HdrsSvgModel } from './hdrs-chart/hdrsExport';
 
 // ---------------------------------------------------------------------------
 // Explorer node config
@@ -2265,6 +2268,40 @@ function HdrsChart({
     return { a, b, midX: (xAt(a) + xAt(b)) / 2, text: xDeltaLabel(a, b) };
   });
 
+  // Extended-view exports (built lazily on click). The SVG/PNG is a normalized
+  // snapshot: one polyline per series + the comparison-point vertical lines.
+  const exportCsv = (): void => {
+    const exportRows: HdrsExportRow[] = ordered.map((r, i) => ({
+      height: r.height,
+      ts: typeof r.ts === 'number' ? r.ts : null,
+      values: Object.fromEntries(series.map((s) => [s.code, s.raw[i] ?? 0])),
+    }));
+    const csv = buildHdrsCsv(
+      exportRows,
+      series.map((s) => ({ id: s.code, label: columnHeaders[s.code]?.title ?? s.code })),
+      'Block headers',
+    );
+    downloadBlob(csv, 'block-headers.csv', 'text/csv;charset=utf-8');
+  };
+
+  const buildSvgModel = (): HdrsSvgModel => ({
+    title: 'Block headers',
+    width: PLOT_W,
+    height: PLOT_H,
+    series: series.map((s) => ({
+      label: columnHeaders[s.code]?.title ?? s.code,
+      color: s.color,
+      path: n < 2 ? '' : ordered
+        .map((_, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${yFor(s, s.raw[i]!).toFixed(1)}`)
+        .join(' '),
+    })),
+    xLabels: xTicks.map((t) => ({ x: t.x, text: fmtXLabel(t.value) })),
+    verticals: pointIdx.map((idx) => ({ x: xAt(idx) })),
+  });
+
+  const exportSvg = (): void => downloadBlob(buildHdrsSvg(buildSvgModel()), 'block-headers.svg', 'image/svg+xml');
+  const exportPng = (): void => downloadSvgAsPng(buildHdrsSvg(buildSvgModel()), 'block-headers.png');
+
   return (
     <ChartCard>
       <ChartToolbar>
@@ -2583,7 +2620,16 @@ function HdrsChart({
         </ChartLegend>
       )}
       {expanded && !embedded && (
-        <ChartModal onClose={closeModal}>
+        <ChartModal
+          onClose={closeModal}
+          toolbar={(
+            <>
+              <ChartIconBtn type="button" onClick={exportCsv} title="Download data as CSV">CSV</ChartIconBtn>
+              <ChartIconBtn type="button" onClick={exportPng} title="Download chart as PNG">PNG</ChartIconBtn>
+              <ChartIconBtn type="button" onClick={exportSvg} title="Download chart as SVG">SVG</ChartIconBtn>
+            </>
+          )}
+        >
           <HdrsChart rows={rows} plotted={plotted} colors={colors} onReset={onReset} onSetColor={onSetColor} embedded />
         </ChartModal>
       )}

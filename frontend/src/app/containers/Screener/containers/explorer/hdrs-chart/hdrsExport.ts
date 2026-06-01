@@ -61,23 +61,32 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
       const anchor = i === 0 ? 'start' : i === arr.length - 1 ? 'end' : 'middle';
       return `<text x="${t.x.toFixed(1)}" y="${H + 16}" text-anchor="${anchor}" fill="${label}" font-size="10">${escapeXml(t.text)}</text>`;
     });
-  // Wrapped legend below the title.
+  // Layout bands: TOP holds the title + wrapped legend, BOT holds the x-axis
+  // labels; the plot content (grid/series/verticals/x-labels, all authored in
+  // 0..W × 0..H coords) is translated down into the plot band. Everything stays
+  // within the viewBox so nothing is clipped in a standalone SVG/PNG file.
+  const TOP = 44;
+  const BOT = 24;
+  const totalH = TOP + H + BOT;
+  // Wrapped legend just under the title.
   let lx = 8;
   const legend = m.series.map((s) => {
     const text = escapeXml(s.label);
-    const seg = `<line x1="${lx}" y1="-8" x2="${lx + 12}" y2="-8" stroke="${s.color}" stroke-width="2"/>`
-      + `<text x="${lx + 16}" y="-5" fill="${label}" font-size="10">${text}</text>`;
+    const seg = `<line x1="${lx}" y1="31" x2="${lx + 12}" y2="31" stroke="${s.color}" stroke-width="2"/>`
+      + `<text x="${lx + 16}" y="34" fill="${label}" font-size="10">${text}</text>`;
     lx += 26 + text.length * 6;
     return seg;
   });
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H + 60}" width="${W}" height="${H + 60}" font-family="sans-serif">`,
-    `<rect x="-8" y="-28" width="${W + 16}" height="${H + 60}" fill="#042548"/>`,
-    `<text x="0" y="-32" fill="rgba(255,255,255,0.7)" font-size="13">${escapeXml(m.title)}</text>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${totalH}" width="${W}" height="${totalH}" font-family="sans-serif">`,
+    `<rect x="0" y="0" width="${W}" height="${totalH}" fill="#042548"/>`,
+    `<text x="8" y="18" fill="rgba(255,255,255,0.7)" font-size="13">${escapeXml(m.title)}</text>`,
     ...legend,
+    `<g transform="translate(0 ${TOP})">`,
     ...gridLines,
     ...verticals,
     ...paths,
     ...xLabels,
+    `</g>`,
   ].join('') + '</svg>';
 }
