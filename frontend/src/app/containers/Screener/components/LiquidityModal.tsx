@@ -300,8 +300,9 @@ export const LiquidityModal: React.FC<Props> = ({
         </Head>
         <Sub>
           {sym1}
-          /
+          {` (${aid1}) / `}
           {sym2}
+          {` (${aid2})`}
           {' · '}
           {tierLabel(kind)}
         </Sub>
@@ -327,11 +328,11 @@ export const LiquidityModal: React.FC<Props> = ({
             </Box>
             <InfoRow>
               <span>You receive</span>
-              <span>{recv ? `${fmtAmt(recv.tok1)} ${sym1}` : '—'}</span>
+              <span>{recv ? `${fmtAmt(recv.tok1)} ${sym1} (${aid1})` : '—'}</span>
             </InfoRow>
             <InfoRow>
               <span>{' '}</span>
-              <span>{recv ? `${fmtAmt(recv.tok2)} ${sym2}` : '—'}</span>
+              <span>{recv ? `${fmtAmt(recv.tok2)} ${sym2} (${aid2})` : '—'}</span>
             </InfoRow>
           </>
         ) : (
