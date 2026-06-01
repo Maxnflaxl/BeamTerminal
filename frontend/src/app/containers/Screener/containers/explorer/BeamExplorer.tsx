@@ -10,6 +10,10 @@ import {
   DataTable, ScrollX, ErrorBox, Row, theme,
 } from './shared';
 import { useBlockTimestamp, type BlockUrlResolver } from '../../../../shared/components/BlockHeight';
+import { useComparePoints } from '../../components/chart-compare/useComparePoints';
+import { computeDeltas } from '../../components/chart-compare/computeDeltas';
+import { DeltaPanel } from '../../components/chart-compare/DeltaPanel';
+import type { SeriesDescriptor, ResolvedPoint } from '../../components/chart-compare/types';
 
 // ---------------------------------------------------------------------------
 // Explorer node config
@@ -1794,7 +1798,7 @@ function fmtSeriesVal(code: string, isTime: boolean, v: number): string {
   return fmtCompact(v);
 }
 
-// More precise variant for the hover/frozen cursor value (we have the room):
+// More precise variant for the hover cursor value (we have the room):
 // full integer counts, byte sizes to 3 decimals.
 function fmtSeriesValCursor(code: string, isTime: boolean, v: number): string {
   if (isTime) return fmtAxisTime(v);
@@ -1809,6 +1813,16 @@ function fmtAxisTime(sec: number): string {
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Signed human duration for an interval in seconds (delta pills + time-series Δ).
+function fmtDuration(sec: number): string {
+  const sign = sec < 0 ? '-' : '';
+  const s = Math.abs(sec);
+  if (s < 90) return `${sign}${Math.round(s)}s`;
+  const m = s / 60; if (m < 90) return `${sign}${Math.round(m)}m`;
+  const h = s / 3600; if (h < 36) return `${sign}${h.toFixed(h < 10 ? 1 : 0)}h`;
+  const d = s / 86400; return `${sign}${d.toFixed(d < 10 ? 1 : 0)}d`;
 }
 
 // <input type="color"> only accepts a #rrggbb value. Series colors are already
@@ -2031,45 +2045,46 @@ function HdrsChart({
 
   // Cursor: nearest row index under the mouse (null when not hovering).
   const [cursor, setCursor] = useState<number | null>(null);
-  // Cursor freeze (faithful to graphHoverToggle: clicking the plot toggles a
-  // frozen state; while frozen the cursor stays put and mousemove/leave are
-  // ignored; clicking again resumes mouse-following).
-  const [frozen, setFrozen] = useState(false);
   const plotRef = useRef<SVGSVGElement>(null);
 
-  const onMove = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
-    if (n === 0 || frozen) return; // frozen → mousemove ignored (graphHoverOn gate)
+  // Comparison points keyed by sample row index (cap 4, one per sample).
+  const pts = useComparePoints<number>({ cap: 4 });
+
+  // Nearest sample row index for a clientX (shared by hover + add).
+  const nearestIndex = useCallback((clientX: number): number | null => {
     const el = plotRef.current;
-    if (!el) return;
+    if (!el || n === 0) return null;
     const rect = el.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    if (n === 1) { setCursor(0); return; }
-    // Mouse x in viewBox units, then nearest sample by distance to its xsvg
-    // position (matches graphHoverOn's distances.indexOf(min)). x positions are
-    // non-uniform once the source is height/timestamp.
-    const xUnits = ((e.clientX - rect.left) / rect.width) * PLOT_W;
+    if (rect.width <= 0) return null;
+    if (n === 1) return 0;
+    const xUnits = ((clientX - rect.left) / rect.width) * PLOT_W;
     let best = 0;
     let bestDist = Infinity;
     for (let i = 0; i < n; i += 1) {
       const d = Math.abs(xUnits - xAt(i));
       if (d < bestDist) { bestDist = d; best = i; }
     }
-    setCursor(best);
-  }, [n, frozen, xAt]);
+    return best;
+  }, [n, xAt]);
 
-  // Click toggles freeze (graphHoverToggle). Unfreezing resumes following.
-  const onPlotClick = useCallback(() => setFrozen((f) => !f), []);
+  const onMove = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
+    const i = nearestIndex(e.clientX);
+    if (i !== null) setCursor(i);
+  }, [nearestIndex]);
 
-  const clearCursor = useCallback(() => {
-    if (frozen) return; // graphHoverOff is a no-op while frozen
-    setCursor(null);
-  }, [frozen]);
+  // Click drops a comparison point at the hovered sample.
+  const onPlotClick = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
+    const i = cursor ?? nearestIndex(e.clientX);
+    if (i !== null) pts.add(i);
+  }, [cursor, nearestIndex, pts]);
 
-  // When the data window changes (new fetch / fewer rows), drop a now-stale
-  // cursor index and release any freeze so we never index out of bounds.
+  const clearCursor = useCallback(() => setCursor(null), []);
+
+  // New data window → drop stale cursor + all points (heights differ).
   useEffect(() => {
     setCursor(null);
-    setFrozen(false);
+    pts.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [n]);
 
   if (n === 0) {
@@ -2137,6 +2152,54 @@ function HdrsChart({
   // The X-value box at the cursor shows the selected source's value at that row.
   const cursorXValue = cursor !== null ? xValues[cursor] ?? null : null;
 
+  // Display-sorted point indices (row indices are monotonic in x, so numeric sort = x order).
+  const pointIdx = useMemo(() => [...pts.keys].sort((a, b) => a - b), [pts.keys]);
+  const todayIdx = n - 1;
+
+  const seriesDesc = useMemo<SeriesDescriptor[]>(() => series.map((s) => ({
+    id: s.code,
+    label: columnHeaders[s.code]?.title ?? s.code,
+    color: s.color,
+    format: (v: number) => fmtSeriesValCursor(s.code, s.isTime, v),
+    formatDelta: (dv: number) => (s.isTime
+      ? fmtDuration(dv)
+      : `${dv >= 0 ? '+' : '-'}${fmtSeriesValCursor(s.code, s.isTime, Math.abs(dv))}`),
+    percentable: !s.isTime,
+  })), [series]);
+
+  const resolveAt = useCallback((idx: number): ResolvedPoint => ({
+    xValue: xValues[idx] ?? 0,
+    xLabel: fmtXLabel(xValues[idx] ?? 0),
+    values: Object.fromEntries(series.map((s) => [s.code, s.raw[idx] ?? 0])),
+  }), [xValues, series]);
+
+  const deltaModel = useMemo(
+    () => computeDeltas(pointIdx.map(resolveAt), resolveAt(todayIdx), seriesDesc, pts.mode, pts.baselineIndex),
+    [pointIdx, resolveAt, todayIdx, seriesDesc, pts.mode, pts.baselineIndex],
+  );
+
+  // x-delta label for a top pill spanning samples a→b.
+  const xDeltaLabel = (a: number, b: number): string => {
+    const dv = (xValues[b] ?? 0) - (xValues[a] ?? 0);
+    const main = isXTime ? fmtDuration(dv)
+      : activeXSource === 'h' ? `+${intFmt.format(dv)} blk`
+      : `+${intFmt.format(dv)} rows`;
+    const aTs = ordered[a]?.ts;
+    const bTs = ordered[b]?.ts;
+    const dur = (!isXTime && typeof aTs === 'number' && typeof bTs === 'number')
+      ? ` · ~${fmtDuration(bTs - aTs)}` : '';
+    return main + dur;
+  };
+
+  // Pill segments: between adjacent points, then last point → today.
+  const pillSeq = pointIdx.length === 0
+    ? []
+    : (pointIdx[pointIdx.length - 1] === todayIdx ? pointIdx : [...pointIdx, todayIdx]);
+  const pills = pillSeq.slice(0, -1).map((a, i) => {
+    const b = pillSeq[i + 1]!;
+    return { a, b, midX: (xAt(a) + xAt(b)) / 2, text: xDeltaLabel(a, b) };
+  });
+
   return (
     <ChartCard>
       <ChartToolbar>
@@ -2161,11 +2224,7 @@ function HdrsChart({
           </Select>
         </label>
         <span style={{ marginLeft: 'auto' }}>
-          {frozen ? (
-            <span style={{ color: theme.color.accent }}>cursor frozen &middot; click plot to resume</span>
-          ) : (
-            <>check columns in the table below to plot them &middot; click plot to freeze cursor</>
-          )}
+          check columns in the table below to plot them &middot; click plot to add a comparison point
         </span>
       </ChartToolbar>
 
@@ -2177,13 +2236,26 @@ function HdrsChart({
         <div style={{ display: 'flex', alignItems: 'stretch' }}>
           {/* Plot area (flex-grows; right axes are fixed width). */}
           <div style={{ flex: '1 1 auto', minWidth: 0, position: 'relative' }}>
+            {pills.map((p, i) => (
+              <span
+                key={`pill-${i}`}
+                style={{
+                  position: 'absolute', top: 0, left: `${(p.midX / PLOT_W) * 100}%`,
+                  transform: 'translateX(-50%)', background: theme.color.accent, color: '#04222f',
+                  borderRadius: 3, padding: '1px 5px', fontSize: 10, fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 2,
+                }}
+              >
+                {p.text}
+              </span>
+            ))}
             <svg
               ref={plotRef}
               width="100%"
               height={PLOT_H}
               viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
               preserveAspectRatio="none"
-              style={{ display: 'block', cursor: frozen ? 'pointer' : 'crosshair' }}
+              style={{ display: 'block', cursor: 'crosshair' }}
               onMouseMove={onMove}
               onMouseLeave={clearCursor}
               onClick={onPlotClick}
@@ -2210,14 +2282,14 @@ function HdrsChart({
                   so there are no gaps to split on. Needs >=2 points to draw. */}
               {series.map((s) => {
                 if (n < 2) return null;
-                const pts: string[] = [];
+                const svgPts: string[] = [];
                 for (let i = 0; i < n; i += 1) {
-                  pts.push(`${xAt(i).toFixed(2)},${yFor(s, s.raw[i]!).toFixed(2)}`);
+                  svgPts.push(`${xAt(i).toFixed(2)},${yFor(s, s.raw[i]!).toFixed(2)}`);
                 }
                 return (
                   <polyline
                     key={s.code}
-                    points={pts.join(' ')}
+                    points={svgPts.join(' ')}
                     fill="none"
                     stroke={s.color}
                     strokeWidth={1.6}
@@ -2228,17 +2300,31 @@ function HdrsChart({
                 );
               })}
 
-              {/* Hover cursor: vertical line at the hovered point. While frozen
-                  it's drawn dashed + brighter as a subtle affordance. */}
+              {/* Hover cursor: vertical line at the hovered point. */}
               {cursorX !== null && (
                 <line
                   x1={cursorX}
                   x2={cursorX}
                   y1={PAD_Y}
                   y2={PLOT_H - PAD_Y}
-                  stroke={frozen ? theme.color.accent : 'rgba(255,255,255,0.5)'}
+                  stroke="rgba(255,255,255,0.5)"
                   strokeWidth={1}
-                  strokeDasharray={frozen ? '3 3' : undefined}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+
+              {/* Comparison-point vertical lines (solid accent) + today (dim dashed). */}
+              {pointIdx.map((idx) => (
+                <line
+                  key={`pt-${idx}`}
+                  x1={xAt(idx)} x2={xAt(idx)} y1={PAD_Y} y2={PLOT_H - PAD_Y}
+                  stroke={theme.color.accent} strokeWidth={1.2} vectorEffect="non-scaling-stroke"
+                />
+              ))}
+              {pointIdx.length > 0 && !pointIdx.includes(todayIdx) && (
+                <line
+                  x1={xAt(todayIdx)} x2={xAt(todayIdx)} y1={PAD_Y} y2={PLOT_H - PAD_Y}
+                  stroke="rgba(255,255,255,0.35)" strokeWidth={1} strokeDasharray="2 3"
                   vectorEffect="non-scaling-stroke"
                 />
               )}
@@ -2291,8 +2377,8 @@ function HdrsChart({
                     left: `${(xAt(cursor) / PLOT_W) * 100}%`,
                     transform: 'translateX(-50%)',
                     top: -2,
-                    background: frozen ? theme.color.accent : 'rgba(255,255,255,0.12)',
-                    color: frozen ? '#0b0f10' : theme.color.text,
+                    background: 'rgba(255,255,255,0.12)',
+                    color: theme.color.text,
                     borderRadius: 3,
                     padding: '1px 5px',
                     fontSize: 10,
@@ -2382,6 +2468,15 @@ function HdrsChart({
             );
           })}
         </div>
+      )}
+
+      {pointIdx.length > 0 && (
+        <DeltaPanel
+          model={deltaModel}
+          mode={pts.mode}
+          onModeChange={pts.setMode}
+          onBaselineChange={pts.setBaseline}
+        />
       )}
 
       {/* Legend: each enabled series' swatch is a per-series <input type="color">
