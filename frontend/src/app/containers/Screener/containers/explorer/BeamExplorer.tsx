@@ -13,6 +13,7 @@ import { useBlockTimestamp, type BlockUrlResolver } from '../../../../shared/com
 import { useComparePoints } from '../../components/chart-compare/useComparePoints';
 import { computeDeltas } from '../../components/chart-compare/computeDeltas';
 import { DeltaPanel } from '../../components/chart-compare/DeltaPanel';
+import { ChartModal } from '../../components/chart-compare/ChartModal';
 import type { SeriesDescriptor, ResolvedPoint } from '../../components/chart-compare/types';
 
 // ---------------------------------------------------------------------------
@@ -1929,7 +1930,7 @@ interface ChartSeries {
 }
 
 function HdrsChart({
-  rows, plotted, colors, onReset, onSetColor,
+  rows, plotted, colors, onReset, onSetColor, embedded,
 }: {
   rows: HdrsRow[];
   plotted: string[];
@@ -1938,6 +1939,9 @@ function HdrsChart({
   onReset: () => void;
   /** Override one series' color (per-series color picker in the legend). */
   onSetColor: (code: string, color: string) => void;
+  /** When true, rendered inside a ChartModal — hides the expand button and
+   *  never renders a nested modal (prevents recursion). */
+  embedded?: boolean;
 }): JSX.Element {
   // Rows in ascending height = ascending row index along the x-axis.
   const ordered = useMemo(() => [...rows].sort((a, b) => a.height - b.height), [rows]);
@@ -2051,6 +2055,9 @@ function HdrsChart({
   // Comparison points keyed by sample row index (cap 4, one per sample).
   const pts = useComparePoints<number>({ cap: 4 });
 
+  const [expanded, setExpanded] = useState(false);
+  const closeModal = useCallback(() => setExpanded(false), []);
+
   // Nearest sample row index for a clientX (shared by hover + add).
   const nearestIndex = useCallback((clientX: number): number | null => {
     const el = plotRef.current;
@@ -2125,12 +2132,16 @@ function HdrsChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [n]);
 
-  // Esc clears all comparison points.
+  // Esc clears all comparison points on the live inline chart. Skipped while the
+  // modal is open (the ChartModal owns Esc → close) and in the embedded modal
+  // instance — otherwise that instance's listener would also fire on the same
+  // window keydown. (In the modal, points are cleared via the "Clear points" button.)
   useEffect(() => {
+    if (expanded || embedded) return undefined;
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') pts.clear(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pts.clear]);
+  }, [pts.clear, expanded, embedded]);
 
   // End a drag even if the mouse is released outside the plot (the svg's own
   // mouseup never fires there), so a dragged point can't latch to the cursor.
@@ -2277,6 +2288,11 @@ function HdrsChart({
             <option value="T" disabled={!tsAvailable}>Timestamp</option>
           </Select>
         </label>
+        {!embedded && (
+          <ChartIconBtn type="button" title="Expand chart" aria-label="Expand chart" onClick={() => setExpanded(true)}>
+            &#10562;
+          </ChartIconBtn>
+        )}
         {pts.keys.length > 0 && (
           <ChartIconBtn type="button" title="Clear comparison points" onClick={pts.clear}>
             Clear points
@@ -2565,6 +2581,11 @@ function HdrsChart({
             </label>
           ))}
         </ChartLegend>
+      )}
+      {expanded && !embedded && (
+        <ChartModal onClose={closeModal}>
+          <HdrsChart rows={rows} plotted={plotted} colors={colors} onReset={onReset} onSetColor={onSetColor} embedded />
+        </ChartModal>
       )}
     </ChartCard>
   );
