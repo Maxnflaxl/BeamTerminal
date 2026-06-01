@@ -583,7 +583,7 @@ export const Health: React.FC = () => {
   const hashrateSeriesData: LineData[] = (() => {
     if (!blocks || blocks.length < 2 || avgBlockTime <= 0) return [];
     const sortedAsc = [...blocks].reverse(); // oldest first
-    return sortedAsc.map((b, idx) => {
+    const points = sortedAsc.map((b, idx) => {
       const next = sortedAsc[idx + 1];
       const bt = next ? (next.timestamp - b.timestamp) : avgBlockTime;
       const safeBt = (bt > 0 && bt < 1800) ? bt : avgBlockTime;
@@ -592,6 +592,19 @@ export const Health: React.FC = () => {
         value: diffToHashrate(b.difficulty ?? latestDiff, safeBt) / 1000, // KS/s
       };
     });
+    // lightweight-charts requires strictly-ascending, unique timestamps. Block
+    // timestamps aren't monotonic with height (two blocks can share a second,
+    // or drift backwards), so sort by time and collapse equal-timestamp points
+    // (last value wins) before setData — which would otherwise assert and take
+    // the whole page down via the error boundary.
+    points.sort((a, b) => (a.time as number) - (b.time as number));
+    const deduped: LineData[] = [];
+    for (const p of points) {
+      const last = deduped[deduped.length - 1];
+      if (last && last.time === p.time) deduped[deduped.length - 1] = p;
+      else deduped.push(p);
+    }
+    return deduped;
   })();
 
   // Init/update chart
