@@ -53,7 +53,7 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
   const gridLines = [0.25, 0.5, 0.75]
     .map((f) => `<line x1="0" y1="${(H * f).toFixed(1)}" x2="${W}" y2="${(H * f).toFixed(1)}" stroke="${grid}"/>`);
   const verticals = m.verticals
-    .map((v) => `<line x1="${v.x.toFixed(1)}" y1="0" x2="${v.x.toFixed(1)}" y2="${H}" stroke="#00f6d2" stroke-width="1" stroke-dasharray="3 3"/>`);
+    .map((v) => `<line x1="${v.x.toFixed(1)}" y1="0" x2="${v.x.toFixed(1)}" y2="${H}" stroke="#00f6d2" stroke-width="1.2"/>`);
   const paths = m.series
     .map((s) => `<path d="${s.path}" fill="none" stroke="${s.color}" stroke-width="1.6"/>`);
   const xLabels = m.xLabels

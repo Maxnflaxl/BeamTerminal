@@ -11,6 +11,7 @@ import {
 } from './shared';
 import { useBlockTimestamp, type BlockUrlResolver } from '../../../../shared/components/BlockHeight';
 import { useComparePoints } from '../../components/chart-compare/useComparePoints';
+import type { UseComparePoints } from '../../components/chart-compare/useComparePoints';
 import { computeDeltas } from '../../components/chart-compare/computeDeltas';
 import { DeltaPanel } from '../../components/chart-compare/DeltaPanel';
 import { ChartModal } from '../../components/chart-compare/ChartModal';
@@ -1933,7 +1934,7 @@ interface ChartSeries {
 }
 
 function HdrsChart({
-  rows, plotted, colors, onReset, onSetColor, embedded,
+  rows, plotted, colors, onReset, onSetColor, embedded, pointsApi,
 }: {
   rows: HdrsRow[];
   plotted: string[];
@@ -1945,6 +1946,9 @@ function HdrsChart({
   /** When true, rendered inside a ChartModal — hides the expand button and
    *  never renders a nested modal (prevents recursion). */
   embedded?: boolean;
+  /** Shared comparison-point state. The embedded (modal) instance receives the
+   *  outer instance's hook so points + mode are shared between inline and modal. */
+  pointsApi?: UseComparePoints<number>;
 }): JSX.Element {
   // Rows in ascending height = ascending row index along the x-axis.
   const ordered = useMemo(() => [...rows].sort((a, b) => a.height - b.height), [rows]);
@@ -2056,7 +2060,10 @@ function HdrsChart({
   const plotRef = useRef<SVGSVGElement>(null);
 
   // Comparison points keyed by sample row index (cap 4, one per sample).
-  const pts = useComparePoints<number>({ cap: 4 });
+  // Own state for the inline instance; the embedded (modal) instance instead
+  // uses the shared `pointsApi`, so points + mode are the same in both views.
+  const ownPoints = useComparePoints<number>({ cap: 4 });
+  const pts = pointsApi ?? ownPoints;
 
   const [expanded, setExpanded] = useState(false);
   const closeModal = useCallback(() => setExpanded(false), []);
@@ -2121,17 +2128,20 @@ function HdrsChart({
 
   // Click drops a comparison point at the hovered sample (skip if clicking an existing point).
   const onPlotClick = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
+    if (n < 2) return; // need ≥2 samples for points/deltas to mean anything
     if (pointNear(e.clientX) !== null) return; // clicking on an existing point = no add
     const i = cursor ?? nearestIndex(e.clientX);
     if (i !== null) pts.add(i);
-  }, [pointNear, cursor, nearestIndex, pts]);
+  }, [n, pointNear, cursor, nearestIndex, pts]);
 
   const clearCursor = useCallback(() => setCursor(null), []);
 
-  // New data window → drop stale cursor + all points (heights differ).
+  // New data window → drop stale cursor + all points (heights differ). Only the
+  // owning (non-embedded) instance clears points, so mounting the embedded modal
+  // instance does not wipe the shared points.
   useEffect(() => {
     setCursor(null);
-    pts.clear();
+    if (!embedded) pts.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [n]);
 
@@ -2249,7 +2259,7 @@ function HdrsChart({
   // x-delta label for a top pill spanning samples a→b.
   const xDeltaLabel = (a: number, b: number): string => {
     const dv = (xValues[b] ?? 0) - (xValues[a] ?? 0);
-    const main = isXTime ? fmtDuration(dv)
+    const main = isXTime ? `~${fmtDuration(dv)}`
       : activeXSource === 'h' ? `+${intFmt.format(dv)} blk`
       : `+${intFmt.format(dv)} rows`;
     const aTs = ordered[a]?.ts;
@@ -2336,7 +2346,11 @@ function HdrsChart({
           </ChartIconBtn>
         )}
         <span style={{ marginLeft: 'auto' }}>
-          check columns in the table below to plot them &middot; click plot to add a comparison point
+          {pts.keys.length >= 4
+            ? 'max 4 comparison points · right-click a point to remove'
+            : embedded
+              ? 'click plot to add a comparison point · drag to move · right-click to remove'
+              : 'check columns in the table below to plot them · click plot to add a comparison point'}
         </span>
       </ChartToolbar>
 
@@ -2630,7 +2644,7 @@ function HdrsChart({
             </>
           )}
         >
-          <HdrsChart rows={rows} plotted={plotted} colors={colors} onReset={onReset} onSetColor={onSetColor} embedded />
+          <HdrsChart rows={rows} plotted={plotted} colors={colors} onReset={onReset} onSetColor={onSetColor} embedded pointsApi={pts} />
         </ChartModal>
       )}
     </ChartCard>
