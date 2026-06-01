@@ -7,7 +7,7 @@ export interface UseComparePoints<TKey> {
   baselineIndex: number;
   /** Add a point. No-op when at cap or the key is already present. */
   add: (key: TKey) => void;
-  /** Move the point at display-index `i` to `key`. No-op if the target is occupied. */
+  /** Move the point at raw keys-array index `i` to `key`. No-op if the target is occupied. */
   move: (i: number, key: TKey) => void;
   remove: (key: TKey) => void;
   clear: () => void;

@@ -1915,6 +1915,7 @@ const PAD_X = 8;
 const PAD_Y = 14;
 const AXIS_W = 78; // px per per-series value axis on the right
 const TS_AXIS_W = 96; // a touch wider for date labels
+const DRAG_HIT_PX = 6; // viewBox units: click/drag hit radius for a comparison-point line
 
 interface ChartSeries {
   code: string;
@@ -2067,16 +2068,53 @@ function HdrsChart({
     return best;
   }, [n, xAt]);
 
+  const [dragIdx, setDragIdx] = useState<number | null>(null); // raw pts.keys index being dragged
+
+  // Sample row index of a point whose line is within DRAG_HIT_PX of clientX (else null).
+  const pointNear = useCallback((clientX: number): number | null => {
+    const el = plotRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const xUnits = ((clientX - rect.left) / rect.width) * PLOT_W;
+    let best: number | null = null;
+    let bestDist = DRAG_HIT_PX;
+    pts.keys.forEach((idx) => {
+      const d = Math.abs(xUnits - xAt(idx));
+      if (d <= bestDist) { bestDist = d; best = idx; }
+    });
+    return best;
+  }, [pts.keys, xAt]);
+
+  const onMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
+    if (e.button !== 0) return; // left only
+    const near = pointNear(e.clientX);
+    if (near !== null) {
+      const rawIdx = pts.keys.indexOf(near);
+      if (rawIdx !== -1) setDragIdx(rawIdx);
+    }
+  }, [pointNear, pts.keys]);
+
+  const onMouseUp = useCallback(() => setDragIdx(null), []);
+
+  const onContextMenu = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
+    const near = pointNear(e.clientX);
+    if (near !== null) { e.preventDefault(); pts.remove(near); }
+  }, [pointNear, pts]);
+
   const onMove = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
     const i = nearestIndex(e.clientX);
-    if (i !== null) setCursor(i);
-  }, [nearestIndex]);
+    if (i === null) return;
+    if (dragIdx !== null) { pts.move(dragIdx, i); return; }
+    setCursor(i);
+  }, [nearestIndex, dragIdx, pts]);
 
-  // Click drops a comparison point at the hovered sample.
+  // Click drops a comparison point at the hovered sample (skip if clicking an existing point).
   const onPlotClick = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
+    if (pointNear(e.clientX) !== null) return; // clicking on an existing point = no add
     const i = cursor ?? nearestIndex(e.clientX);
     if (i !== null) pts.add(i);
-  }, [cursor, nearestIndex, pts]);
+  }, [pointNear, cursor, nearestIndex, pts]);
 
   const clearCursor = useCallback(() => setCursor(null), []);
 
@@ -2086,6 +2124,22 @@ function HdrsChart({
     pts.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [n]);
+
+  // Esc clears all comparison points.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') pts.clear(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pts.clear]);
+
+  // End a drag even if the mouse is released outside the plot (the svg's own
+  // mouseup never fires there), so a dragged point can't latch to the cursor.
+  useEffect(() => {
+    if (dragIdx === null) return undefined;
+    const end = (): void => setDragIdx(null);
+    document.addEventListener('mouseup', end);
+    return () => document.removeEventListener('mouseup', end);
+  }, [dragIdx]);
 
   if (n === 0) {
     return (
@@ -2223,6 +2277,11 @@ function HdrsChart({
             <option value="T" disabled={!tsAvailable}>Timestamp</option>
           </Select>
         </label>
+        {pts.keys.length > 0 && (
+          <ChartIconBtn type="button" title="Clear comparison points" onClick={pts.clear}>
+            Clear points
+          </ChartIconBtn>
+        )}
         <span style={{ marginLeft: 'auto' }}>
           check columns in the table below to plot them &middot; click plot to add a comparison point
         </span>
@@ -2256,9 +2315,12 @@ function HdrsChart({
               viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
               preserveAspectRatio="none"
               style={{ display: 'block', cursor: 'crosshair' }}
+              onMouseDown={onMouseDown}
+              onMouseUp={onMouseUp}
               onMouseMove={onMove}
               onMouseLeave={clearCursor}
               onClick={onPlotClick}
+              onContextMenu={onContextMenu}
             >
               {/* Reference grid lines at 1/4, 1/2, 3/4 of the plot height. */}
               {[0.25, 0.5, 0.75].map((f) => {
