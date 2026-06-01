@@ -2304,6 +2304,10 @@ function HdrsChart({
       path: n < 2 ? '' : ordered
         .map((_, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${yFor(s, s.raw[i]!).toFixed(1)}`)
         .join(' '),
+      // Per-series value-axis ticks, same scale/formatter as the live right-edge axes.
+      axis: s.ticks.values
+        .map((tv) => ({ y: yFor(s, tv), label: fmtSeriesVal(s.code, s.isTime, tv) }))
+        .filter((a) => a.y >= 0 && a.y <= PLOT_H),
     })),
     xLabels: xTicks.map((t) => ({ x: t.x, text: fmtXLabel(t.value) })),
     verticals: pointIdx.map((idx) => ({ x: xAt(idx) })),
@@ -2518,6 +2522,29 @@ function HdrsChart({
                   {fmtXLabel(cursorXValue)}
                 </span>
               )}
+              {/* Per-comparison-point date pill (accent), matching the old
+                  frozen-cursor pill style — the date sits below each marker. */}
+              {pointIdx.map((idx) => (
+                <span
+                  key={`xpt-${idx}`}
+                  style={{
+                    position: 'absolute',
+                    left: `${(xAt(idx) / PLOT_W) * 100}%`,
+                    transform: 'translateX(-50%)',
+                    top: -2,
+                    background: theme.color.accent,
+                    color: '#04222f',
+                    borderRadius: 3,
+                    padding: '1px 5px',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    fontVariantNumeric: 'tabular-nums',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {fmtXLabel(xValues[idx] ?? 0)}
+                </span>
+              ))}
             </div>
           </div>
 

@@ -33,6 +33,8 @@ export interface HdrsSvgSeries {
   color: string;
   /** SVG path data already in the snapshot's coordinate space (see W/H below). */
   path: string;
+  /** Per-series value-axis ticks: y in [0, height] (plot coords) + formatted label. */
+  axis: { y: number; label: string }[];
 }
 
 export interface HdrsSvgModel {
@@ -50,6 +52,8 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
   const { width: W, height: H } = m;
   const grid = 'rgba(255,255,255,0.06)';
   const label = 'rgba(255,255,255,0.6)';
+  const AX = 86; // per-series right-edge value-axis column width
+  const totalW = W + m.series.length * AX;
   const gridLines = [0.25, 0.5, 0.75]
     .map((f) => `<line x1="0" y1="${(H * f).toFixed(1)}" x2="${W}" y2="${(H * f).toFixed(1)}" stroke="${grid}"/>`);
   const verticals = m.verticals
@@ -61,6 +65,21 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
       const anchor = i === 0 ? 'start' : i === arr.length - 1 ? 'end' : 'middle';
       return `<text x="${t.x.toFixed(1)}" y="${H + 16}" text-anchor="${anchor}" fill="${label}" font-size="10">${escapeXml(t.text)}</text>`;
     });
+  // Per-series right-edge value axes (one column each, in series colour) — mirrors
+  // the live chart's independent per-series axes so the export isn't axis-less.
+  const axes: string[] = [];
+  m.series.forEach((s, i) => {
+    if (!s.axis || s.axis.length === 0) return;
+    const x0 = W + i * AX + 4;
+    const ys = s.axis.map((a) => a.y);
+    axes.push(`<line x1="${x0}" y1="${Math.min(...ys).toFixed(1)}" x2="${x0}" y2="${Math.max(...ys).toFixed(1)}" stroke="${s.color}" stroke-width="1.5"/>`);
+    for (const a of s.axis) {
+      axes.push(
+        `<line x1="${x0}" y1="${a.y.toFixed(1)}" x2="${x0 + 5}" y2="${a.y.toFixed(1)}" stroke="${s.color}" stroke-width="1.5"/>`
+        + `<text x="${x0 + 8}" y="${a.y.toFixed(1)}" fill="${s.color}" font-size="9" dominant-baseline="middle">${escapeXml(a.label)}</text>`,
+      );
+    }
+  });
   // Layout bands: TOP holds the title + wrapped legend, BOT holds the x-axis
   // labels; the plot content (grid/series/verticals/x-labels, all authored in
   // 0..W × 0..H coords) is translated down into the plot band. Everything stays
@@ -78,8 +97,8 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
     return seg;
   });
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${totalH}" width="${W}" height="${totalH}" font-family="sans-serif">`,
-    `<rect x="0" y="0" width="${W}" height="${totalH}" fill="#042548"/>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalW} ${totalH}" width="${totalW}" height="${totalH}" font-family="sans-serif">`,
+    `<rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#042548"/>`,
     `<text x="8" y="18" fill="rgba(255,255,255,0.7)" font-size="13">${escapeXml(m.title)}</text>`,
     ...legend,
     `<g transform="translate(0 ${TOP})">`,
@@ -87,6 +106,7 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
     ...verticals,
     ...paths,
     ...xLabels,
+    ...axes,
     `</g>`,
   ].join('') + '</svg>';
 }
