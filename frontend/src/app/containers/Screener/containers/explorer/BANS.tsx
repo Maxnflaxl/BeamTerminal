@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import {
   Page,
@@ -460,6 +461,13 @@ export const BANS: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
+  const [searchParams] = useSearchParams();
+  // Deep-link from the global search bar: /explorer/bans?q=<name> pre-filters
+  // the domain list to that BANS name (case-insensitive substring match).
+  useEffect(() => {
+    const qp = searchParams.get('q');
+    if (qp) setSearch(qp);
+  }, [searchParams]);
   const [statusFilter, setStatusFilter] = useState<'all' | DomainStatus>('all');
   const [saleOnly, setSaleOnly] = useState(false);
   const [sort, setSort] = useState<SortState>({ key: 'name', dir: 1 });

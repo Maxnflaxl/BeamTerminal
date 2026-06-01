@@ -510,3 +510,35 @@ export interface ApiDappRawCall {
 export interface ApiDappRawCallsList {
   calls: ApiDappRawCall[];
 }
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+export type SearchType =
+  | 'asset' | 'pool' | 'dapp' | 'publisher'
+  | 'block' | 'kernel' | 'contract' | 'bans' | 'chart' | 'ipfs' | 'page';
+
+export interface SearchItem {
+  type: SearchType;
+  id: string;
+  title: string;
+  subtitle: string;
+  href: string;
+  score: number;
+  flags: string[];
+  /** Asset brand colour (OPT_COLOR). Only present on type === 'asset'. */
+  color?: string | null;
+  /** Asset logo URL (OPT_LOGO_URL). Only present on type === 'asset'. */
+  logoUrl?: string | null;
+}
+export interface SearchGroup {
+  type: SearchType;
+  label: string;
+  items: SearchItem[];
+}
+export interface ApiSearch {
+  query: string;
+  groups: SearchGroup[];
+  sources: { db: string; explorer: string };
+}

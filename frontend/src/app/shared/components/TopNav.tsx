@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { css } from '@linaria/core';
 import { ROUTES } from '@app/shared/constants';
 import { isInsideWallet } from '@core/walletEnv';
+import { SearchOverlay } from './SearchOverlay';
 
 const navRoot = css`
   width: 100%;
@@ -142,6 +143,42 @@ const downloadBtn = css`
   }
 `;
 
+const searchPill = css`
+  display: inline-flex;
+  align-items: center;
+  margin-left: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  /* 7px + 1px border == the Download button's 8px (no border) so both pills
+     are the same height. */
+  padding: 7px 14px;
+  font-size: 13px;
+  opacity: 0.85;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  &:hover { opacity: 1; }
+
+  @media (max-width: 600px) {
+    font-size: 12px;
+    padding: 5px 12px;
+  }
+`;
+const pillIcon = css`
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  flex-shrink: 0;
+`;
+const pillKbd = css`
+  margin-left: 8px;
+  font-size: 10px;
+  opacity: 0.6;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 1px 5px;
+`;
+
 const items = [
   { to: ROUTES.NAV.DEX, label: 'DEX' },
   { to: ROUTES.NAV.ASSETS, label: 'Assets' },
@@ -183,37 +220,63 @@ const DownloadIcon = () => (
   </svg>
 );
 
-export const TopNav = () => (
-  <nav className={navRoot}>
-    <div className={navInner}>
-      <NavLink to={ROUTES.NAV.DEX} end className={brand}>
-        <TerminalLogo />
-        <span className={wordmark}>BeamTerminal</span>
-      </NavLink>
+export const TopNav = () => {
+  const [searchOpen, setSearchOpen] = useState(false);
 
-      <div className={linksWrap}>
-        {items.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === ROUTES.NAV.DEX}
-            className={navLink}
-          >
-            {item.label}
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  return (
+    <>
+      <nav className={navRoot}>
+        <div className={navInner}>
+          <NavLink to={ROUTES.NAV.DEX} end className={brand}>
+            <TerminalLogo />
+            <span className={wordmark}>BeamTerminal</span>
           </NavLink>
-        ))}
-      </div>
 
-      <div className={actions}>
-        {!isInsideWallet() && (
-          <a className={downloadBtn} href="/beamterminal.dapp" download="beamterminal.dapp">
-            <DownloadIcon />
-            Download DApp
-          </a>
-        )}
-      </div>
-    </div>
-  </nav>
-);
+          <div className={linksWrap}>
+            {items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === ROUTES.NAV.DEX}
+                className={navLink}
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+
+          <div className={actions}>
+            {!isInsideWallet() && (
+              <a className={downloadBtn} href="/beamterminal.dapp" download="beamterminal.dapp">
+                <DownloadIcon />
+                Download DApp
+              </a>
+            )}
+          </div>
+
+          <button type="button" className={searchPill} onClick={() => setSearchOpen(true)}>
+            {/* Magnifier from beam-ui (ui/view/assets/icon-search.svg), recoloured via currentColor. */}
+            <svg className={pillIcon} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path fillRule="nonzero" d="M14.787 13.752l-3.451-3.466a5.519 5.519 0 0 0 1.373-3.634C12.71 3.536 10.083 1 6.855 1 3.626 1 1 3.536 1 6.652c0 3.117 2.626 5.653 5.855 5.653a5.936 5.936 0 0 0 3.354-1.023l3.477 3.492c.146.146.341.226.55.226a.774.774 0 0 0 .53-.206.72.72 0 0 0 .021-1.042zM6.855 2.475c2.386 0 4.327 1.874 4.327 4.177 0 2.304-1.941 4.178-4.327 4.178S2.527 8.956 2.527 6.652c0-2.303 1.942-4.177 4.328-4.177z" />
+            </svg>
+            Search…<span className={pillKbd}>⌘K</span>
+          </button>
+        </div>
+      </nav>
+      {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}
+    </>
+  );
+};
 
 export default TopNav;

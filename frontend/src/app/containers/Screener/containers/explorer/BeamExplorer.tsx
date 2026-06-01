@@ -5,10 +5,6 @@ import { useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { styled } from '@linaria/react';
 import {
-  createChart, ColorType, CrosshairMode,
-  type IChartApi, type ISeriesApi, type LineData, type UTCTimestamp,
-} from 'lightweight-charts';
-import {
   Page, Card, ExplorerHeader, H1, H2, H3,
   Btn, Input, Select, Pill,
   DataTable, ScrollX, ErrorBox, Row, theme,
@@ -455,6 +451,28 @@ const Collapsible = styled.details`
     padding: 4px 0;
     user-select: none;
   }
+`;
+
+// Same look as Collapsible, but with the native disclosure triangle suppressed
+// so the summary shows only our explicit "+"/"−" marker — i.e. "+ Chart" when
+// collapsed and "− Chart" when expanded (faithful to the reference's
+// graphCollapsible affordance). Chrome-83-safe: list-style:none +
+// ::-webkit-details-marker{display:none} (no :has / inset / gap).
+const ChartCollapsible = styled.details`
+  background: ${theme.color.surface};
+  border: 1px solid ${theme.color.borderDim};
+  border-radius: ${theme.radius.lg};
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  & > summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: ${theme.color.accent};
+    padding: 4px 0;
+    user-select: none;
+    list-style: none;
+  }
+  & > summary::-webkit-details-marker { display: none; }
 `;
 
 const Link = styled.a`
@@ -1601,27 +1619,6 @@ function extractHdrsRows(data: any, colCodes: string): HdrsRow[] {
   return out;
 }
 
-const ChartHost = styled.div`
-  width: 100%;
-  height: 360px;
-  min-height: 240px;
-  resize: vertical;
-  overflow: hidden;
-  background: ${theme.color.surface};
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 6px;
-  margin: 8px 0 12px;
-  position: relative;
-`;
-
-const ChartHostInner = styled.div`
-  position: absolute;
-  top: 36px;
-  right: 8px;
-  bottom: 8px;
-  left: 8px;
-`;
-
 const HdrsTableWrap = styled.div`
   /* Vertical column separators for the hdrs data grid, scoped so other
      explorer pages keep their borderless look. */
@@ -1683,123 +1680,816 @@ const PresetLink = styled.a`
   &:hover { text-decoration: underline; }
 `;
 
-const ChartControls = styled.div`
-  position: absolute;
-  top: 6px;
-  left: 8px;
-  right: 8px;
+// ---------------------------------------------------------------------------
+// Hdrs multi-series SVG chart — a faithful port of BeamExplorer.htm's custom
+// graph. The x-axis is the row index across the fetched window; each enabled
+// graphable column is its own polyline, normalized independently to the plot
+// height by its own min/max, with a per-series colored value axis on the right
+// (the Timestamp column 'T' gets date-formatted ticks). Series on/off is driven
+// by the graph checkboxes injected into the data-table column headers, so the
+// chart receives `plotted` (the set of enabled codes) and `colors` (per-column
+// overrides) from HdrsView, plus a reset-all handler (palette icon) and a
+// per-series recolor handler (legend color pickers).
+// ---------------------------------------------------------------------------
+
+// "Nice" axis ticks within [min,max] (port of defineNiceTicks): primary steps
+// follow a 1/2/5/10 pattern; we round min/max outward to the step.
+function niceTicks(rawMin: number, rawMax: number, targetTicks = 5): {
+  values: number[]; min: number; max: number;
+} {
+  let min = rawMin;
+  let max = rawMax;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) { min = 0; max = 1; }
+  if (min === max) { min -= 1; max += 1; }
+  if (min > max) { const t = min; min = max; max = t; }
+  const rawStep = (max - min) / targetTicks;
+  const exponent = Math.floor(Math.log10(rawStep));
+  const magnitude = 10 ** exponent;
+  const rawFraction = rawStep / magnitude;
+  const primaryFraction = rawFraction <= 1 ? 1 : rawFraction <= 2 ? 2 : rawFraction <= 5 ? 5 : 10;
+  const primaryStep = primaryFraction * magnitude;
+  const niceMin = Number((Math.floor(min / primaryStep) * primaryStep).toFixed(10));
+  const niceMax = Number((Math.ceil(max / primaryStep) * primaryStep).toFixed(10));
+  const values: number[] = [];
+  // Bound the loop so a degenerate step can never spin forever.
+  for (let v = niceMin, i = 0; Number(v.toFixed(10)) <= niceMax && i < 1000; v += primaryStep, i += 1) {
+    values.push(Number(v.toFixed(10)));
+  }
+  if (values.length === 0) values.push(niceMin, niceMax);
+  return { values, min: niceMin, max: niceMax };
+}
+
+// "Nice" tick values for a timestamp axis (seconds since epoch). A trimmed port
+// of defineNiceTimeTicks: pick a unit (minute…year), snap the min down to that
+// unit boundary, then step up by the unit until past max.
+function niceTimeTicks(rawMin: number, rawMax: number, targetTicks = 5): {
+  values: number[]; min: number; max: number;
+} {
+  let min = rawMin;
+  let max = rawMax;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) { min = 0; max = 60; }
+  if (min === max) { min -= 60; max += 60; }
+  if (min > max) { const t = min; min = max; max = t; }
+  const MIN = 60;
+  const HOUR = 3600;
+  const DAY = 86400;
+  const WEEK = 604800;
+  const MONTH = 2629746; // 30.44 days
+  const YEAR = 31556952; // 365.24 days
+  const range = max - min;
+  let unit: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year';
+  let primaryStep: number;
+  if (range < HOUR) { unit = 'minute'; primaryStep = Math.ceil(range / targetTicks / MIN) * MIN; } else if (range < DAY) { unit = 'hour'; primaryStep = Math.ceil(range / targetTicks / HOUR) * HOUR; } else if (range < WEEK * 2) { unit = 'day'; primaryStep = Math.ceil(range / targetTicks / DAY) * DAY; } else if (range < MONTH * 2) { unit = 'week'; primaryStep = Math.ceil(range / targetTicks / WEEK) * WEEK; } else if (range < YEAR) { unit = 'month'; primaryStep = Math.ceil(range / targetTicks / MONTH) * MONTH; } else { unit = 'year'; primaryStep = Math.ceil(range / targetTicks / YEAR) * YEAR; }
+  if (!(primaryStep > 0)) primaryStep = MIN;
+  const d = new Date(min * 1000);
+  let niceMin: number;
+  switch (unit) {
+    case 'minute': niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()).getTime() / 1000; break;
+    case 'hour': niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime() / 1000; break;
+    case 'day': niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000; break;
+    case 'week': niceMin = new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay() + 1).getTime() / 1000; break;
+    case 'month': niceMin = new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000; break;
+    case 'year': niceMin = new Date(d.getFullYear(), 0, 1).getTime() / 1000; break;
+    default: niceMin = min;
+  }
+  let niceMax = niceMin;
+  for (let i = 0; niceMax <= max && i < 1000; i += 1) niceMax += primaryStep;
+  const values: number[] = [];
+  for (let v = niceMin, i = 0; v <= niceMax && i < 1000; v += primaryStep, i += 1) values.push(v);
+  if (values.length === 0) values.push(niceMin, niceMax);
+  return { values, min: niceMin, max: niceMax };
+}
+
+const intFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
+// Size columns (Size.Compressed/Archive + their deltas) are byte counts.
+const BYTE_CODES = new Set(['c', 'C', 'a', 'A']);
+
+// Compact count: 2,000,000 -> "2M", 25,600 -> "25.6K".
+function fmtCompact(v: number): string {
+  if (!Number.isFinite(v)) return '';
+  const abs = Math.abs(v);
+  const trim = (n: number): string => n.toFixed(2).replace(/\.?0+$/, '');
+  if (abs >= 1e9) return `${trim(v / 1e9)}B`;
+  if (abs >= 1e6) return `${trim(v / 1e6)}M`;
+  if (abs >= 1e3) return `${trim(v / 1e3)}K`;
+  return intFmt.format(v);
+}
+
+// Byte count -> KB/MB/GB (decimal, so 4,000,000,000 -> "4 GB").
+function fmtBytesAxis(v: number, decimals = 2): string {
+  if (!Number.isFinite(v)) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  let n = Math.abs(v);
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i += 1; }
+  const s = `${i === 0 ? n.toFixed(0) : n.toFixed(decimals).replace(/\.?0+$/, '')} ${units[i]}`;
+  return v < 0 ? `-${s}` : s;
+}
+
+// Compact Y-axis tick label: per column → time, bytes, or compact count.
+function fmtSeriesVal(code: string, isTime: boolean, v: number): string {
+  if (isTime) return fmtAxisTime(v);
+  if (BYTE_CODES.has(code)) return fmtBytesAxis(v);
+  return fmtCompact(v);
+}
+
+// More precise variant for the hover/frozen cursor value (we have the room):
+// full integer counts, byte sizes to 3 decimals.
+function fmtSeriesValCursor(code: string, isTime: boolean, v: number): string {
+  if (isTime) return fmtAxisTime(v);
+  if (BYTE_CODES.has(code)) return fmtBytesAxis(v, 3);
+  return intFmt.format(v);
+}
+
+// Compact date for a timestamp axis tick / cursor box (seconds since epoch).
+function fmtAxisTime(sec: number): string {
+  if (!Number.isFinite(sec)) return '';
+  const d = new Date(sec * 1000);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// <input type="color"> only accepts a #rrggbb value. Series colors are already
+// hex (columnHeaders defaults + picker overrides), but coerce defensively:
+// expand #rgb, drop alpha, and fall back to a neutral grey for anything
+// non-hex so the picker never shows a blank value. (Faithful in spirit to the
+// reference's convertColorToHex, without needing a canvas.)
+function toHexColor(color: string): string {
+  if (typeof color !== 'string') return '#888888';
+  const c = color.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(c)) return c.toLowerCase();
+  if (/^#[0-9a-fA-F]{8}$/.test(c)) return c.slice(0, 7).toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(c)) {
+    return `#${c[1]}${c[1]}${c[2]}${c[2]}${c[3]}${c[3]}`.toLowerCase();
+  }
+  return '#888888';
+}
+
+const ChartCard = styled.div`
+  background: ${theme.color.surface};
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  margin: 8px 0 12px;
+  padding: 10px 12px 6px;
+`;
+
+const ChartToolbar = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 8px; }
-  z-index: 10;
+  & > * + * { margin-left: 10px; }
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: ${theme.color.muted};
+`;
+
+const ChartIconBtn = styled.button`
+  background: transparent;
+  border: 1px solid ${theme.color.border};
+  border-radius: 4px;
+  color: ${theme.color.muted};
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 8px;
+  &:hover { color: ${theme.color.text}; border-color: ${theme.color.text}; }
+  &:disabled { opacity: 0.4; cursor: default; }
+`;
+
+const ChartLegend = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 6px 0 2px;
   font-size: 12px;
   color: ${theme.color.muted};
 `;
 
-function HdrsChart({ rows, colCodes }: { rows: HdrsRow[]; colCodes: string }): JSX.Element | null {
-  const availableCodes = useMemo(
-    () => colCodes.split('').filter((c) => CHARTABLE_COLS.includes(c) && columnHeaders[c] !== undefined),
-    [colCodes],
+const ChartHint = styled.div`
+  color: ${theme.color.muted};
+  font-size: 12px;
+  padding: 28px 8px;
+  text-align: center;
+`;
+
+// Small square color picker styled to read as a legend swatch. Avoids
+// Chrome-83-unsupported CSS (no gap/inset/:has); the chrome around the native
+// swatch is trimmed with padding:0 + border so it stays compact.
+const LegendColorPicker = styled.input`
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+  vertical-align: middle;
+  &::-webkit-color-swatch-wrapper { padding: 0; }
+  &::-webkit-color-swatch { border: none; border-radius: 2px; }
+`;
+
+// Plot geometry. The plot uses a fixed viewBox stretched to the container via
+// preserveAspectRatio="none" (matching the reference's scale(1,-1) approach,
+// but in React space we just compute y downward directly). Right-side value
+// axes are separate fixed-width SVGs, one per enabled series.
+const PLOT_W = 1000;
+const PLOT_H = 320;
+const PAD_X = 8;
+const PAD_Y = 14;
+const AXIS_W = 78; // px per per-series value axis on the right
+const TS_AXIS_W = 96; // a touch wider for date labels
+
+interface ChartSeries {
+  code: string;
+  color: string;
+  isTime: boolean;
+  /** Values aligned to the row index. Faithful to the reference's
+   *  updateGraphDataY: an empty/missing cell becomes 0 (NOT a gap), and 'T'
+   *  uses the raw unix-seconds value. The series is one continuous polyline. */
+  raw: number[];
+  ticks: { values: number[]; min: number; max: number };
+}
+
+function HdrsChart({
+  rows, plotted, colors, onReset, onSetColor,
+}: {
+  rows: HdrsRow[];
+  plotted: string[];
+  colors: Record<string, string>;
+  /** Reset all series colors to their column defaults (palette icon). */
+  onReset: () => void;
+  /** Override one series' color (per-series color picker in the legend). */
+  onSetColor: (code: string, color: string) => void;
+}): JSX.Element {
+  // Rows in ascending height = ascending row index along the x-axis.
+  const ordered = useMemo(() => [...rows].sort((a, b) => a.height - b.height), [rows]);
+  const n = ordered.length;
+
+  // Only chart codes that are actually graphable + known.
+  const codes = useMemo(
+    () => plotted.filter((c) => CHARTABLE_COLS.includes(c) && columnHeaders[c] !== undefined),
+    [plotted],
   );
-  const [selected, setSelected] = useState<string>(() => availableCodes[0] ?? '');
 
-  // Re-pick a sensible default if the user changes the visible columns and the
-  // current selection is no longer present.
-  useEffect(() => {
-    if (availableCodes.length === 0) return;
-    if (!availableCodes.includes(selected)) setSelected(availableCodes[0]!);
-  }, [availableCodes, selected]);
-
-  const hasT = colCodes.includes('T');
-
-  const data: LineData[] = useMemo(() => {
-    if (!selected || rows.length === 0) return [];
-    // Rows come newest-first; sort ascending by height so the chart draws
-    // left-to-right oldest-to-newest.
-    const sorted = [...rows].sort((a, b) => a.height - b.height);
-    const out: LineData[] = [];
-    for (const r of sorted) {
-      const v = r.cols[selected];
-      if (v === null || v === undefined) continue;
-      const xAxis = hasT && r.ts !== null ? r.ts : r.height;
-      out.push({ time: xAxis as UTCTimestamp, value: v });
+  // Build one series per enabled code: real values per row index + nice ticks
+  // from that series' own finite min/max (independent normalization).
+  const series = useMemo<ChartSeries[]>(() => {
+    const out: ChartSeries[] = [];
+    for (const code of codes) {
+      const isTime = code === 'T';
+      // Match updateGraphDataY: empty/missing cell -> 0 (NOT a gap). For the
+      // Timestamp column use the raw unix-seconds value (also 0 if missing).
+      const raw: number[] = ordered.map((r) => {
+        const v = isTime ? r.ts : r.cols[code];
+        return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+      });
+      let min = Infinity;
+      let max = -Infinity;
+      for (const v of raw) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      const ticks = isTime ? niceTimeTicks(min, max, 5) : niceTicks(min, max, 5);
+      out.push({
+        code, color: colors[code] ?? columnHeaders[code]?.color ?? '#00f6d2', isTime, raw, ticks,
+      });
     }
     return out;
-  }, [rows, selected, hasT]);
+  }, [codes, ordered, colors]);
 
-  const hostRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  // ---- X-axis source (faithful to updateGraphDataX + #xAxisSelect) --------
+  // The reference allows 'row' (table row), 'h' (blockheight), 'N' (block
+  // number) and 'T' (timestamp). We always have height + ts, so 'row', 'h' and
+  // 'T' are available; 'T' is disabled only when every row's ts is null. The
+  // per-point x is normalized over the REAL min/max of the selected source
+  // (the reference forces real min/max for the X axis), so the polyline spans
+  // the full plot width. Default to 'T' (timestamp).
+  type XSource = 'row' | 'h' | 'T';
+  const tsAvailable = useMemo(() => ordered.some((r) => typeof r.ts === 'number' && Number.isFinite(r.ts)), [ordered]);
+  const [xSource, setXSource] = useState<XSource>('T');
+  // If timestamp is unavailable for the current data, fall back to row index.
+  const activeXSource: XSource = xSource === 'T' && !tsAvailable ? 'row' : xSource;
 
-  useEffect(() => {
-    const el = hostRef.current;
-    if (!el) return undefined;
-    const chart = createChart(el, {
-      autoSize: true,
-      layout: {
-        background: { type: ColorType.Solid, color: theme.color.surface },
-        textColor: theme.color.muted,
-        fontSize: 10,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Magnet,
-        vertLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1 },
-        horzLine: { color: 'rgba(0, 246, 210, 0.4)', width: 1 },
-      },
-      rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)' },
-      timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        timeVisible: hasT,
-        secondsVisible: false,
-        minBarSpacing: 0.01,
-      },
+  // The raw x VALUE per row index for the active source. 'row' => 1..n (matches
+  // the reference's `length - index` ascending), 'h' => height, 'T' => raw
+  // unix-seconds. Null ts is handled defensively below so x never goes NaN.
+  const xValues = useMemo<number[]>(() => {
+    if (activeXSource === 'row') return ordered.map((_, i) => i + 1);
+    if (activeXSource === 'h') return ordered.map((r) => r.height);
+    // 'T': raw seconds; carry the last known ts across null gaps so the point
+    // still lands monotonically and never produces NaN.
+    let last = 0;
+    return ordered.map((r) => {
+      if (typeof r.ts === 'number' && Number.isFinite(r.ts)) { last = r.ts; return r.ts; }
+      return last;
     });
-    chartRef.current = chart;
-    seriesRef.current = chart.addLineSeries({
-      color: columnHeaders[selected]?.color ?? '#00f6d2',
-      lineWidth: 2,
-    });
-    return () => {
-      chart.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-    };
-    // Re-create when color/axis-type changes so the series picks up the new
-    // colour and the time scale toggles correctly between height/timestamp.
-  }, [selected, hasT]);
+  }, [activeXSource, ordered]);
 
+  const isXTime = activeXSource === 'T';
+
+  // Real min/max of the x source across the rows (rows are ascending, so the
+  // values are monotonic — first/last would do, but min/max is safe).
+  const xMinMax = useMemo<{ min: number; max: number }>(() => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const v of xValues) {
+      if (Number.isFinite(v)) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+    }
+    if (!Number.isFinite(min)) min = 0;
+    if (!Number.isFinite(max)) max = 1;
+    return { min, max };
+  }, [xValues]);
+
+  // X position (in viewBox units) for a given row index, from the source value
+  // normalized over [min,max]: padding + width*(x-min)/(max-min) (the reference
+  // xsvg formula). Degenerate (min===max / single point) → centre.
+  const xAt = useCallback((idx: number): number => {
+    if (n <= 1) return PLOT_W / 2;
+    const { min, max } = xMinMax;
+    const span = max - min;
+    if (!(span > 0)) return PLOT_W / 2;
+    const v = xValues[idx] ?? min;
+    return PAD_X + (PLOT_W - 2 * PAD_X) * ((v - min) / span);
+  }, [n, xMinMax, xValues]);
+
+  // Y position (viewBox units, top=0) for a real value on a series' scale.
+  // Flat series (min===max after nice-rounding) draw at the vertical middle.
+  const yFor = useCallback((s: ChartSeries, value: number): number => {
+    const lo = s.ticks.min;
+    const hi = s.ticks.max;
+    const inner = PLOT_H - 2 * PAD_Y;
+    if (!(hi > lo)) return PAD_Y + inner / 2;
+    const frac = (value - lo) / (hi - lo);
+    return PLOT_H - PAD_Y - inner * frac; // invert: larger value = higher up
+  }, []);
+
+  // Cursor: nearest row index under the mouse (null when not hovering).
+  const [cursor, setCursor] = useState<number | null>(null);
+  // Cursor freeze (faithful to graphHoverToggle: clicking the plot toggles a
+  // frozen state; while frozen the cursor stays put and mousemove/leave are
+  // ignored; clicking again resumes mouse-following).
+  const [frozen, setFrozen] = useState(false);
+  const plotRef = useRef<SVGSVGElement>(null);
+
+  const onMove = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
+    if (n === 0 || frozen) return; // frozen → mousemove ignored (graphHoverOn gate)
+    const el = plotRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    if (n === 1) { setCursor(0); return; }
+    // Mouse x in viewBox units, then nearest sample by distance to its xsvg
+    // position (matches graphHoverOn's distances.indexOf(min)). x positions are
+    // non-uniform once the source is height/timestamp.
+    const xUnits = ((e.clientX - rect.left) / rect.width) * PLOT_W;
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < n; i += 1) {
+      const d = Math.abs(xUnits - xAt(i));
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+    setCursor(best);
+  }, [n, frozen, xAt]);
+
+  // Click toggles freeze (graphHoverToggle). Unfreezing resumes following.
+  const onPlotClick = useCallback(() => setFrozen((f) => !f), []);
+
+  const clearCursor = useCallback(() => {
+    if (frozen) return; // graphHoverOff is a no-op while frozen
+    setCursor(null);
+  }, [frozen]);
+
+  // When the data window changes (new fetch / fewer rows), drop a now-stale
+  // cursor index and release any freeze so we never index out of bounds.
   useEffect(() => {
-    const s = seriesRef.current;
-    if (!s) return;
-    s.setData(data);
-    if (data.length > 0) chartRef.current?.timeScale().fitContent();
-  }, [data]);
+    setCursor(null);
+    setFrozen(false);
+  }, [n]);
 
-  if (availableCodes.length === 0 || rows.length === 0) return null;
+  if (n === 0) {
+    return (
+      <ChartCard>
+        <ChartHint>No block-header rows to chart.</ChartHint>
+      </ChartCard>
+    );
+  }
+
+  const cursorX = cursor !== null ? xAt(cursor) : null;
+
+  // Map a raw x VALUE (in source units) to its viewBox x position, using the
+  // same normalization as xAt — so axis ticks line up with the polyline even
+  // when ticks fall between samples.
+  const xPos = (v: number): number => {
+    const { min, max } = xMinMax;
+    const span = max - min;
+    if (!(span > 0)) return PLOT_W / 2;
+    return PAD_X + (PLOT_W - 2 * PAD_X) * ((v - min) / span);
+  };
+
+  // Horizontal x-axis ticks reflect the selected source. Faithful to the
+  // reference drawXAxis: build ~5 nice primary tick VALUES, but map every value
+  // through the SAME real-min/max normalization the polylines use (xPos), and
+  // keep only the ticks whose mapped x lands within the plot's [left,right]
+  // bounds. The reference forces the REAL data min/max into the value→x mapping
+  // (updateGraphDataX line "if (min != max) [xTicks.min, xTicks.max] = [min,max]"),
+  // so nice ticks that fall outside the data range simply map to x<left / x>right
+  // and are dropped here — typically leaving ~4-6 labels spread across the axis.
+  // The earlier bug clamped nice-tick VALUES to [min,max] and `continue`d on any
+  // outside it; for the timestamp source niceTimeTicks snaps to unit boundaries
+  // that mostly fall outside the real range, so all-but-one were skipped and the
+  // axis showed a single label.
+  const PLOT_LEFT = PAD_X;
+  const PLOT_RIGHT = PLOT_W - PAD_X;
+  const xTicks: { value: number; x: number }[] = [];
+  {
+    const { min, max } = xMinMax;
+    // Degenerate range (single sample / flat source): one centred label.
+    if (n === 1 || !(max > min)) {
+      xTicks.push({ value: min, x: PLOT_W / 2 });
+    } else {
+      // Nice primary tick values across [min,max]. Time uses calendar-aware
+      // ticks; row/height use the 1/2/5/10 nice ticks. Both return primary
+      // values that bracket the range (first ≤ min, last ≥ max), so several
+      // land strictly inside once mapped through xPos().
+      const tickValues = isXTime ? niceTimeTicks(min, max, 5).values : niceTicks(min, max, 5).values;
+      for (const v of tickValues) {
+        const x = xPos(v);
+        // Only label ticks whose mapped position is within the plot bounds
+        // (mirrors the reference's `pos > 0 && pos < 100` visibility gate).
+        if (x < PLOT_LEFT - 0.5 || x > PLOT_RIGHT + 0.5) continue;
+        xTicks.push({ value: v, x });
+      }
+      // Fallback: if nothing landed inside (extremely narrow range), anchor the
+      // two ends so the axis is still labelled.
+      if (xTicks.length === 0) {
+        xTicks.push({ value: min, x: xPos(min) }, { value: max, x: xPos(max) });
+      }
+    }
+  }
+  // Label for an x value per the active source: timestamp formatted, else int.
+  const fmtXLabel = (v: number): string => (isXTime ? fmtAxisTime(v) : intFmt.format(Math.round(v)));
+  // The X-value box at the cursor shows the selected source's value at that row.
+  const cursorXValue = cursor !== null ? xValues[cursor] ?? null : null;
 
   return (
-    <ChartHost>
-      <ChartControls>
-        <span>Chart:</span>
-        <Select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          style={{ minWidth: 160 }}
-        >
-          {availableCodes.map((c) => (
-            <option key={c} value={c}>{columnHeaders[c]!.title}</option>
-          ))}
-        </Select>
-        <span style={{ color: 'rgba(255,255,255,0.4)' }}>
-          {data.length} pts · x-axis: {hasT ? 'time' : 'height'}
+    <ChartCard>
+      <ChartToolbar>
+        {/* Palette icon = reset all series colors to their defaults (faithful
+            to #resetColors / resetGraphColors). No randomize. */}
+        <ChartIconBtn type="button" title="Reset all graph colors to defaults" onClick={onReset}>
+          &#127912;
+        </ChartIconBtn>
+        {/* X-axis source selector (faithful to #xAxisSelect): 'row' always
+            available + default in the reference, but the user wants Timestamp
+            by default here. Timestamp is disabled only when no row has a ts. */}
+        <label style={{ display: 'inline-flex', alignItems: 'center' }} title="Change data of horizontal scale">
+          <span style={{ marginRight: 6 }}>x-axis:</span>
+          <Select
+            style={{ display: 'inline-block' }}
+            value={activeXSource}
+            onChange={(e) => setXSource(e.target.value as XSource)}
+          >
+            <option value="row">Row index</option>
+            <option value="h">Height</option>
+            <option value="T" disabled={!tsAvailable}>Timestamp</option>
+          </Select>
+        </label>
+        <span style={{ marginLeft: 'auto' }}>
+          {frozen ? (
+            <span style={{ color: theme.color.accent }}>cursor frozen &middot; click plot to resume</span>
+          ) : (
+            <>check columns in the table below to plot them &middot; click plot to freeze cursor</>
+          )}
         </span>
-      </ChartControls>
-      <ChartHostInner ref={hostRef} />
-    </ChartHost>
+      </ChartToolbar>
+
+      {series.length === 0 ? (
+        <ChartHint>
+          No series selected. Tick a graphable column&apos;s checkbox in the table header to plot it.
+        </ChartHint>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'stretch' }}>
+          {/* Plot area (flex-grows; right axes are fixed width). */}
+          <div style={{ flex: '1 1 auto', minWidth: 0, position: 'relative' }}>
+            <svg
+              ref={plotRef}
+              width="100%"
+              height={PLOT_H}
+              viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
+              preserveAspectRatio="none"
+              style={{ display: 'block', cursor: frozen ? 'pointer' : 'crosshair' }}
+              onMouseMove={onMove}
+              onMouseLeave={clearCursor}
+              onClick={onPlotClick}
+            >
+              {/* Reference grid lines at 1/4, 1/2, 3/4 of the plot height. */}
+              {[0.25, 0.5, 0.75].map((f) => {
+                const y = PAD_Y + (PLOT_H - 2 * PAD_Y) * f;
+                return (
+                  <line
+                    key={f}
+                    x1={PAD_X}
+                    x2={PLOT_W - PAD_X}
+                    y1={y}
+                    y2={y}
+                    stroke="rgba(255,255,255,0.06)"
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })}
+
+              {/* One single continuous polyline per enabled series through ALL
+                  points — faithful to drawGraph. Missing cells are already 0,
+                  so there are no gaps to split on. Needs >=2 points to draw. */}
+              {series.map((s) => {
+                if (n < 2) return null;
+                const pts: string[] = [];
+                for (let i = 0; i < n; i += 1) {
+                  pts.push(`${xAt(i).toFixed(2)},${yFor(s, s.raw[i]!).toFixed(2)}`);
+                }
+                return (
+                  <polyline
+                    key={s.code}
+                    points={pts.join(' ')}
+                    fill="none"
+                    stroke={s.color}
+                    strokeWidth={1.6}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })}
+
+              {/* Hover cursor: vertical line at the hovered point. While frozen
+                  it's drawn dashed + brighter as a subtle affordance. */}
+              {cursorX !== null && (
+                <line
+                  x1={cursorX}
+                  x2={cursorX}
+                  y1={PAD_Y}
+                  y2={PLOT_H - PAD_Y}
+                  stroke={frozen ? theme.color.accent : 'rgba(255,255,255,0.5)'}
+                  strokeWidth={1}
+                  strokeDasharray={frozen ? '3 3' : undefined}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+
+              {/* Hover cursor: per-series dot at the hovered point. */}
+              {cursor !== null && series.map((s) => (
+                <circle
+                  key={`dot-${s.code}`}
+                  cx={xAt(cursor)}
+                  cy={yFor(s, s.raw[cursor]!)}
+                  r={2.5}
+                  fill={s.color}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+            </svg>
+
+            {/* Bottom x-axis: source-aware ticks + boxed cursor X value. Ticks
+                are integers for row/height and YYYY-MM-DD HH:MM for timestamp.
+                The cursor box shows the selected source's value at the row. */}
+            <div style={{ position: 'relative', height: 18, marginTop: 2 }}>
+              {xTicks.map((t, ti) => {
+                // Nudge the first/last labels inward (left-/right-align instead
+                // of centre) so they don't clip at the plot edges — equivalent
+                // to the reference dropping out-of-range labels at the very ends.
+                const isFirst = ti === 0;
+                const isLast = ti === xTicks.length - 1 && xTicks.length > 1;
+                const align = isFirst ? 'translateX(0)' : isLast ? 'translateX(-100%)' : 'translateX(-50%)';
+                return (
+                  <span
+                    key={`xt-${ti}-${t.value}`}
+                    style={{
+                      position: 'absolute',
+                      left: `${(t.x / PLOT_W) * 100}%`,
+                      transform: align,
+                      fontSize: 10,
+                      color: theme.color.muted,
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {fmtXLabel(t.value)}
+                  </span>
+                );
+              })}
+              {cursor !== null && cursorXValue !== null && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: `${(xAt(cursor) / PLOT_W) * 100}%`,
+                    transform: 'translateX(-50%)',
+                    top: -2,
+                    background: frozen ? theme.color.accent : 'rgba(255,255,255,0.12)',
+                    color: frozen ? '#0b0f10' : theme.color.text,
+                    borderRadius: 3,
+                    padding: '1px 5px',
+                    fontSize: 10,
+                    fontVariantNumeric: 'tabular-nums',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {fmtXLabel(cursorXValue)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Right-edge value axes, one per enabled series, in series color.
+              On hover, each series' value is shown as a boxed "scale cursor"
+              positioned ON its own axis at the value's height (clamped within
+              the axis pixel range), faithful to drawYAxis + scaleCursorY. Each
+              value sits on its own dedicated axis column, so they never
+              collide when lines cross. */}
+          {series.map((s) => {
+            const w = s.isTime ? TS_AXIS_W : AXIS_W;
+            const inner = PLOT_H - 2 * PAD_Y;
+            // Scale-cursor position for this series at the hovered sample.
+            let cursorTopPx: number | null = null;
+            let cursorLabel = '';
+            if (cursor !== null) {
+              const yPx = yFor(s, s.raw[cursor]!);
+              // Clamp so the box never leaves the axis area.
+              cursorTopPx = Math.max(PAD_Y, Math.min(PLOT_H - PAD_Y, yPx));
+              cursorLabel = fmtSeriesValCursor(s.code, s.isTime, s.raw[cursor]!);
+            }
+            return (
+              <div
+                key={`axis-${s.code}`}
+                style={{ width: w, flex: `0 0 ${w}px`, position: 'relative', height: PLOT_H }}
+                title={columnHeaders[s.code]?.description}
+              >
+                <svg width={w} height={PLOT_H} style={{ display: 'block', overflow: 'visible' }}>
+                  <line x1={0} x2={0} y1={PAD_Y} y2={PLOT_H - PAD_Y} stroke={s.color} strokeWidth={1.5} />
+                  {s.ticks.values.map((tv, ti) => {
+                    const lo = s.ticks.min;
+                    const hi = s.ticks.max;
+                    const frac = hi > lo ? (tv - lo) / (hi - lo) : 0.5;
+                    const y = PLOT_H - PAD_Y - inner * frac;
+                    if (y < 0 || y > PLOT_H) return null;
+                    return (
+                      <g key={ti}>
+                        <line x1={0} x2={5} y1={y} y2={y} stroke={s.color} strokeWidth={1.5} />
+                        <text
+                          x={7}
+                          y={y}
+                          fill={s.color}
+                          fontSize={10}
+                          textAnchor="start"
+                          dominantBaseline="middle"
+                        >
+                          {fmtSeriesVal(s.code, s.isTime, tv)}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+                {cursorTopPx !== null && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      left: 4,
+                      top: cursorTopPx,
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(0,0,0,0.85)',
+                      border: `1px solid ${s.color}`,
+                      color: s.color,
+                      borderRadius: 3,
+                      padding: '0 3px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      lineHeight: '13px',
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    {cursorLabel}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Legend: each enabled series' swatch is a per-series <input type="color">
+          bound to its color (faithful to graphColorPicker / changeGraphColor).
+          Series on/off is NOT toggled here — that stays in the table headers. */}
+      {series.length > 0 && (
+        <ChartLegend>
+          {series.map((s) => (
+            <label
+              key={`leg-${s.code}`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', marginRight: 16, color: s.color, cursor: 'pointer',
+              }}
+              title="Click the swatch to change this series' color"
+            >
+              <LegendColorPicker
+                type="color"
+                value={toHexColor(s.color)}
+                onChange={(e) => onSetColor(s.code, e.target.value)}
+              />
+              <span style={{ marginLeft: 6 }} title={columnHeaders[s.code]?.description}>
+                {columnHeaders[s.code]?.title ?? s.code}
+              </span>
+            </label>
+          ))}
+        </ChartLegend>
+      )}
+    </ChartCard>
+  );
+}
+
+// Render the hdrs data table with a graph checkbox injected into every
+// graphable column header (the reference's `th.graphable` checkbox). Height
+// (col 0) is never graphable. The data cells reuse RenderValue for the same
+// typed-cell formatting as the rest of the explorer.
+const GraphCheckbox = styled.input`
+  margin: 0 0 0 6px;
+  vertical-align: middle;
+  cursor: pointer;
+  accent-color: ${theme.color.accent};
+`;
+
+function HdrsTable({
+  data, colCodes, plotted, colors, onTogglePlot, ctx,
+}: {
+  data: any;
+  colCodes: string;
+  plotted: string[];
+  colors: Record<string, string>;
+  onTogglePlot: (code: string) => void;
+  ctx: RenderCtx;
+}): JSX.Element {
+  const isTable = data && typeof data === 'object' && data.type === 'table' && Array.isArray(data.value);
+  const allRows: unknown[][] = isTable ? (data.value as unknown[]).filter(Array.isArray) as unknown[][] : [];
+  if (allRows.length === 0) {
+    // Fall back to the generic renderer for unexpected shapes.
+    return <RenderValue value={data} ctx={ctx} />;
+  }
+  const headerRow = allRows[0]!;
+  const dataRows = allRows.slice(1);
+  // Column 0 is always Height; the rest follow `colCodes` in order.
+  const codeForCol = (col: number): string | null => (col === 0 ? 'h' : (colCodes[col - 1] ?? null));
+
+  return (
+    <ScrollX>
+      <DataTable>
+        <thead>
+          <tr>
+            {headerRow.map((cell, ci) => {
+              const code = codeForCol(ci);
+              const graphable = code !== null && code !== 'h'
+                && CHARTABLE_COLS.includes(code) && columnHeaders[code] !== undefined;
+              const on = code !== null && plotted.includes(code);
+              const color = code !== null
+                ? (colors[code] ?? columnHeaders[code]?.color ?? undefined)
+                : undefined;
+              return (
+                <th key={ci} className="right">
+                  <span title={code ? columnHeaders[code]?.description : undefined}>
+                    <RenderValue value={cell} ctx={ctx} />
+                  </span>
+                  {graphable && (
+                    <GraphCheckbox
+                      type="checkbox"
+                      checked={on}
+                      title={on ? 'Hide from graph' : 'Show as graph'}
+                      style={on && color ? { accentColor: color } : undefined}
+                      onChange={() => onTogglePlot(code!)}
+                    />
+                  )}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {dataRows.map((row, ri) => (
+            <tr key={ri}>
+              {(Array.isArray(row) ? row : []).map((cell, ci) => (
+                <td key={ci} className="right">
+                  <RenderValue value={cell} ctx={ctx} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    </ScrollX>
   );
 }
 
@@ -1809,6 +2499,23 @@ function HdrsView(
   const [colsDraft, setColsDraft] = useState(view.cols || COLUMN_DEFAULT_DISPLAY);
   const [nMaxDraft, setNMaxDraft] = useState(view.nMax || '100');
   const [hMaxDraft, setHMaxDraft] = useState(view.hMax || '');
+  const [dhDraft, setDhDraft] = useState(view.dh || '1');
+
+  const activeCols = view.cols || COLUMN_DEFAULT_DISPLAY;
+
+  // Chart state lifted here so the table-header checkboxes drive the plot.
+  // `plotted` = set of column codes drawn as series; `colorOverrides` holds
+  // per-column color picks from Reset/Recolor (default falls back to
+  // columnHeaders[code].color).
+  const [plotted, setPlotted] = useState<string[]>([]);
+  const [colorOverrides, setColorOverrides] = useState<Record<string, string>>({});
+
+  // Chart is collapsed by default behind a "+ Chart" / "− Chart" toggle
+  // (faithful to the reference's `graphCollapsible` <details>). We track the
+  // open state so the summary can show a +/− marker and so the chart only
+  // MOUNTS while open — which sidesteps the Chrome-83 hidden-SVG measurement
+  // bug the reference works around in `toggleGraph`.
+  const [chartOpen, setChartOpen] = useState(false);
 
   // Keep the local draft synced with the URL view (e.g. when navigating
   // older/newer or following a special-block link that sets cols).
@@ -1816,19 +2523,41 @@ function HdrsView(
     setColsDraft(view.cols || COLUMN_DEFAULT_DISPLAY);
     setNMaxDraft(view.nMax || '100');
     setHMaxDraft(view.hMax || '');
-  }, [view.cols, view.nMax, view.hMax]);
+    setDhDraft(view.dh || '1');
+  }, [view.cols, view.nMax, view.hMax, view.dh]);
+
+  // Drop any plotted code that's no longer a visible column when `cols` changes.
+  useEffect(() => {
+    setPlotted((cur) => cur.filter((c) => activeCols.includes(c)));
+  }, [activeCols]);
+
+  const togglePlot = useCallback((code: string): void => {
+    if (code === 'h' || !CHARTABLE_COLS.includes(code)) return;
+    setPlotted((cur) => (cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code]));
+  }, []);
+
+  // Reset = drop all overrides, restoring each column's default color from
+  // columnHeaders (palette icon → resetGraphColors).
+  const resetColors = useCallback(() => setColorOverrides({}), []);
+
+  // Per-series recolor from the legend's <input type="color"> (changeGraphColor).
+  const setColor = useCallback((code: string, color: string) => {
+    setColorOverrides((cur) => ({ ...cur, [code]: color }));
+  }, []);
+
+  const chartRows = useMemo(() => extractHdrsRows(data, activeCols), [data, activeCols]);
 
   const apply = useCallback(
-    (overrides?: { cols?: string; nMax?: string; hMax?: string }): void => {
+    (overrides?: { cols?: string; nMax?: string; hMax?: string; dh?: string }): void => {
       ctx.go({
         type: 'hdrs',
         cols:  overrides?.cols  ?? colsDraft,
         nMax:  overrides?.nMax  ?? nMaxDraft,
         hMax: (overrides?.hMax  ?? hMaxDraft) || undefined,
-        dh: view.dh || '1',
+        dh:   (overrides?.dh    ?? dhDraft) || '1',
       });
     },
-    [ctx, colsDraft, nMaxDraft, hMaxDraft, view.dh],
+    [ctx, colsDraft, nMaxDraft, hMaxDraft, dhDraft],
   );
 
   const toggleColumn = useCallback((code: string): void => {
@@ -1839,26 +2568,34 @@ function HdrsView(
       if (present.has(code)) present.delete(code);
       else present.add(code);
       // Re-emit in the canonical order so URLs stay stable across toggles.
-      const next = order.filter((k) => k !== 'h' && present.has(k)).join('');
-      // Auto-apply so the table updates without a separate button.
-      apply({ cols: next });
-      return next;
+      // Draft only — nothing refetches until the user clicks Apply.
+      return order.filter((k) => k !== 'h' && present.has(k)).join('');
     });
-  }, [apply]);
+  }, []);
 
   const setPreset = useCallback((preset: 'current' | 'default' | 'all') => {
     let next = colsDraft;
     if (preset === 'current') next = view.cols || COLUMN_DEFAULT_DISPLAY;
     else if (preset === 'default') next = COLUMN_DEFAULT_DISPLAY.replace(/h/g, '');
     else if (preset === 'all') next = Object.keys(columnHeaders).filter((k) => k !== 'h').join('');
-    setColsDraft(next);
-    apply({ cols: next });
-  }, [apply, colsDraft, view.cols]);
+    setColsDraft(next); // draft only — applied on Apply
+  }, [colsDraft, view.cols]);
 
   const olderMore = data?.more;
   const newerHMax = olderMore?.hMax !== undefined
     ? String(Number(olderMore.hMax) + Number(nMaxDraft) * 2)
     : null;
+
+  // Rows / interval presets (mirror BeamExplorer.htm's dropdowns). A
+  // non-preset value from the URL is kept as a leading option so the select
+  // still reflects it.
+  const ROW_PRESETS = ['100', '200', '500', '1000', '2000'];
+  const DH_PRESETS: Array<[string, string]> = [
+    ['1', '1 (block)'], ['60', '60 (~hour)'], ['1440', '1,440 (~day)'],
+    ['10080', '10,080 (~week)'], ['43200', '43,200 (~month)'],
+  ];
+  const rowOptions = ROW_PRESETS.includes(nMaxDraft) ? ROW_PRESETS : [nMaxDraft, ...ROW_PRESETS];
+  const dhOptions = DH_PRESETS.some(([v]) => v === dhDraft) ? DH_PRESETS : [[dhDraft, dhDraft] as [string, string], ...DH_PRESETS];
 
   return (
     <>
@@ -1877,13 +2614,31 @@ function HdrsView(
           }}
         >
           <label>
-            Max rows:{' '}
-            <Input
-              style={{ width: 80, display: 'inline-block' }}
+            Rows:{' '}
+            <Select
+              style={{ display: 'inline-block' }}
               value={nMaxDraft}
               onChange={(e) => setNMaxDraft(e.target.value)}
-              type="number"
-            />
+            >
+              {rowOptions.map((n) => (
+                <option key={n} value={n}>
+                  {Number(n).toLocaleString('en-US')}{n === '100' ? ' (default)' : n === '2000' ? ' (max)' : ''}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label style={{ marginLeft: 12 }}>
+            Interval:{' '}
+            <Select
+              style={{ display: 'inline-block' }}
+              value={dhDraft}
+              onChange={(e) => setDhDraft(e.target.value)}
+              title="Blocks between sampled rows (Δh)"
+            >
+              {dhOptions.map(([v, label]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </Select>
           </label>
           <label style={{ marginLeft: 12 }}>
             Max height:{' '}
@@ -1937,10 +2692,37 @@ function HdrsView(
           })}
         </ColumnGrid>
       </Collapsible>
-      <HdrsChart rows={extractHdrsRows(data, view.cols || COLUMN_DEFAULT_DISPLAY)} colCodes={view.cols || COLUMN_DEFAULT_DISPLAY} />
+      <ChartCollapsible
+        open={chartOpen}
+        onToggle={(e) => setChartOpen((e.currentTarget as HTMLDetailsElement).open)}
+      >
+        <summary>
+          <span aria-hidden style={{ marginRight: 6, fontWeight: 700 }}>{chartOpen ? '−' : '+'}</span>
+          Chart
+        </summary>
+        {/* Mount the chart only while expanded: its fixed-viewBox SVG measures
+            correctly the moment it appears, and hover math reads the live
+            bounding rect on each mousemove, so it works right after expand. */}
+        {chartOpen && (
+          <HdrsChart
+            rows={chartRows}
+            plotted={plotted}
+            colors={colorOverrides}
+            onReset={resetColors}
+            onSetColor={setColor}
+          />
+        )}
+      </ChartCollapsible>
       <Card>
         <HdrsTableWrap>
-          <RenderValue value={data} ctx={ctx} />
+          <HdrsTable
+            data={data}
+            colCodes={activeCols}
+            plotted={plotted}
+            colors={colorOverrides}
+            onTogglePlot={togglePlot}
+            ctx={ctx}
+          />
         </HdrsTableWrap>
       </Card>
     </>

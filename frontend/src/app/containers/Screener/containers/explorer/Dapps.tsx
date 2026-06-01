@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import {
   Page, Card, ExplorerHeader, H1, H3, Subtitle, Muted, TabBtn,
@@ -894,6 +895,14 @@ const DappModal: React.FC<{
 
 export const Dapps: React.FC = () => {
   const [tab, setTab] = useState<Tab>('dapps');
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'publishers' || searchParams.get('publisher')) setTab('publishers');
+    else if (tabParam === 'dapps' || searchParams.get('dapp')) setTab('dapps');
+  }, [searchParams]);
+
   const [dapps, setDapps] = useState<ApiDapp[] | null>(null);
   const [publishers, setPublishers] = useState<ApiDappPublisher[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -905,6 +914,21 @@ export const Dapps: React.FC = () => {
   const [dappDetailErr, setDappDetailErr] = useState<string | null>(null);
   const [openPublisher, setOpenPublisher] = useState<ApiDappPublisher | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Deep-link from the global search bar: ?dapp=<id> / ?publisher=<pubkey>
+  // opens the matching detail modal once the lists have loaded.
+  useEffect(() => {
+    const dappId = searchParams.get('dapp');
+    if (dappId && dapps) {
+      const d = dapps.find((x) => x.id === dappId);
+      if (d) { setOpenDapp(d); return; }
+    }
+    const pub = searchParams.get('publisher');
+    if (pub && publishers) {
+      const p = publishers.find((x) => x.pubkey === pub);
+      if (p) setOpenPublisher(p);
+    }
+  }, [searchParams, dapps, publishers]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -988,7 +1012,7 @@ export const Dapps: React.FC = () => {
               : (
                 <DappGrid>
                   {dapps.map((d) => (
-                    <DappCard key={d.id} type="button" onClick={() => setOpenDapp(d)}>
+                    <DappCard id={`dapp-${d.id}`} key={d.id} type="button" onClick={() => setOpenDapp(d)}>
                       <DappIcon icon={d.icon} />
                       <CardBody>
                         <CardName>{d.name ?? `Dapp ${shortKey(d.id)}`}</CardName>
@@ -1035,6 +1059,7 @@ export const Dapps: React.FC = () => {
                     <tbody>
                       {publishers.map((p) => (
                         <tr
+                          id={`pub-${p.pubkey}`}
                           key={p.pubkey}
                           onClick={() => setOpenPublisher(p)}
                           style={{ cursor: 'pointer' }}

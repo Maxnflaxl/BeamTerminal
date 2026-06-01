@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { api, type ApiChartPoint, type ApiChartSeries, type ApiBlackholeBody, type ApiBlackholeSeries } from '../api/client';
 import { SimpleChart } from '../components/SimpleChart';
@@ -365,6 +366,17 @@ function fmtInt(v: number): string {
   if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
   if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k';
   return v.toFixed(0);
+}
+
+function fmtBytes(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  let n = v;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
+  // 0 decimals for raw bytes; 2 for KB+ so GB-scale charts show real variation
+  // (1 decimal rounds everything to the same 30.7/30.8/30.9 GB).
+  return `${n.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
 }
 
 function fmtVol(v: number): string {
@@ -772,6 +784,8 @@ export const NetworkCharts: React.FC = () => {
   const shieldedOutsDaily  = useOneShot<ApiChartSeries>(() => api.charts.shieldedOutsDaily());
   const shieldedOutsTotal  = useOneShot<ApiChartSeries>(() => api.charts.shieldedOutsTotal());
   const contractsTotal     = useOneShot<ApiChartSeries>(() => api.charts.contractsTotal());
+  const sizeTotal          = useOneShot<ApiChartSeries>(() => api.charts.sizeTotal());
+  const archiveTotal       = useOneShot<ApiChartSeries>(() => api.charts.archiveTotal());
   const feesDaily          = useOneShot<ApiChartSeries>(() => api.charts.feesDaily());
   const feesTotal          = useOneShot<ApiChartSeries>(() => api.charts.feesTotal());
   const contractCallsDaily = useOneShot<ApiChartSeries>(() => api.charts.contractCallsDaily());
@@ -780,6 +794,26 @@ export const NetworkCharts: React.FC = () => {
 
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Deep-link from the global search bar: /explorer/charts?chart=<key> opens
+  // that chart's extended (expanded) view. An unknown key is a harmless no-op
+  // (the modal only renders when the key matches a chart).
+  useEffect(() => {
+    const chart = searchParams.get('chart');
+    if (chart) setExpandedKey(chart);
+  }, [searchParams]);
+
+  // Closing the expanded chart also drops ?chart= from the URL, so the state
+  // matches the address bar and re-searching the same chart reopens it.
+  const closeExpanded = useCallback(() => {
+    setExpandedKey(null);
+    if (searchParams.has('chart')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('chart');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const [category, setCategory] = useState<Category>('blockchain');
   // The Confidential Assets icon strip opens decluttered — the AMM Liquidity
   // Tokens are hidden until the user toggles them on.
@@ -809,6 +843,8 @@ export const NetworkCharts: React.FC = () => {
     { key: 'txosTotal',        title: 'TXOs (total)',            state: txosTotal,          formatter: fmtInt,        category: 'blockchain' },
     { key: 'utxosTotal',       title: 'UTXOs',                   state: utxosTotal,         formatter: fmtInt,        category: 'blockchain' },
     { key: 'contractsTotal',   title: 'Contracts active',        state: contractsTotal,     formatter: fmtInt,        category: 'blockchain' },
+    { key: 'sizeTotal',        title: 'Total blockchain size',   state: sizeTotal,          formatter: fmtBytes,      category: 'blockchain' },
+    { key: 'archiveTotal',     title: 'Total archive size',      state: archiveTotal,       formatter: fmtBytes,      category: 'blockchain' },
     { key: 'assets',           title: 'Confidential Assets',     state: assets,             formatter: fmtInt,        category: 'blockchain' },
     // Lelantus — day/total pairs
     { key: 'shieldedIns',       title: 'Shielded inputs / day',  state: shieldedInsDaily,   formatter: fmtInt,        category: 'lelantus' },
@@ -857,10 +893,10 @@ export const NetworkCharts: React.FC = () => {
 
   useEffect(() => {
     if (!expanded) return undefined;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpandedKey(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeExpanded(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expanded]);
+  }, [expanded, closeExpanded]);
 
   return (
     <Page>
@@ -918,9 +954,9 @@ export const NetworkCharts: React.FC = () => {
         ))}
       </Grid>
       {expanded && (
-        <ModalBackdrop onClick={() => setExpandedKey(null)}>
+        <ModalBackdrop onClick={closeExpanded}>
           <ModalContent onClick={(e) => e.stopPropagation()}>
-            <CloseButton onClick={() => setExpandedKey(null)} aria-label="Close">×</CloseButton>
+            <CloseButton onClick={closeExpanded} aria-label="Close">×</CloseButton>
             <ModalToolbar>
               <ModalActionGroup>
                 <TfButton

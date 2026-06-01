@@ -26,6 +26,7 @@ import type {
   ApiDappDetail,
   ApiDappPublishersList,
   ApiDappRawCallsList,
+  ApiSearch,
   PairsQuery,
   Interval,
   Denom,
@@ -141,6 +142,9 @@ export const api = {
   ): Promise<ApiDappRawCallsList> =>
     get<ApiDappRawCallsList>(`/dapps/calls${qs(opts)}`),
 
+  search: (query: string): Promise<ApiSearch> =>
+    get<ApiSearch>(`/search?q=${encodeURIComponent(query)}`),
+
   charts: {
     hashrate:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/hashrate'),
     coinbase:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/coinbase'),
@@ -155,6 +159,8 @@ export const api = {
     transactionsTotal:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/transactions-total'),
     txosTotal:           (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/txos-total'),
     utxosTotal:          (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/utxos-total'),
+    sizeTotal:           (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/size-total'),
+    archiveTotal:        (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/archive-total'),
     shieldedInsDaily:    (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/shielded-ins-daily'),
     shieldedInsTotal:    (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/shielded-ins-total'),
     shieldedOutsDaily:   (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/shielded-outs-daily'),
