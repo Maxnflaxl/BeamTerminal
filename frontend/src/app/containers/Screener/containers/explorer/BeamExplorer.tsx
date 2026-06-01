@@ -2310,7 +2310,7 @@ function HdrsChart({
         .filter((a) => a.y >= 0 && a.y <= PLOT_H),
     })),
     xLabels: xTicks.map((t) => ({ x: t.x, text: fmtXLabel(t.value) })),
-    verticals: pointIdx.map((idx) => ({ x: xAt(idx) })),
+    verticals: pointIdx.map((idx) => ({ x: xAt(idx), label: fmtXLabel(xValues[idx] ?? 0) })),
   });
 
   const exportSvg = (): void => downloadBlob(buildHdrsSvg(buildSvgModel()), 'block-headers.svg', 'image/svg+xml');

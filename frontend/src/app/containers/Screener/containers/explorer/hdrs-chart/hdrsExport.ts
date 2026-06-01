@@ -43,7 +43,7 @@ export interface HdrsSvgModel {
   height: number;
   series: HdrsSvgSeries[];
   xLabels: { x: number; text: string }[];          // x in [0, width]
-  verticals: { x: number }[];                       // comparison-point lines, x in [0, width]
+  verticals: { x: number; label?: string }[];       // comparison-point lines (+ date pill), x in [0, width]
 }
 
 const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -56,8 +56,15 @@ export function buildHdrsSvg(m: HdrsSvgModel): string {
   const totalW = W + m.series.length * AX;
   const gridLines = [0.25, 0.5, 0.75]
     .map((f) => `<line x1="0" y1="${(H * f).toFixed(1)}" x2="${W}" y2="${(H * f).toFixed(1)}" stroke="${grid}"/>`);
-  const verticals = m.verticals
-    .map((v) => `<line x1="${v.x.toFixed(1)}" y1="0" x2="${v.x.toFixed(1)}" y2="${H}" stroke="#00f6d2" stroke-width="1.2"/>`);
+  const verticals = m.verticals.map((v) => {
+    const line = `<line x1="${v.x.toFixed(1)}" y1="0" x2="${v.x.toFixed(1)}" y2="${H}" stroke="#00f6d2" stroke-width="1.2"/>`;
+    if (!v.label) return line;
+    // Accent date pill at the bottom of the marker — mirrors the live chart.
+    const w = v.label.length * 5.4 + 8;
+    return line
+      + `<rect x="${(v.x - w / 2).toFixed(1)}" y="${(H - 6).toFixed(1)}" width="${w.toFixed(1)}" height="13" rx="3" fill="#00f6d2"/>`
+      + `<text x="${v.x.toFixed(1)}" y="${(H + 3.5).toFixed(1)}" text-anchor="middle" fill="#04222f" font-size="9" font-weight="600">${escapeXml(v.label)}</text>`;
+  });
   const paths = m.series
     .map((s) => `<path d="${s.path}" fill="none" stroke="${s.color}" stroke-width="1.6"/>`);
   const xLabels = m.xLabels
