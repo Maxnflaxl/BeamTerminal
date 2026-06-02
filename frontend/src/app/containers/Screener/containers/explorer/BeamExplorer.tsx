@@ -285,6 +285,40 @@ function getNodeUrl(network: string): string {
   return explorerNodes[network]?.url[0] ?? explorerNodes.mainnet.url[0];
 }
 
+// The explorer caps every /hdrs request at 2048 rows
+// (`std::setmin(nMax, 2048u)` in beam/explorer/adapter.cpp::get_hdrs). To show
+// more than that we chain requests client-side (see fetchHdrsPaginated).
+// HDRS_MAX_PAGES backstops a runaway chain: ~45k rows is about as much as the
+// table can render before the tab gets unhappy, which is also the 1-month cap.
+const HDRS_MAX_PER_REQUEST = 2048;
+const HDRS_MAX_PAGES = 22;
+
+// BEAM targets ~60s blocks, so 1 row/min at dh=1 (matches the DH_PRESETS below).
+const BLOCKS_PER_DAY = 1440;
+// Cap any timeframe at one month — larger spans at dh=1 are too many rows to
+// render and crash the tab. Typed tokens above this (e.g. 1y) clamp down to it.
+const TIMEFRAME_MAX_BLOCKS = 30 * BLOCKS_PER_DAY; // ~43,200 rows
+const TIMEFRAME_PRESETS = ['1d', '1w', '1m'];
+
+// Translate a timeframe token into a block count at 1 block/min, clamped to
+// TIMEFRAME_MAX_BLOCKS. Accepts the presets above plus any `<n><unit>`
+// (d/w/m/y) or 'YTD'; null ⇒ unparseable.
+function timeframeToBlocks(token: string): number | null {
+  const t = token.trim();
+  let blocks: number;
+  if (/^ytd$/i.test(t)) {
+    const jan1 = Date.UTC(new Date().getUTCFullYear(), 0, 1);
+    const days = Math.max(1, Math.floor((Date.now() - jan1) / 86_400_000));
+    blocks = days * BLOCKS_PER_DAY;
+  } else {
+    const m = /^(\d+)\s*([dwmy])$/i.exec(t);
+    if (!m) return null;
+    const daysPer: Record<string, number> = { d: 1, w: 7, m: 30, y: 365 };
+    blocks = Number(m[1]) * daysPer[m[2]!.toLowerCase()]! * BLOCKS_PER_DAY;
+  }
+  return Math.min(blocks, TIMEFRAME_MAX_BLOCKS);
+}
+
 function buildRequestUrl(view: ViewState): string | null {
   const prefix = getNodeUrl(view.network);
   let suffix = '?exp_am=1';
@@ -332,6 +366,113 @@ function buildRequestUrl(view: ViewState): string | null {
   }
 
   return `${prefix}${type}${suffix}`;
+}
+
+// Client-side proxy paginator for /hdrs. The server walks descending from hMax
+// and, when it truncates at the 2048-row cap, returns `more.hMax` = the next
+// (not-yet-emitted) height — so consecutive pages stitch together with no
+// overlap and no dedup. We fetch up to ⌈nMax / 2048⌉ pages, concatenate the
+// data rows under a single column header, and re-expose the final page's
+// `more` cursor so the existing « Older / Newer » nav keeps working. `dh` is
+// passed straight through; the cursor already accounts for the stride.
+async function fetchHdrsPaginated(
+  view: ViewState,
+  signal: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
+): Promise<any> {
+  const wanted = Math.min(
+    Math.max(1, Math.floor(Number(view.nMax) || 100)),
+    HDRS_MAX_PER_REQUEST * HDRS_MAX_PAGES,
+  );
+  const totalPages = Math.ceil(wanted / HDRS_MAX_PER_REQUEST);
+  let remaining = wanted;
+  let hMax = view.hMax || undefined; // undefined ⇒ start at the chain tip
+  let header: unknown[] | null = null;
+  const dataRows: unknown[][] = [];
+  let more: { hMax?: number } | undefined;
+
+  for (let page = 0; page < HDRS_MAX_PAGES && remaining > 0; page++) {
+    // Report the request we're about to make (1-based) against the plan.
+    onProgress?.(page + 1, totalPages);
+    const pageN = Math.min(HDRS_MAX_PER_REQUEST, remaining);
+    const url = buildRequestUrl({ ...view, nMax: String(pageN), hMax });
+    if (!url) break;
+
+    const r = await fetch(url, { signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+
+    const value: unknown[] = Array.isArray(j?.value) ? j.value : [];
+    if (header === null && value.length > 0) header = value[0] as unknown[];
+    for (let i = 1; i < value.length; i++) dataRows.push(value[i] as unknown[]);
+    remaining -= Math.max(0, value.length - 1);
+
+    // No `more.hMax` ⇒ we reached genesis; an empty/header-only page ⇒ nothing
+    // left to chain. Either way, stop. Otherwise continue from the cursor.
+    const nextHMax = j?.more?.hMax;
+    more = nextHMax === undefined ? undefined : j.more;
+    if (more === undefined || value.length <= 1) break;
+    hMax = String(nextHMax);
+  }
+
+  const out: any = { type: 'table', value: header ? [header, ...dataRows] : dataRows };
+  if (more) out.more = more;
+  return out;
+}
+
+// Fetch a single header (height + timestamp) at hMax — or the chain tip when
+// hMax is undefined. The building block for anchoring timeframes to real time.
+async function fetchHdrSample(
+  view: ViewState,
+  hMax: string | undefined,
+  signal: AbortSignal,
+): Promise<{ height: number; ts: number | null } | null> {
+  const url = buildRequestUrl({ ...view, type: 'hdrs', cols: 'T', nMax: '1', hMax });
+  if (!url) return null;
+  const r = await fetch(url, { signal });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const rows = extractHdrsRows(await r.json(), 'T');
+  return rows[0] ?? null;
+}
+
+// Resolve a timeframe token to a concrete { hMax, nMax } anchored on real block
+// timestamps (the "hybrid" approach): estimate the start height at 1 block/min,
+// read that block's actual timestamp, then correct the height by the observed
+// error once. ~2 sample requests. Falls back to the raw estimate when the chain
+// can't be sampled; returns null only when the token itself doesn't parse.
+async function resolveTimeframe(
+  view: ViewState,
+  token: string,
+  hMaxDraft: string,
+  signal: AbortSignal,
+): Promise<{ hMax: string | undefined; nMax: string } | null> {
+  const estBlocks = timeframeToBlocks(token);
+  if (estBlocks === null) return null;
+
+  const end = await fetchHdrSample(view, hMaxDraft || undefined, signal);
+  if (!end || end.ts === null) {
+    // No timestamp to anchor against — use the estimate as-is.
+    return { hMax: hMaxDraft || undefined, nMax: String(estBlocks) };
+  }
+
+  // Wall-clock start: exactly Jan 1 (of the anchor block's year) for YTD, else
+  // a fixed duration before the anchor. estBlocks already equals seconds / 60.
+  const targetStart = /^ytd$/i.test(token.trim())
+    ? Math.floor(Date.UTC(new Date(end.ts * 1000).getUTCFullYear(), 0, 1) / 1000)
+    : end.ts - estBlocks * 60;
+
+  const estStartHeight = Math.max(1, end.height - estBlocks);
+  const probe = await fetchHdrSample(view, String(estStartHeight), signal);
+  let startHeight = estStartHeight;
+  if (probe && probe.ts !== null) {
+    // probe later than target ⇒ didn't reach far enough back ⇒ lower the
+    // height (and the converse when probe is older than target).
+    const correction = Math.round((probe.ts - targetStart) / 60);
+    startHeight = Math.min(end.height - 1, Math.max(1, probe.height - correction));
+  }
+
+  const span = Math.min(TIMEFRAME_MAX_BLOCKS, Math.max(1, end.height - startHeight + 1));
+  return { hMax: String(end.height), nMax: String(span) };
 }
 
 function formatTimestamp(time: number, zone: 'local' | 'utc' = 'utc'): string {
@@ -2813,6 +2954,140 @@ function HdrsTable({
   );
 }
 
+// Rows ⇄ Timeframe segmented toggle.
+const SegToggle = styled.div`
+  display: inline-flex;
+  border: 1px solid ${theme.color.border};
+  border-radius: ${theme.radius.md};
+  overflow: hidden;
+  & button {
+    background: ${theme.color.surface};
+    color: ${theme.color.muted};
+    border: 0;
+    font: inherit;
+    font-family: ${theme.font.mono};
+    font-size: 12px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  & button[data-active='true'] { background: ${theme.color.accent}; color: ${theme.color.bg}; }
+  & button + button { border-left: 1px solid ${theme.color.border}; }
+`;
+
+// Single-field combobox: a free-text input plus a themed dropdown that opens on
+// focus/click (the native <datalist> popup can't be themed and won't reliably
+// open on click in QtWebEngine, hence the custom list). Typing filters nothing
+// — every preset stays visible — but the user can type any value.
+const ComboWrap = styled.div`
+  position: relative;
+  display: inline-block;
+`;
+const ComboInput = styled(Input)`
+  width: 100%;
+  padding-right: 26px;
+  &::-webkit-outer-spin-button, &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+`;
+const ComboCaret = styled.span`
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  color: ${theme.color.muted};
+  font-size: 10px;
+  user-select: none;
+`;
+const ComboList = styled.div`
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  white-space: nowrap;
+  background: ${theme.color.bg};
+  border: 1px solid ${theme.color.border};
+  border-radius: ${theme.radius.md};
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+`;
+const ComboOption = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 11px;
+  font-family: ${theme.font.mono};
+  font-size: 13px;
+  color: ${theme.color.text};
+  cursor: pointer;
+  &:hover { background: ${theme.color.surface}; }
+  &[data-active='true'] { color: ${theme.color.accent}; }
+  & small { color: ${theme.color.muted}; font-size: 11px; }
+`;
+
+function ComboField({
+  value, onChange, onEnter, options, type = 'text', width = 150, min, max, placeholder, title,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onEnter?: () => void;
+  options: Array<{ value: string; hint?: string }>;
+  type?: 'text' | 'number';
+  width?: number;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+  title?: string;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e: MouseEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  return (
+    <ComboWrap ref={wrapRef} style={{ width }}>
+      <ComboInput
+        value={value}
+        type={type}
+        min={min}
+        max={max}
+        placeholder={placeholder}
+        title={title}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onClick={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { setOpen(false); onEnter?.(); }
+          else if (e.key === 'Escape') setOpen(false);
+        }}
+      />
+      <ComboCaret aria-hidden onMouseDown={(e) => { e.preventDefault(); setOpen((o) => !o); }}>▾</ComboCaret>
+      {open && options.length > 0 && (
+        <ComboList>
+          {options.map((o) => (
+            <ComboOption
+              key={o.value}
+              data-active={o.value === value}
+              // mousedown fires before the input's blur so the pick lands.
+              onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
+            >
+              <span>{o.value}</span>
+              {o.hint && <small>{o.hint}</small>}
+            </ComboOption>
+          ))}
+        </ComboList>
+      )}
+    </ComboWrap>
+  );
+}
+
 function HdrsView(
   { data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx },
 ): JSX.Element {
@@ -2820,6 +3095,14 @@ function HdrsView(
   const [nMaxDraft, setNMaxDraft] = useState(view.nMax || '100');
   const [hMaxDraft, setHMaxDraft] = useState(view.hMax || '');
   const [dhDraft, setDhDraft] = useState(view.dh || '1');
+  // How the row count is expressed: a raw row count, or a timeframe (1d/1w/…)
+  // resolved to blocks at dh=1. UI-only; both resolve to the same `nMax` query.
+  const [sizeMode, setSizeMode] = useState<'rows' | 'timeframe'>('rows');
+  const [tfDraft, setTfDraft] = useState('1w');
+  // True while a timeframe is being anchored to real timestamps before navigating.
+  const [resolving, setResolving] = useState(false);
+  const resolveAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => resolveAbort.current?.abort(), []);
 
   const activeCols = view.cols || COLUMN_DEFAULT_DISPLAY;
 
@@ -2869,15 +3152,42 @@ function HdrsView(
 
   const apply = useCallback(
     (overrides?: { cols?: string; nMax?: string; hMax?: string; dh?: string }): void => {
-      ctx.go({
-        type: 'hdrs',
-        cols:  overrides?.cols  ?? colsDraft,
-        nMax:  overrides?.nMax  ?? nMaxDraft,
-        hMax: (overrides?.hMax  ?? hMaxDraft) || undefined,
-        dh:   (overrides?.dh    ?? dhDraft) || '1',
-      });
+      const tfEstimate = (): string => String(timeframeToBlocks(tfDraft) ?? (nMaxDraft || '100'));
+
+      // Rows mode (or an explicit nMax override): navigate synchronously.
+      if (sizeMode !== 'timeframe' || overrides?.nMax) {
+        ctx.go({
+          type: 'hdrs',
+          cols:  overrides?.cols  ?? colsDraft,
+          nMax:  overrides?.nMax  ?? nMaxDraft,
+          hMax: (overrides?.hMax  ?? hMaxDraft) || undefined,
+          dh:   (overrides?.dh    ?? dhDraft) || '1',
+        });
+        return;
+      }
+
+      // Timeframe mode: anchor the span to real block timestamps (~2 sample
+      // requests), then navigate with the concrete { hMax, nMax }.
+      resolveAbort.current?.abort();
+      const controller = new AbortController();
+      resolveAbort.current = controller;
+      setResolving(true);
+      const dh = dhDraft || '1';
+      resolveTimeframe({ ...view, type: 'hdrs' }, tfDraft, hMaxDraft, controller.signal)
+        .then((res) => {
+          if (controller.signal.aborted) return;
+          const out = res ?? { hMax: hMaxDraft || undefined, nMax: tfEstimate() };
+          ctx.go({ type: 'hdrs', cols: colsDraft, nMax: out.nMax, hMax: out.hMax, dh });
+        })
+        .catch(() => {
+          // Anchoring failed (network/abort) — fall back to the estimate so
+          // Apply still does something useful.
+          if (controller.signal.aborted) return;
+          ctx.go({ type: 'hdrs', cols: colsDraft, nMax: tfEstimate(), hMax: hMaxDraft || undefined, dh });
+        })
+        .finally(() => { if (!controller.signal.aborted) setResolving(false); });
     },
-    [ctx, colsDraft, nMaxDraft, hMaxDraft, dhDraft],
+    [ctx, view, colsDraft, nMaxDraft, hMaxDraft, dhDraft, sizeMode, tfDraft],
   );
 
   const toggleColumn = useCallback((code: string): void => {
@@ -2902,20 +3212,35 @@ function HdrsView(
   }, [colsDraft, view.cols]);
 
   const olderMore = data?.more;
+  const appliedNMax = Number(view.nMax) || 100;
   const newerHMax = olderMore?.hMax !== undefined
-    ? String(Number(olderMore.hMax) + Number(nMaxDraft) * 2)
+    ? String(Number(olderMore.hMax) + appliedNMax * 2)
     : null;
 
-  // Rows / interval presets (mirror BeamExplorer.htm's dropdowns). A
-  // non-preset value from the URL is kept as a leading option so the select
-  // still reflects it.
-  const ROW_PRESETS = ['100', '200', '500', '1000', '2000'];
+  // Combobox presets. 2,048 is the server's per-request cap; any larger value
+  // (typed, or a long timeframe) is satisfied by chaining (fetchHdrsPaginated).
+  const isTf = sizeMode === 'timeframe';
+  const ROW_PRESETS = ['100', '200', '500', '1000', String(HDRS_MAX_PER_REQUEST)];
+  const rowOptions = ROW_PRESETS.map((n) => ({
+    value: n,
+    hint: n === '100' ? 'default' : n === String(HDRS_MAX_PER_REQUEST) ? 'max/request' : undefined,
+  }));
+  const tfOptions = TIMEFRAME_PRESETS.map((t) => {
+    const b = timeframeToBlocks(t);
+    return { value: t, hint: b ? `${b.toLocaleString('en-US')} rows` : undefined };
+  });
   const DH_PRESETS: Array<[string, string]> = [
     ['1', '1 (block)'], ['60', '60 (~hour)'], ['1440', '1,440 (~day)'],
     ['10080', '10,080 (~week)'], ['43200', '43,200 (~month)'],
   ];
-  const rowOptions = ROW_PRESETS.includes(nMaxDraft) ? ROW_PRESETS : [nMaxDraft, ...ROW_PRESETS];
   const dhOptions = DH_PRESETS.some(([v]) => v === dhDraft) ? DH_PRESETS : [[dhDraft, dhDraft] as [string, string], ...DH_PRESETS];
+
+  // Effective row count → number of chained requests, for the inline hint.
+  const effectiveNMax = isTf
+    ? (timeframeToBlocks(tfDraft) ?? 0)
+    : (Math.floor(Number(nMaxDraft)) || 0);
+  const cappedNMax = Math.min(effectiveNMax, HDRS_MAX_PER_REQUEST * HDRS_MAX_PAGES);
+  const pageCount = effectiveNMax > 0 ? Math.ceil(cappedNMax / HDRS_MAX_PER_REQUEST) : 0;
 
   return (
     <>
@@ -2933,20 +3258,42 @@ function HdrsView(
             display: 'flex', flexWrap: 'wrap', alignItems: 'center', margin: '8px 0',
           }}
         >
-          <label>
-            Rows:{' '}
-            <Select
-              style={{ display: 'inline-block' }}
-              value={nMaxDraft}
-              onChange={(e) => setNMaxDraft(e.target.value)}
-            >
-              {rowOptions.map((n) => (
-                <option key={n} value={n}>
-                  {Number(n).toLocaleString('en-US')}{n === '100' ? ' (default)' : n === '2000' ? ' (max)' : ''}
-                </option>
-              ))}
-            </Select>
-          </label>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <SegToggle>
+              <button type="button" data-active={!isTf} onClick={() => setSizeMode('rows')}>Rows</button>
+              <button type="button" data-active={isTf} onClick={() => setSizeMode('timeframe')}>Timeframe</button>
+            </SegToggle>
+            {isTf ? (
+              <ComboField
+                value={tfDraft}
+                onChange={setTfDraft}
+                onEnter={() => apply()}
+                options={tfOptions}
+                type="text"
+                width={170}
+                placeholder="e.g. 1w, 3d"
+                title="Timeframe to fetch at 1 block/min (1d, 1w, 1m, or e.g. 3d). Capped at 1 month (~43,200 rows); larger spans crash the tab."
+              />
+            ) : (
+              <ComboField
+                value={nMaxDraft}
+                onChange={setNMaxDraft}
+                onEnter={() => apply()}
+                options={rowOptions}
+                type="number"
+                width={150}
+                min={1}
+                max={HDRS_MAX_PER_REQUEST * HDRS_MAX_PAGES}
+                placeholder="rows"
+                title={`Rows to fetch. Above ${HDRS_MAX_PER_REQUEST.toLocaleString('en-US')} the client chains multiple requests.`}
+              />
+            )}
+            {effectiveNMax > 0 && (pageCount > 1 || isTf) && (
+              <Muted style={{ fontStyle: 'normal', whiteSpace: 'nowrap' }}>
+                {isTf ? `${effectiveNMax.toLocaleString('en-US')} rows · ` : ''}≈ {pageCount} request{pageCount === 1 ? '' : 's'}
+              </Muted>
+            )}
+          </span>
           <label style={{ marginLeft: 12 }}>
             Interval:{' '}
             <Select
@@ -2970,7 +3317,9 @@ function HdrsView(
               placeholder="latest"
             />
           </label>
-          <Btn style={{ marginLeft: 12 }} onClick={() => apply()}>Apply</Btn>
+          <Btn style={{ marginLeft: 12 }} onClick={() => apply()} disabled={resolving}>
+            {resolving ? 'Anchoring…' : 'Apply'}
+          </Btn>
         </div>
 
         <ColumnPresets>
@@ -3138,6 +3487,8 @@ export const BeamExplorer: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
+  // For a chained hdrs fetch: which request we're on out of how many planned.
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const reqId = useRef(0);
@@ -3179,23 +3530,41 @@ export const BeamExplorer: React.FC = () => {
     }
     setLoading(true);
     setError(null);
+    setProgress(null);
     reqId.current += 1;
     const myId = reqId.current;
-    fetch(url)
-      .then((r) => {
+    const controller = new AbortController();
+
+    // hdrs above the 2048-row cap is satisfied by chaining requests; everything
+    // else is a single fetch. The AbortController cancels an in-flight chain
+    // when the view changes or the component unmounts.
+    const paginate = view.type === 'hdrs' && Number(view.nMax) > HDRS_MAX_PER_REQUEST;
+    const onProgress = (done: number, total: number): void => {
+      // Ignore late callbacks from a superseded request.
+      if (myId === reqId.current) setProgress({ done, total });
+    };
+    const run = paginate
+      ? fetchHdrsPaginated(view, controller.signal, onProgress)
+      : fetch(url, { signal: controller.signal }).then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
-      })
+      });
+
+    run
       .then((j) => {
         if (myId !== reqId.current) return;
         setData(j);
         setLoading(false);
+        setProgress(null);
       })
       .catch((e: unknown) => {
-        if (myId !== reqId.current) return;
+        if (controller.signal.aborted || myId !== reqId.current) return;
         setError(e instanceof Error ? e.message : 'Request failed');
         setLoading(false);
+        setProgress(null);
       });
+
+    return () => controller.abort();
   }, [view, go]);
 
   const ctx: RenderCtx = useMemo(
@@ -3264,7 +3633,12 @@ export const BeamExplorer: React.FC = () => {
         <NavTab data-active={view.type === 'historical' ? 'true' : 'false'} onClick={() => go({ type: 'historical' })}>Historical</NavTab>
       </NavTabs>
 
-      {loading && <Loading>Loading…</Loading>}
+      {loading && (
+        <Loading>
+          Loading…
+          {progress && progress.total > 1 && ` (request ${progress.done}/${progress.total})`}
+        </Loading>
+      )}
       {error && <ErrorBox>Failed to load: {error}</ErrorBox>}
 
       {!loading && !error && (
