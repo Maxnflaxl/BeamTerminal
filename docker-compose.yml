@@ -7,11 +7,24 @@
 # Both indexer and api use host network mode so they can reach
 # - explorer-node on 127.0.0.1:8888
 # - postgres on 127.0.0.1:5432 (postgres publishes to loopback only)
+#
+# Container logs are capped (json-file, 50m × 3) so an unbounded log can't fill
+# the host disk — the box is shared with other docker stacks. This mirrors the
+# global default in /etc/docker/daemon.json; keeping it here too means our
+# services are bounded on the next `up` even before a daemon restart applies the
+# global default.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
 
 services:
   postgres:
     image: timescale/timescaledb:latest-pg16
     restart: always
+    logging: *default-logging
     environment:
       POSTGRES_DB: beamterminal
       POSTGRES_USER: beamterminal
@@ -31,6 +44,7 @@ services:
     build: ./backend
     command: node dist/src/indexer.js
     restart: always
+    logging: *default-logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,6 +55,7 @@ services:
     build: ./backend
     command: node dist/src/api.js
     restart: always
+    logging: *default-logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,6 +77,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile.wallet-api
     restart: always
+    logging: *default-logging
     network_mode: host
     env_file: ./backend/.env
     volumes:
