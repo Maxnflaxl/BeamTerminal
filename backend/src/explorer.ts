@@ -298,3 +298,38 @@ export interface SwapTotalsResponse {
 export async function getSwapTotals(): Promise<SwapTotalsResponse> {
   return fetchJson<SwapTotalsResponse>('/swap_totals');
 }
+
+/**
+ * DEX-style asset-to-asset swap offers, live from the explorer node
+ * (BeamMW/beam #2054, gated behind `BEAM_ASSET_SWAP_SUPPORT`). These are the
+ * same wallet-gossiped orders the wallet-api's `assets_swap_offers_list` used
+ * to serve — the explorer now exposes them directly, so we no longer need the
+ * wallet daemon for asset swaps.
+ *
+ * Maker perspective: `send_*` is what the maker offers, `receive_*` what they
+ * want. Amounts are formatted decimal strings *with thousands separators*
+ * (e.g. "10,624.16998671"), rendered with each asset's own decimals — convert
+ * back to atomic units in services/assetSwapOffers.ts. The explorer has no
+ * wallet, so there is no `isMy` field (every offer is "not mine").
+ *
+ * Like /swap_offers, only present on explorer builds compiled with the swap
+ * feature flag; a 404 means "feature unavailable" and should be treated as an
+ * empty list rather than a hard error.
+ *
+ * Shape per beam/explorer/adapter.cpp::get_asset_swaps.
+ */
+export interface AssetSwapOfferRaw {
+  id: string;
+  create_time: number;
+  expire_time: number;
+  send_asset_id: number;
+  send_amount: string;
+  send_currency: string;
+  receive_asset_id: number;
+  receive_amount: string;
+  receive_currency: string;
+}
+
+export async function getAssetSwaps(): Promise<AssetSwapOfferRaw[]> {
+  return fetchJson<AssetSwapOfferRaw[]>('/asset_swaps');
+}

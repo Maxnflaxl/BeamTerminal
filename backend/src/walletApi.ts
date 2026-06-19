@@ -6,8 +6,11 @@ import { logger } from './logger.js';
 // Minimal JSON-RPC client for the BEAM wallet-api daemon.
 //
 // We only call methods marked `API_READ_ACCESS` in the wallet-api method
-// registration tables (see beam/wallet/api/v7_*/v7_*_api_defs.h). For the
-// asset-swaps subsystem that's exactly one method: `assets_swap_offers_list`.
+// registration tables (see beam/wallet/api/v7_*/v7_*_api_defs.h). What's left
+// here backs the DApp Store projection (`invoke_contract`) and the IPFS
+// archival mirror + gateway (`ipfs_get` / `ipfs_pin`). Asset swaps no longer
+// go through the wallet daemon — they come straight from the explorer's
+// `/asset_swaps` endpoint (BeamMW/beam #2054), see services/assetSwapOffers.ts.
 // ---------------------------------------------------------------------------
 
 const MAX_ATTEMPTS = 3;
@@ -17,10 +20,6 @@ interface JsonRpcResult<T> {
   jsonrpc: '2.0';
   id: number | string;
   result?: T;
-  // `assets_swap_offers_list` returns `{ id, jsonrpc, offers: [...] }` —
-  // i.e. the payload is hoisted to the top level instead of nested under
-  // `result`. Pinned: see beam/wallet/api/v7_2/v7_2_api_impl.cpp.
-  offers?: unknown;
   error?: { code: number; message: string; data?: unknown };
 }
 
@@ -83,54 +82,6 @@ async function call<T>(method: string, params?: Record<string, unknown>): Promis
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// ---------------------------------------------------------------------------
-// assets_swap_offers_list
-//
-// Wire shape from docs-gitbook/core-tech/api/Beam-wallet-protocol-API-v7.4.md
-// + beam/wallet/api/v7_2/v7_2_api_defs.h:
-//
-//   {
-//     "id": 1, "jsonrpc": "2.0",
-//     "offers": [{
-//       "create_time":    1667219066,
-//       "expire_time":    1667240666,
-//       "id":             "<32-hex>",
-//       "isMy":           false,
-//       "receiveAmount":  100000000,
-//       "receiveAssetId": 0,
-//       "receiveCurrencyName": "BEAM",
-//       "sendAmount":     100000000,
-//       "sendAssetId":    2,
-//       "sendCurrencyName": "SHEKELb"
-//     }]
-//   }
-// ---------------------------------------------------------------------------
-
-export interface AssetSwapOffer {
-  id: string;
-  isMy: boolean;
-  sendAssetId: number;
-  sendAmount: number;
-  sendCurrencyName: string;
-  receiveAssetId: number;
-  receiveAmount: number;
-  receiveCurrencyName: string;
-  create_time: number;
-  expire_time: number;
-}
-
-export async function listAssetSwapOffers(): Promise<AssetSwapOffer[]> {
-  const resp = await call<{ offers: AssetSwapOffer[] }>('assets_swap_offers_list');
-  // Per wire shape above, offers are at the top level — not under `result`.
-  // Be defensive and accept both, since wallet-api implementations have
-  // varied here historically.
-  const offers = (resp.offers ?? resp.result?.offers ?? []) as AssetSwapOffer[];
-  if (!Array.isArray(offers)) {
-    throw new Error(`wallet-api assets_swap_offers_list: unexpected shape ${JSON.stringify(resp).slice(0, 200)}`);
-  }
-  return offers;
 }
 
 // ---------------------------------------------------------------------------

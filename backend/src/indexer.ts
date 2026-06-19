@@ -43,9 +43,9 @@ const DEX_STATS_REFRESH_MS = 5 * 60 * 1000;
 let lastDexStatsRefresh = 0;
 let dexStatsRefreshInflight = false;
 
-// Asset-swap offers (wallet-api). Independent of the main tick — runs at its
-// own cadence so a slow wallet-api can't stall DEX call ingest. No-ops when
-// WALLET_API_URL is unset.
+// Asset-swap offers (explorer `/asset_swaps`, BeamMW/beam #2054). Independent
+// of the main tick — runs at its own cadence so a slow explorer request can't
+// stall DEX call ingest. No-ops when the explorer build lacks swap support.
 let lastAssetSwapsSync = 0;
 let assetSwapsInflight = false;
 
@@ -169,8 +169,8 @@ function maybeKickBlockMetricsCatchUp(headHeight: number): void {
     .finally(() => { blockMetricsInflight = false; });
 }
 
-// Fire-and-forget poll of the wallet-api for asset-swap offers. Independent
-// cadence so DEX ingest never waits on a slow wallet daemon.
+// Fire-and-forget poll of the explorer for asset-swap offers. Independent
+// cadence so DEX ingest never waits on a slow explorer request.
 function maybeKickAssetSwapsSync(): void {
   if (assetSwapsInflight) return;
   const now = Date.now();

@@ -44,15 +44,17 @@ const Env = z.object({
     .or(z.literal(''))
     .optional()
     .default('5ab408982b148210e88f180114f10222a2235eafeede0a3a224fda0e523e17b7'),
-  // Wallet API JSON-RPC base URL. When unset, the asset-swap-offers subsystem
-  // is disabled (no daemon to ask). For dev: http://localhost:10005 once
-  // `docker compose up wallet-api` has booted; for prod: an internal URL.
+  // Wallet API JSON-RPC base URL. When unset, the DApp Store projection and the
+  // IPFS mirror/gateway are disabled (no daemon to ask). Asset swaps no longer
+  // need it — they come from the explorer's `/asset_swaps` (BeamMW/beam #2054).
+  // For dev: http://localhost:10005 once `docker compose up wallet-api` has
+  // booted; for prod: an internal URL.
   WALLET_API_URL: z
     .string()
     .url()
     .optional()
     .transform((u) => (u ? u.replace(/\/+$/, '') : undefined)),
-  // How often to poll the wallet-api for `assets_swap_offers_list`. Offers
+  // How often to poll the explorer's `/asset_swaps` for live DEX offers. Offers
   // are gossiped — there's no benefit to going faster than ~15s.
   ASSET_SWAP_POLL_MS: z.coerce.number().int().positive().default(30_000),
   CONFIRMATIONS: z.coerce.number().int().nonnegative().default(80),

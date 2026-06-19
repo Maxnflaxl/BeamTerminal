@@ -19,9 +19,11 @@ services:
       timeout: 5s
       retries: 10
 
-  # BEAM wallet-api 7.5.13882. Only needed for the asset-swaps indexer subsystem
-  # (assets_swap_offers_list — not exposed by the explorer). Opt-in: comment
-  # out if you don't care about asset-swap data locally.
+  # BEAM wallet-api 7.5.13882. Needed for the DApp Store projection
+  # (invoke_contract of dapps_store_app.wasm) and the IPFS mirror/gateway
+  # (ipfs_pin / ipfs_get). Asset swaps no longer need it — they come from the
+  # explorer's /asset_swaps endpoint (BeamMW/beam #2054). Opt-in: comment out if
+  # you don't care about DApp Store / IPFS data locally.
   #
   # First boot generates a fresh wallet.db + seed.txt in the named volume; the
   # wallet holds no funds, it's a read-only gossip subscriber.
