@@ -871,8 +871,8 @@ export const PairDetail: React.FC = () => {
                       </span>
                     </td>
                     <td>{fmt$(t.price_usd)}</td>
-                    <td>{fmtAmt(t.amount_in, p.decimals1)}</td>
-                    <td>{fmtAmt(t.amount_out, p.decimals2)}</td>
+                    <td>{fmtAmt(t.aid_in === p.aid1 ? t.amount_in : t.amount_out, p.decimals1)}</td>
+                    <td>{fmtAmt(t.aid_in === p.aid1 ? t.amount_out : t.amount_in, p.decimals2)}</td>
                     <td>{fmt$(t.value_usd)}</td>
                   </tr>
                 ))}
