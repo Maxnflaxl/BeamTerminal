@@ -41,9 +41,13 @@ export function statsUrl(baseUrl: string, kind: AdapterKind): string {
       return `${baseUrl}/api/stats`;
     case 'sunpool':
     case 'acepool':
+      // Server-side rendered PHP — no JSON stats endpoint discoverable.
+      // Returning a sentinel URL; normalize() will receive a non-JSON response
+      // and return null (pool shown as offline).
+      return `${baseUrl}/pool-stats.php`;
     case 'cedric':
-      // Task 3b: confirm/override path against live endpoint
-      return `${baseUrl}/api/stats`;
+      // MiningCore-based pool. Stats at /api/pool/ (custom Django wrapper).
+      return `${baseUrl}/api/pool/`;
   }
 }
 
@@ -134,12 +138,55 @@ function fromCryptonoteNode(raw: any): PoolStats | null {
   };
 }
 
+// MiningCore family (cedric-crispin.com).
+// Live shape: { sStatus: "OK", mResponse: {
+//   pool: {
+//     poolFeePercent: number,
+//     paymentProcessing: { minimumPayment: number (BEAM) },
+//     poolStats: { connectedMiners, poolHashrate (Sol/s) },
+//     networkStats:  { blockHeight },
+//     lastPoolBlockTime: ISO8601 string,
+//     totalBlocks: number,
+//   }
+// }}
+function fromMiningCore(raw: any): PoolStats | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const resp = raw.mResponse;
+  if (!resp || typeof resp !== 'object') return null;
+  const pool = resp.pool;
+  if (!pool || typeof pool !== 'object') return null;
+  const ps = pool.poolStats;
+  if (!ps || typeof ps !== 'object') return null; // not a miningcore response
+  const ns = pool.networkStats ?? {};
+  const pp = pool.paymentProcessing ?? {};
+
+  const hashrate = num(ps.poolHashrate);
+
+  // lastPoolBlockTime is ISO8601 (e.g. "2026-06-28T23:44:12.874619Z")
+  let lastBlockTs: number | null = null;
+  if (typeof pool.lastPoolBlockTime === 'string') {
+    const ms = Date.parse(pool.lastPoolBlockTime);
+    if (Number.isFinite(ms)) lastBlockTs = Math.floor(ms / 1000);
+  }
+
+  return {
+    hashrate,
+    miners: num(ps.connectedMiners),
+    workers: num(ps.connectedMiners), // miningcore exposes miners, not workers separately
+    blocks24h: null, // would require a separate /api/pool/blocks/ call; not done at stats URL
+    lastBlockHeight: num(ns.blockHeight), // network tip height (last block height proxy)
+    lastBlockTs,
+    fee: num(pool.poolFeePercent),
+    minPayout: num(pp.minimumPayment), // already in BEAM (not groths)
+  };
+}
+
 export function normalize(kind: AdapterKind, raw: unknown): PoolStats | null {
   switch (kind) {
     case 'open-eth':        return fromOpenEth(raw);
     case 'cryptonote-node': return fromCryptonoteNode(raw);
-    case 'sunpool':         return null; // Task 3b
-    case 'acepool':         return null; // Task 3b
-    case 'cedric':          return null; // Task 3b
+    case 'sunpool':         return null; // PHP-rendered only, no JSON API
+    case 'acepool':         return null; // PHP-rendered only, no JSON API
+    case 'cedric':          return fromMiningCore(raw);
   }
 }
