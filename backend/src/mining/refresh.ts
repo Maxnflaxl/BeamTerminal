@@ -3,7 +3,7 @@
 // live fields (logged at warn) and never aborts the others. Called by the
 // indexer on each new block height (inflight-gated there).
 import { POOLS } from './pools.js';
-import { normalize, statsUrl, blocksUrl, parseBlocks } from './adapters.js';
+import { normalize, statsUrl, blocksUrl, parseBlocks, parseBlockDifficulties } from './adapters.js';
 import { q } from '../db.js';
 import { logger } from '../logger.js';
 
@@ -67,7 +67,24 @@ export async function refreshMiningPools(): Promise<{ ok: number; failed: number
       // Sync found-block heights — isolated: a failure never aborts the snapshot or other pools.
       try {
         let heights: number[];
-        if (p.adapter === 'sunpool') {
+        if (p.adapter === 'cryptonote-node') {
+          // herominers /api/get_blocks serves a stale 4h cache. Instead, extract
+          // difficulties from the already-fetched stats payload and resolve heights
+          // via a single block_metrics lookup (difficulty uniquely maps to height).
+          const diffs = parseBlockDifficulties(p.adapter, raw);
+          if (diffs.length > 0) {
+            interface DiffRow { difficulty: number; height: string }
+            const { rows: diffRows } = await q<DiffRow>(
+              `SELECT difficulty::float8 AS difficulty, height
+                 FROM block_metrics
+                WHERE difficulty = ANY($1::float8[])`,
+              [diffs],
+            );
+            heights = diffRows.map((r) => Number(r.height));
+          } else {
+            heights = [];
+          }
+        } else if (p.adapter === 'sunpool') {
           // Heights are embedded in the already-fetched stats text — no extra request.
           heights = parseBlocks(p.adapter, raw);
         } else {

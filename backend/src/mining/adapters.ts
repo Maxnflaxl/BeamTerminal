@@ -236,10 +236,10 @@ export function blocksUrl(baseUrl: string, kind: AdapterKind): string | null {
     case 'open-eth':
       return `${baseUrl}/api/blocks`;
     case 'cryptonote-node':
-      // herominers: GET /api/get_blocks?height=<offset> returns up to ~10 blocks
-      // per page starting from the given height offset (descending). Passing a
-      // very large offset returns the most-recent batch.
-      return `${baseUrl}/api/get_blocks?height=99999999`;
+      // herominers /api/get_blocks serves a stale 4h-old cache — unusable for
+      // recent block attribution. Heights are resolved via difficulty lookup
+      // against block_metrics instead (see refresh.ts). No extra fetch needed.
+      return null;
     case 'sunpool':
       return null; // heights are parsed from the already-fetched stats text
     case 'acepool':
@@ -307,6 +307,30 @@ function blocksFromSunpoolText(raw: unknown): number[] {
     if (isPlausibleHeight(h)) out.push(h);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Difficulty extraction — used when block heights must be resolved via a DB
+// lookup rather than being present in the pool's blocks response.
+// ---------------------------------------------------------------------------
+
+// Extract difficulties from a pool's already-fetched stats payload.
+// For cryptonote-node (herominers): pool.blocks is an array of colon-delimited
+// strings where index [2] is the block difficulty (float, e.g. 5827121.25).
+// Returns a deduplicated array of finite difficulties, or [] for other adapters.
+export function parseBlockDifficulties(kind: AdapterKind, raw: unknown): number[] {
+  if (kind !== 'cryptonote-node') return [];
+  if (!raw || typeof raw !== 'object') return [];
+  const pool = (raw as any).pool;
+  if (!Array.isArray(pool?.blocks)) return [];
+  const seen = new Set<number>();
+  for (const b of pool.blocks) {
+    if (typeof b !== 'string') continue;
+    const parts = b.split(':');
+    const d = parts[2] !== undefined ? num(parts[2]) : null;
+    if (d !== null && !seen.has(d)) seen.add(d);
+  }
+  return Array.from(seen);
 }
 
 // ---------------------------------------------------------------------------
