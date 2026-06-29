@@ -9,7 +9,7 @@ import type { ApiMiningPools, ApiMiningPool, ApiMiningBlocks } from '../../api/t
 import type { ApiChartPoint } from '../../api/client';
 import { Sparkline } from '../../components/Sparkline';
 import {
-  Page, Card, H2, H3, StatGrid, StatCard, Label, Value,
+  Page, Card, H2, H3,
   DataTable, TabBtn, Dot, Btn, Muted, theme,
 } from './shared';
 
@@ -189,6 +189,8 @@ export const Mining: React.FC = () => {
   const [poolData, setPoolData] = useState<ApiMiningPools | null>(null);
   const [blockData, setBlockData] = useState<ApiMiningBlocks | null>(null);
   const [poolErr, setPoolErr] = useState<string | null>(null);
+  const [blocksLoaded, setBlocksLoaded] = useState(false);
+  const [blocksError, setBlocksError] = useState(false);
   const [tab, setTab] = useState<Tab>('blocks');
   const [calcOpen, setCalcOpen] = useState(false);
 
@@ -208,8 +210,8 @@ export const Mining: React.FC = () => {
         .then((d) => { if (alive) { setPoolData(d); setPoolErr(null); } })
         .catch((e: Error) => { if (alive) setPoolErr(e?.message ?? 'failed to load'); });
       api.miningBlocks(50)
-        .then((d) => { if (alive) setBlockData(d); })
-        .catch(() => {});
+        .then((d) => { if (alive) { setBlockData(d); setBlocksLoaded(true); setBlocksError(false); } })
+        .catch(() => { if (alive) { setBlocksLoaded(true); setBlocksError(true); } });
     };
     load();
     const t = setInterval(load, 60_000);
@@ -448,9 +450,10 @@ export const Mining: React.FC = () => {
       {/* ── 3. Recent blocks ─────────────────────────────────────────────── */}
       <Card>
         <H2>Recent Blocks</H2>
-        {blocks.length === 0
-          ? <Muted>Loading recent blocks…</Muted>
-          : (
+        {!blocksLoaded && <Muted>Loading recent blocks…</Muted>}
+        {blocksLoaded && (blocksError || blocks.length === 0)
+          ? <Muted>Recent blocks unavailable.</Muted>
+          : blocksLoaded && (
             <DataTable>
               <thead>
                 <tr>
