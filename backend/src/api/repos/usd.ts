@@ -48,7 +48,7 @@ export async function loadUsdTable(): Promise<UsdTable> {
   // For each non-BEAM aid that appears in a BEAM-quoted pool, take the deepest
   // such pool by BEAM reserve and derive USD-per-whole-unit.
   const { rows } = await q<DeepestPoolRow>(`
-    beam_pools AS (
+    WITH beam_pools AS (
       -- Latest snapshot per BEAM-quoted pool via a per-pool LATERAL seek
       -- (indexed LIMIT 1) instead of a DISTINCT ON over the whole
       -- pool_state_snapshots hypertable, which full-scans (~4.5s).
