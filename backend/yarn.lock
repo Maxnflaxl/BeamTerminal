@@ -515,6 +515,7 @@ __metadata:
     "@types/pg": "npm:^8.11.10"
     dotenv: "npm:^16.4.5"
     fastify: "npm:^5.1.0"
+    marked: "npm:^18.0.5"
     pg: "npm:^8.13.1"
     pino: "npm:^9.5.0"
     pino-pretty: "npm:^11.3.0"
@@ -908,6 +909,15 @@ __metadata:
     process-warning: "npm:^4.0.0"
     set-cookie-parser: "npm:^2.6.0"
   checksum: 10c0/1440853cd3822ab83fbb1be4456099082dec8e9e3a4ea35c9d8d7d17a7ab98c83ad0a4c39a73a8c2b31b9ca70c57506e5b7a929495c149463ca0daca0d90dc6f
+  languageName: node
+  linkType: hard
+
+"marked@npm:^18.0.5":
+  version: 18.0.5
+  resolution: "marked@npm:18.0.5"
+  bin:
+    marked: bin/marked.js
+  checksum: 10c0/22763935a0a243c41851b010a086ea85a09951e379948b6aa629b6cecdcd66e3a5e8c4acac2f6b29c183c20609d3e5102495270207dfd5f4c46ddd773a4ddb9b
   languageName: node
   linkType: hard
 

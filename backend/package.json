@@ -14,7 +14,8 @@
     "start": "node dist/indexer.js",
     "start:api": "node dist/api.js",
     "migrate": "tsx scripts/migrate.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gen:apidocs": "node scripts/gen-api-docs.mjs"
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.2.0",
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/pg": "^8.11.10",
+    "marked": "^18.0.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
