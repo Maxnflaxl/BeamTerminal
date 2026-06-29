@@ -157,8 +157,8 @@ const ModalCard = styled.div`
   border-radius: ${theme.radius.lg};
   padding: 24px;
   min-width: 280px;
-  max-width: 780px;
-  width: 95%;
+  max-width: 1040px;
+  width: 94vw;
   max-height: 90vh;
   overflow-y: auto;
 `;

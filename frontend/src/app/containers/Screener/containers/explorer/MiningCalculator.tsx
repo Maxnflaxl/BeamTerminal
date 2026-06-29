@@ -25,6 +25,11 @@ function fmtUsd(n: number): string {
   return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtUsdLong(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return '$' + n.toFixed(4);
+}
+
 function fmtHashrate(solPerSec: number): string {
   if (!Number.isFinite(solPerSec) || solPerSec <= 0) return '—';
   const units = ['Sol/s', 'KSol/s', 'MSol/s', 'GSol/s'];
@@ -103,19 +108,20 @@ function calc(inputs: CalcInputs): CalcResult {
 
 interface ChartProps {
   inputs: CalcInputs;
+  effectiveNetHash: number;
 }
 
 const SVG_W = 560;
 const SVG_H = 220;
 const PAD = { top: 18, right: 20, bottom: 38, left: 68 };
 
-const ProfitChart: React.FC<ChartProps> = ({ inputs }) => {
-  const { netHash, reward, price, blockMin, yourHash, watts, kwh } = inputs;
-  if (netHash <= 0 || yourHash <= 0 || reward <= 0) return null;
+const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
+  const { reward, price, blockMin, yourHash, watts, kwh } = inputs;
+  if (effectiveNetHash <= 0 || yourHash <= 0 || reward <= 0) return null;
 
   const POINTS = 60;
-  const xMin = netHash * 0.2;
-  const xMax = netHash * 3.0;
+  const xMin = effectiveNetHash * 0.2;
+  const xMax = effectiveNetHash * 3.0;
   const xStep = (xMax - xMin) / (POINTS - 1);
 
   const pts: Array<{ x: number; y: number }> = [];
@@ -144,13 +150,13 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs }) => {
   const y0 = toSvgY(0);
   const showZeroLine = y0 >= PAD.top && y0 <= PAD.top + plotH;
 
-  // current netHash vertical line
-  const xNetHash = toSvgX(netHash);
+  // effective netHash vertical line
+  const xNetHash = toSvgX(effectiveNetHash);
 
   // Y axis ticks
   const yTicks = [yMin, (yMin + yMax) / 2, yMax];
-  // X axis ticks: xMin, netHash, xMax
-  const xTicks = [xMin, netHash, xMax];
+  // X axis ticks: xMin, effectiveNetHash, xMax
+  const xTicks = [xMin, effectiveNetHash, xMax];
 
   function fmtAxisY(v: number) {
     if (Math.abs(v) < 0.01 && v !== 0) return v.toFixed(4);
@@ -198,7 +204,7 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs }) => {
       {showZeroLine && (
         <line x1={PAD.left} y1={y0} x2={PAD.left + plotW} y2={y0} stroke="rgba(255,255,255,0.35)" strokeWidth="1" strokeDasharray="4 4" />
       )}
-      {/* Current netHash vertical dashed line */}
+      {/* Current effectiveNetHash vertical dashed line */}
       <line x1={xNetHash} y1={PAD.top} x2={xNetHash} y2={PAD.top + plotH} stroke="#00f6d2" strokeWidth="1" strokeDasharray="4 4" />
       {/* Curve */}
       <path d={pathD} fill="none" stroke="#00f6d2" strokeWidth="2" strokeLinejoin="round" />
@@ -277,6 +283,76 @@ const LoadingNote = styled.div`
 `;
 
 // ---------------------------------------------------------------------------
+// What-if slider sub-components
+// ---------------------------------------------------------------------------
+
+const SliderGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 4px;
+  @media (max-width: 600px) { grid-template-columns: 1fr; }
+`;
+
+const SliderWrap = styled.div`
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  flex-direction: column;
+`;
+
+const SliderHeader = styled.div`
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: justify;
+  justify-content: space-between;
+  margin-bottom: 4px;
+`;
+
+const SliderLabel = styled.span`
+  font-size: 10px;
+  color: ${theme.color.muted};
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+`;
+
+const SliderMultiplier = styled.span`
+  font-size: 11px;
+  color: ${theme.color.text};
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+`;
+
+const SliderEffective = styled.div`
+  font-size: 10px;
+  color: ${theme.color.accent};
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+`;
+
+const ResetBtn = styled.button`
+  background: transparent;
+  border: none;
+  color: ${theme.color.muted};
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 6px;
+  line-height: 1;
+  text-decoration: underline;
+  &:hover { color: ${theme.color.text}; }
+`;
+
+const SliderInput = styled.input`
+  width: 100%;
+  accent-color: ${theme.color.accent};
+  cursor: pointer;
+`;
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -292,10 +368,15 @@ export const MiningCalculator: React.FC = () => {
   const [kwhStr, setKwhStr] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Fetch live data on mount
+  // What-if sensitivity multipliers (1.0 = neutral)
+  const [sliderNet, setSliderNet] = useState(1.0);
+  const [sliderPrice, setSliderPrice] = useState(1.0);
+  const [sliderKwh, setSliderKwh] = useState(1.0);
+
+  // Fetch live data on mount — single fast call to /api/mining/pools
   useEffect(() => {
     let alive = true;
-    Promise.all([api.miningPools(), api.stats()]).then(([pools, stats]) => {
+    api.miningPools().then((pools) => {
       if (!alive) return;
       if (pools.network_hashrate != null && Number.isFinite(pools.network_hashrate)) {
         setNetHashStr(String(Math.round(pools.network_hashrate)));
@@ -304,8 +385,8 @@ export const MiningCalculator: React.FC = () => {
         const r = blockRewardAtHeight(pools.block_height);
         if (Number.isFinite(r) && r > 0) setRewardStr(String(r));
       }
-      if (stats.beam_usd != null && Number.isFinite(stats.beam_usd)) {
-        setPriceStr(stats.beam_usd.toFixed(4));
+      if (pools.beam_usd != null && Number.isFinite(pools.beam_usd)) {
+        setPriceStr(pools.beam_usd.toFixed(4));
       }
     }).catch(() => {
       // silent — leave fields blank/editable
@@ -315,7 +396,7 @@ export const MiningCalculator: React.FC = () => {
     return () => { alive = false; };
   }, []);
 
-  const inputs: CalcInputs = useMemo(() => ({
+  const baseInputs: CalcInputs = useMemo(() => ({
     netHash: safeNum(netHashStr),
     reward: safeNum(rewardStr),
     price: safeNum(priceStr),
@@ -324,6 +405,18 @@ export const MiningCalculator: React.FC = () => {
     watts: safeNum(wattsStr),
     kwh: safeNum(kwhStr),
   }), [netHashStr, rewardStr, priceStr, blockMinStr, yourHashStr, wattsStr, kwhStr]);
+
+  // Effective (multiplied) values fed into the formulas
+  const effectiveNetHash = useMemo(() => baseInputs.netHash * sliderNet, [baseInputs.netHash, sliderNet]);
+  const effectivePrice   = useMemo(() => baseInputs.price   * sliderPrice, [baseInputs.price, sliderPrice]);
+  const effectiveKwh     = useMemo(() => baseInputs.kwh     * sliderKwh, [baseInputs.kwh, sliderKwh]);
+
+  const inputs: CalcInputs = useMemo(() => ({
+    ...baseInputs,
+    netHash: effectiveNetHash,
+    price:   effectivePrice,
+    kwh:     effectiveKwh,
+  }), [baseInputs, effectiveNetHash, effectivePrice, effectiveKwh]);
 
   const result = useMemo(() => {
     const { netHash, reward, price, yourHash } = inputs;
@@ -444,6 +537,82 @@ export const MiningCalculator: React.FC = () => {
         </FieldWrap>
       </FormGrid>
 
+      {/* What-if sensitivity sliders */}
+      <SectionTitle>What-If Sensitivity</SectionTitle>
+      <SliderGrid>
+        {/* Network hashrate slider */}
+        <SliderWrap>
+          <SliderHeader>
+            <SliderLabel>Network hashrate ×</SliderLabel>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <SliderMultiplier>×{sliderNet.toFixed(2)}</SliderMultiplier>
+              {sliderNet !== 1.0 && (
+                <ResetBtn type="button" onClick={() => setSliderNet(1.0)}>reset</ResetBtn>
+              )}
+            </div>
+          </SliderHeader>
+          <SliderInput
+            type="range"
+            min="0.5"
+            max="2.0"
+            step="0.01"
+            value={sliderNet}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSliderNet(parseFloat(e.target.value))}
+          />
+          {baseInputs.netHash > 0 && (
+            <SliderEffective>= {fmtHashrate(effectiveNetHash)}</SliderEffective>
+          )}
+        </SliderWrap>
+
+        {/* BEAM price slider */}
+        <SliderWrap>
+          <SliderHeader>
+            <SliderLabel>BEAM price ×</SliderLabel>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <SliderMultiplier>×{sliderPrice.toFixed(2)}</SliderMultiplier>
+              {sliderPrice !== 1.0 && (
+                <ResetBtn type="button" onClick={() => setSliderPrice(1.0)}>reset</ResetBtn>
+              )}
+            </div>
+          </SliderHeader>
+          <SliderInput
+            type="range"
+            min="0.5"
+            max="2.0"
+            step="0.01"
+            value={sliderPrice}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSliderPrice(parseFloat(e.target.value))}
+          />
+          {baseInputs.price > 0 && (
+            <SliderEffective>= {fmtUsdLong(effectivePrice)}</SliderEffective>
+          )}
+        </SliderWrap>
+
+        {/* Electricity cost slider */}
+        <SliderWrap>
+          <SliderHeader>
+            <SliderLabel>Electricity ×</SliderLabel>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <SliderMultiplier>×{sliderKwh.toFixed(2)}</SliderMultiplier>
+              {sliderKwh !== 1.0 && (
+                <ResetBtn type="button" onClick={() => setSliderKwh(1.0)}>reset</ResetBtn>
+              )}
+            </div>
+          </SliderHeader>
+          <SliderInput
+            type="range"
+            min="0.5"
+            max="2.0"
+            step="0.01"
+            value={sliderKwh}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSliderKwh(parseFloat(e.target.value))}
+          />
+          {baseInputs.kwh > 0 && (
+            <SliderEffective>= {fmtUsdLong(effectiveKwh)}/kWh</SliderEffective>
+          )}
+        </SliderWrap>
+      </SliderGrid>
+
       {/* Results */}
       {result && (
         <>
@@ -464,7 +633,7 @@ export const MiningCalculator: React.FC = () => {
             </StatCard>
             <StatCard>
               <Label>Power cost / day</Label>
-              <Value>{inputs.watts > 0 && inputs.kwh > 0 ? fmtUsd(result.dailyPowerCost) : '—'}</Value>
+              <Value>{inputs.watts > 0 && effectiveKwh > 0 ? fmtUsd(result.dailyPowerCost) : '—'}</Value>
             </StatCard>
             <StatCard>
               <Label>Profit / day</Label>
@@ -513,7 +682,7 @@ export const MiningCalculator: React.FC = () => {
           {/* Profit vs network hashrate chart */}
           <ChartWrap>
             <ChartTitle>Profit / day vs Network Hashrate</ChartTitle>
-            <ProfitChart inputs={inputs} />
+            <ProfitChart inputs={inputs} effectiveNetHash={effectiveNetHash} />
             <div style={{ fontSize: 9, color: theme.color.muted, marginTop: 4, textAlign: 'center' }}>
               <span style={{ color: '#00f6d2', marginRight: 4 }}>—</span>profit curve
               <span style={{ marginLeft: 12, color: '#00f6d2', marginRight: 4 }}>- -</span>current network HR
