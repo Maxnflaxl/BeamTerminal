@@ -7,6 +7,7 @@ import type {
   ApiHealth,
   ApiStats,
   ApiMiningPools,
+  ApiMiningBlocks,
   ApiPair,
   ApiPairsList,
   ApiOhlcv,
@@ -79,6 +80,7 @@ export const api = {
   health: (): Promise<ApiHealth> => get<ApiHealth>('/health'),
   stats: (): Promise<ApiStats> => get<ApiStats>('/stats'),
   miningPools: (): Promise<ApiMiningPools> => get<ApiMiningPools>('/mining/pools'),
+  miningBlocks: (limit = 50): Promise<ApiMiningBlocks> => get<ApiMiningBlocks>(`/mining/blocks?limit=${limit}`),
 
   pairs: (params: PairsQuery = {}): Promise<ApiPairsList> => get<ApiPairsList>(`/pairs${qs(params as Record<string, string | number | boolean | undefined>)}`),
 
@@ -153,6 +155,7 @@ export const api = {
     assets:     (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/assets'),
     dexVolume:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/dex-volume'),
     difficulty: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/difficulty'),
+    price:      (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/price'),
     blockTime:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/block-time'),
     tvl:        (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/tvl'),
     beamVol:    (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/beam-vol'),

@@ -561,9 +561,22 @@ export interface ApiMiningPool {
   fee: number | null;
   min_payout: number | null;
   updated_at: string | null;
+  hashrate_series: number[];
+  blocks_last_100: number | null;
 }
 
 export interface ApiMiningPools {
   network_hashrate: number | null;
+  block_height: number | null;
   pools: ApiMiningPool[];
+}
+
+export interface ApiMiningBlock {
+  height: number;
+  ts: string;
+  mined_by: string | null;
+}
+
+export interface ApiMiningBlocks {
+  blocks: ApiMiningBlock[];
 }
