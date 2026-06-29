@@ -119,7 +119,7 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
         blocks_24h: s?.blocks_24h ?? null,
         last_block_height: s?.last_block_height != null ? Number(s.last_block_height) : null,
         last_block_ts: s?.last_block_ts ? s.last_block_ts.toISOString() : null,
-        fee: s?.fee != null ? Number(s.fee) : null,
+        fee: s?.fee != null ? Number(s.fee) : p.fee,
         min_payout: s?.min_payout != null ? Number(s.min_payout) : null,
         updated_at: s?.ts ? s.ts.toISOString() : null,
         hashrate_series: sparkByPool.get(p.id) ?? [],
