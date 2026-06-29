@@ -3,7 +3,7 @@
 // live fields (logged at warn) and never aborts the others. Called by the
 // indexer on each new block height (inflight-gated there).
 import { POOLS } from './pools.js';
-import { normalize, statsUrl } from './adapters.js';
+import { normalize, statsUrl, blocksUrl, parseBlocks } from './adapters.js';
 import { q } from '../db.js';
 import { logger } from '../logger.js';
 
@@ -63,6 +63,40 @@ export async function refreshMiningPools(): Promise<{ ok: number; failed: number
           s?.fee ?? null, s?.minPayout ?? null,
         ],
       );
+
+      // Sync found-block heights — isolated: a failure never aborts the snapshot or other pools.
+      try {
+        let heights: number[];
+        if (p.adapter === 'sunpool') {
+          // Heights are embedded in the already-fetched stats text — no extra request.
+          heights = parseBlocks(p.adapter, raw);
+        } else {
+          const bUrl = blocksUrl(p.baseUrl, p.adapter);
+          if (bUrl === null) {
+            heights = [];
+          } else {
+            const braw = await fetchPoolRaw(bUrl);
+            heights = braw !== null ? parseBlocks(p.adapter, braw) : [];
+          }
+        }
+        if (heights.length > 0) {
+          // Build a multi-row VALUES insert to avoid N round-trips.
+          const values: (string | number)[] = [];
+          const placeholders: string[] = [];
+          heights.forEach((h, i) => {
+            values.push(p.id, h);
+            placeholders.push(`($${i * 2 + 1},$${i * 2 + 2})`);
+          });
+          await q(
+            `INSERT INTO mining_pool_blocks (pool_id, height)
+             VALUES ${placeholders.join(',')}
+             ON CONFLICT (pool_id, height) DO NOTHING`,
+            values,
+          );
+        }
+      } catch (err) {
+        logger.warn({ pool: p.id, err }, 'mining pool blocks sync failed');
+      }
     }),
   );
 
