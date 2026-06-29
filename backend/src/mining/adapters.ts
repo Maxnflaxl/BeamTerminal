@@ -28,6 +28,13 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Plausible BEAM block height: above 1e6 (DEX-era) and below 1e8 — excludes
+// share counts (small) and unix timestamps (~1.78e9) that could appear if a
+// pool's response format drifts.
+function isPlausibleHeight(h: number | null): h is number {
+  return h !== null && h > 1_000_000 && h < 100_000_000;
+}
+
 // BEAM has 8 decimals (groths). minPaymentThreshold is reported in groths.
 function grothsToBeam(v: unknown): number | null {
   const n = num(v);
@@ -256,7 +263,7 @@ function asHeights(xs: unknown): number[] {
   const out: number[] = [];
   for (const b of xs) {
     const h = num((b as any)?.height);
-    if (h !== null && h > 0) out.push(h);
+    if (isPlausibleHeight(h)) out.push(h);
   }
   return out;
 }
@@ -281,7 +288,7 @@ function blocksFromCryptonote(raw: unknown): number[] {
     const entry = raw[i];
     if (typeof entry === 'string') {
       const h = num(entry.trim());
-      if (h !== null && h > 1_000_000) out.push(h);
+      if (isPlausibleHeight(h)) out.push(h);
     }
   }
   return out;
@@ -297,7 +304,7 @@ function blocksFromSunpoolText(raw: unknown): number[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const h = num(m[1]);
-    if (h !== null && h > 0) out.push(h);
+    if (isPlausibleHeight(h)) out.push(h);
   }
   return out;
 }
