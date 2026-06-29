@@ -27,10 +27,6 @@ interface BlockHeightRow {
   max: string | null;
 }
 
-interface BeamUsdRow {
-  beam_usd: number | null;
-}
-
 interface SparkRow {
   pool_id: string;
   hashrate: number;
@@ -79,12 +75,6 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
       `SELECT MAX(height)::text FROM block_metrics`,
     );
     const blockHeight = bh[0]?.max != null ? Number(bh[0].max) : null;
-
-    // Current BEAM/USD price from the most recent oracle snapshot.
-    const { rows: buRows } = await q<BeamUsdRow>(
-      `SELECT beam_usd::float8 FROM oracle_snapshots ORDER BY ts DESC LIMIT 1`,
-    );
-    const beamUsd = buRows[0]?.beam_usd ?? null;
 
     // Per-pool hashrate sparkline: last ~30 non-null snapshots, oldest→newest.
     const { rows: sparkRows } = await q<SparkRow>(
@@ -138,7 +128,7 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
     });
 
     void reply.header('cache-control', 'public, max-age=60');
-    return { network_hashrate: networkHashrate, block_height: blockHeight, beam_usd: beamUsd, pools };
+    return { network_hashrate: networkHashrate, block_height: blockHeight, pools };
   });
 
   // -------------------------------------------------------------------------

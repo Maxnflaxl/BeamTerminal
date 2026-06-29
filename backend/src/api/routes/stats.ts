@@ -8,7 +8,6 @@ interface ScalarRow {
   last_indexed_height: string | null;
   cursor_ts: Date | null;
   total_pairs: string;
-  total_trades: string;
 }
 
 interface PoolReserveRow {
@@ -42,8 +41,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
           (SELECT ts FROM oracle_snapshots ORDER BY ts DESC LIMIT 1) AS oracle_ts,
           (SELECT last_indexed_height::text FROM cursor WHERE id = 1) AS last_indexed_height,
           (SELECT updated_at FROM cursor WHERE id = 1) AS cursor_ts,
-          (SELECT count(*)::text FROM pools WHERE destroyed_at_height IS NULL) AS total_pairs,
-          (SELECT count(*)::text FROM trades WHERE confirmed = TRUE) AS total_trades
+          (SELECT count(*)::text FROM pools WHERE destroyed_at_height IS NULL) AS total_pairs
       `),
       // Latest reserves per active pool, joined with both side's decimals
       // so we can value each leg via the per-AID USD table.
@@ -146,7 +144,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
       volume_24h_usd: volHasAny ? +volume24hUsd.toFixed(2) : null,
       total_volume_usd: totalVolumeUsd !== null ? +totalVolumeUsd.toFixed(2) : null,
       total_pairs: Number(scalars?.total_pairs ?? 0),
-      total_trades: Number(scalars?.total_trades ?? 0),
+      total_trades: cachedStats.total_trades ?? 0,
       last_indexed_height: Number(scalars?.last_indexed_height ?? 0),
       block_ts: scalars?.oracle_ts ? Math.floor(scalars.oracle_ts.getTime() / 1000) : null,
     };

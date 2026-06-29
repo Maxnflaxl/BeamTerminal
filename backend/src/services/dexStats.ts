@@ -67,37 +67,46 @@ const TOTAL_VOLUME_SQL = `
       LEFT JOIN beam_paired bp2 ON bp2.day = td.day AND bp2.asset_aid = p.aid2
   )
   SELECT COALESCE(SUM(usd_value), 0)::text AS total_volume_usd,
-         BOOL_OR(usd_value IS NOT NULL) AS has_any
+         BOOL_OR(usd_value IS NOT NULL) AS has_any,
+         (SELECT count(*) FROM trades WHERE confirmed = TRUE)::text AS total_trades
     FROM priced
 `;
 
 export interface CachedDexStats {
   total_volume_usd: number | null;
+  total_trades: number | null;
   refreshed_at: Date | null;
 }
 
 export async function readDexStats(): Promise<CachedDexStats> {
-  const { rows } = await q<{ total_volume_usd: string | null; refreshed_at: Date | null }>(
-    'SELECT total_volume_usd::text, refreshed_at FROM dex_stats WHERE id = 1',
-  );
+  const { rows } = await q<{
+    total_volume_usd: string | null;
+    total_trades: string | null;
+    refreshed_at: Date | null;
+  }>('SELECT total_volume_usd::text, total_trades::text, refreshed_at FROM dex_stats WHERE id = 1');
   const row = rows[0];
   return {
     total_volume_usd: row?.total_volume_usd != null ? Number(row.total_volume_usd) : null,
+    total_trades: row?.total_trades != null ? Number(row.total_trades) : null,
     refreshed_at: row?.refreshed_at ?? null,
   };
 }
 
 export async function refreshDexStats(): Promise<void> {
   const t0 = Date.now();
-  const { rows } = await q<{ total_volume_usd: string; has_any: boolean | null }>(TOTAL_VOLUME_SQL);
+  const { rows } = await q<{ total_volume_usd: string; has_any: boolean | null; total_trades: string }>(
+    TOTAL_VOLUME_SQL,
+  );
   const row = rows[0];
   const value = row?.has_any === true ? row.total_volume_usd : null;
+  const totalTrades = row?.total_trades ?? '0';
   await q(
     `UPDATE dex_stats
         SET total_volume_usd = $1::numeric,
+            total_trades     = $2::bigint,
             refreshed_at     = now()
       WHERE id = 1`,
-    [value],
+    [value, totalTrades],
   );
-  logger.info({ ms: Date.now() - t0, total_volume_usd: value }, 'dex_stats refreshed');
+  logger.info({ ms: Date.now() - t0, total_volume_usd: value, total_trades: totalTrades }, 'dex_stats refreshed');
 }
