@@ -50,9 +50,13 @@ const page = `<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BeamTerminal API</title>
 <style>
+/* Match the site's webfont (served as static by nginx at /assets/fonts). */
+@font-face{font-family:'ProximaNova';font-weight:400;font-display:swap;src:url('https://beamterminal.0xmx.net/assets/fonts/ProximaNova-Regular.woff') format('woff')}
+@font-face{font-family:'ProximaNova';font-weight:600;font-display:swap;src:url('https://beamterminal.0xmx.net/assets/fonts/ProximaNova-Semibold.woff') format('woff')}
+@font-face{font-family:'ProximaNova';font-weight:700;font-display:swap;src:url('https://beamterminal.0xmx.net/assets/fonts/ProximaNova-Bold.woff') format('woff')}
 :root{--bg:#042548;--surface:rgba(255,255,255,.04);--border:rgba(255,255,255,.12);--text:#e8f0f7;--muted:rgba(232,240,247,.6);--accent:#00f6d2;--link:#4f9dff}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,Segoe UI,Roboto,sans-serif}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 'ProximaNova','SFProDisplay',sans-serif}
 a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
 .wrap{display:grid;grid-template-columns:260px 1fr;gap:24px;max-width:1200px;margin:0 auto;padding:24px}
 .sidebar{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto;border-right:1px solid var(--border);padding-right:12px}
