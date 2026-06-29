@@ -25,11 +25,6 @@ function fmtUsd(n: number): string {
   return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function fmtBeam(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return '—';
-  return n.toFixed(4) + ' BEAM';
-}
-
 function fmtHashrate(solPerSec: number): string {
   if (!Number.isFinite(solPerSec) || solPerSec <= 0) return '—';
   const units = ['Sol/s', 'KSol/s', 'MSol/s', 'GSol/s'];
@@ -108,8 +103,6 @@ function calc(inputs: CalcInputs): CalcResult {
 
 interface ChartProps {
   inputs: CalcInputs;
-  width?: number;
-  height?: number;
 }
 
 const SVG_W = 560;
@@ -165,10 +158,10 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs }) => {
   }
 
   function fmtAxisX(v: number) {
-    if (v >= 1e9) return (v / 1e9).toFixed(1) + 'G';
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
-    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
-    return v.toFixed(0);
+    if (v >= 1e9) return (v / 1e9).toFixed(1) + 'G Sol/s';
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M Sol/s';
+    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K Sol/s';
+    return v.toFixed(0) + ' Sol/s';
   }
 
   return (
@@ -361,6 +354,11 @@ export const MiningCalculator: React.FC = () => {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNetHashStr(e.target.value)}
             placeholder="e.g. 500000"
           />
+          {safeNum(netHashStr) > 0 && (
+            <span style={{ fontSize: 10, color: theme.color.muted, marginTop: 2 }}>
+              = {fmtHashrate(safeNum(netHashStr))}
+            </span>
+          )}
         </FieldWrap>
         <FieldWrap>
           <FieldLabel htmlFor="mc-reward">Block Reward (BEAM)</FieldLabel>
@@ -414,6 +412,11 @@ export const MiningCalculator: React.FC = () => {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setYourHashStr(e.target.value)}
             placeholder="e.g. 1000"
           />
+          {safeNum(yourHashStr) > 0 && (
+            <span style={{ fontSize: 10, color: theme.color.muted, marginTop: 2 }}>
+              = {fmtHashrate(safeNum(yourHashStr))}
+            </span>
+          )}
         </FieldWrap>
         <FieldWrap>
           <FieldLabel htmlFor="mc-watts">Power Consumption (W)</FieldLabel>

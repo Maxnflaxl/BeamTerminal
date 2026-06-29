@@ -25,6 +25,14 @@ function fmtHashrate(solPerSec: number | null): string {
   return `${v.toFixed(2)} ${units[i]}`;
 }
 
+function fmtSI(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + 'G';
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return v.toFixed(0);
+}
+
 function fmtAge(iso: string | null): string {
   if (!iso) return '—';
   const secs = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -278,18 +286,21 @@ export const Mining: React.FC = () => {
       if (hasDiff) {
         const s: ISeriesApi<'Line'> = chart.addLineSeries({
           color: '#4f9dff', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, priceScaleId: 'left',
+          priceFormat: { type: 'custom', minMove: 1, formatter: (p: number) => fmtSI(p) },
         });
         s.setData(toLineData(diffSeries));
       }
       if (hasPrice) {
         const s: ISeriesApi<'Line'> = chart.addLineSeries({
           color: '#00f6d2', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, priceScaleId: 'right',
+          priceFormat: { type: 'custom', minMove: 0.0001, formatter: (p: number) => '$' + p.toFixed(p < 1 ? 4 : 2) },
         });
         s.setData(toLineData(priceSeries));
       }
     } else if (tab === 'hashrate' && hasHash) {
       const s: ISeriesApi<'Line'> = chart.addLineSeries({
         color: '#ffb454', lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+        priceFormat: { type: 'custom', minMove: 1, formatter: (p: number) => fmtHashrate(p) },
       });
       s.setData(toLineData(hashSeries));
     }
