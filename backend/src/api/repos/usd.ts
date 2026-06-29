@@ -48,17 +48,21 @@ export async function loadUsdTable(): Promise<UsdTable> {
   // For each non-BEAM aid that appears in a BEAM-quoted pool, take the deepest
   // such pool by BEAM reserve and derive USD-per-whole-unit.
   const { rows } = await q<DeepestPoolRow>(`
-    WITH latest AS (
-      SELECT DISTINCT ON (pool_id) pool_id, reserve1, reserve2
-        FROM pool_state_snapshots
-        ORDER BY pool_id, ts DESC
-    ),
     beam_pools AS (
+      -- Latest snapshot per BEAM-quoted pool via a per-pool LATERAL seek
+      -- (indexed LIMIT 1) instead of a DISTINCT ON over the whole
+      -- pool_state_snapshots hypertable, which full-scans (~4.5s).
       SELECT p.pool_id, p.aid2 AS aid_other, l.reserve1 AS beam_reserve,
              l.reserve2 AS other_reserve, a2.decimals AS other_decimals
         FROM pools p
-        JOIN latest l   ON l.pool_id = p.pool_id
         JOIN assets a2  ON a2.aid    = p.aid2
+        CROSS JOIN LATERAL (
+          SELECT reserve1, reserve2
+            FROM pool_state_snapshots ss
+           WHERE ss.pool_id = p.pool_id
+           ORDER BY ss.ts DESC
+           LIMIT 1
+        ) l
        WHERE p.aid1 = 0
          AND p.destroyed_at_height IS NULL
          AND l.reserve1 > 0
