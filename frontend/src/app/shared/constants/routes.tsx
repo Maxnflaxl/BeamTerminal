@@ -11,6 +11,7 @@ export const ROUTES = {
     EXPLORER_HEALTH: '/explorer/health',
     EXPLORER_SUPPLY: '/explorer/supply',
     EXPLORER_BRIDGE: '/explorer/bridge',
+    EXPLORER_MINING: '/explorer/mining',
     ASSET_INFO: '/asset/:id',
     PAIR_DETAIL: '/pair/:id',
     ATOMIC_SWAPS: '/atomic-swaps',

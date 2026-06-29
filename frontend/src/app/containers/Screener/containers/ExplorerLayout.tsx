@@ -55,6 +55,7 @@ const items = [
   { to: ROUTES.NAV.EXPLORER_HEALTH,    label: 'Health' },
   { to: ROUTES.NAV.EXPLORER_BANS,      label: 'BANS' },
   { to: ROUTES.NAV.EXPLORER_BRIDGE,    label: 'Bridge' },
+  { to: ROUTES.NAV.EXPLORER_MINING,   label: 'Mining' },
 ];
 
 export const ExplorerLayout: React.FC = () => (

@@ -24,6 +24,7 @@ import {
   Health,
   BANS,
   BridgeTracker,
+  Mining,
   BeamExplorer,
   AtomicSwaps,
   AssetSwaps,
@@ -67,6 +68,7 @@ const routes = [
       { path: 'health',    element: <Health /> },
       { path: 'supply',    element: <Supply /> },
       { path: 'bridge',    element: <BridgeTracker /> },
+      { path: 'mining',   element: <Mining /> },
     ],
   },
 ];
