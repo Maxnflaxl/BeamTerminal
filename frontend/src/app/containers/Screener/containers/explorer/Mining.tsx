@@ -234,12 +234,6 @@ function fmtTooltipDate(ts: number): string {
   return `${dow}, ${mon} ${day} ${hh}:${mm}`;
 }
 
-interface HashrateTooltipState {
-  idx: number;
-  x: number;
-  y: number;
-}
-
 interface HashrateSeriesPoint { ts: number; value: number }
 
 const HashrateCell: React.FC<{
@@ -247,7 +241,7 @@ const HashrateCell: React.FC<{
   hashrate: number | null;
   barWidth: string;
 }> = ({ series, hashrate, barWidth }) => {
-  const [tip, setTip] = useState<HashrateTooltipState | null>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const avg = useMemo(() => {
@@ -257,18 +251,26 @@ const HashrateCell: React.FC<{
 
   const values = useMemo(() => series.map((s) => s.value), [series]);
 
+  const SPARK_W = 80;
+  const SPARK_H = 24;
+
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!series.length || !wrapRef.current) return;
     const rect = wrapRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
-    const raw = (mouseX / rect.width) * (series.length - 1);
-    const idx = Math.max(0, Math.min(series.length - 1, Math.round(raw)));
-    const x = e.clientX - (wrapRef.current.closest('td')?.getBoundingClientRect().left ?? e.clientX);
-    const y = e.clientY - (wrapRef.current.closest('td')?.getBoundingClientRect().top ?? e.clientY);
-    setTip({ idx, x, y });
+    const raw = series.length > 1 ? (mouseX / rect.width) * (series.length - 1) : 0;
+    setHoverIdx(Math.max(0, Math.min(series.length - 1, Math.round(raw))));
   };
 
-  const handleMouseLeave = () => setTip(null);
+  const handleMouseLeave = () => setHoverIdx(null);
+
+  // X of the snapped data point within the sparkline.
+  const pointX = hoverIdx != null && series.length > 1
+    ? (hoverIdx / (series.length - 1)) * SPARK_W
+    : 0;
+  // Anchor the tooltip to the point: extend left when the point is in the
+  // right half, right otherwise — keeps it near and on-screen.
+  const rightHalf = pointX > SPARK_W / 2;
 
   return (
     <div>
@@ -277,17 +279,30 @@ const HashrateCell: React.FC<{
         {values.length > 0 && (
           <div
             ref={wrapRef}
-            style={{ position: 'relative', display: 'inline-block' }}
+            style={{ position: 'relative', display: 'inline-block', width: SPARK_W, height: SPARK_H }}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
           >
-            <Sparkline values={values} width={80} height={24} />
-            {tip != null && series[tip.idx] && (
-              <SparkTooltip style={{ left: tip.x + 8, top: tip.y - 56 }}>
-                <div>{fmtTooltipDate(series[tip.idx].ts)}</div>
-                <div>Hashrate: {fmtHashrate(series[tip.idx].value)}</div>
-                <div>Average: {fmtHashrate(avg)}</div>
-              </SparkTooltip>
+            <Sparkline values={values} width={SPARK_W} height={SPARK_H} />
+            {hoverIdx != null && series[hoverIdx] && (
+              <>
+                <div
+                  style={{
+                    position: 'absolute', left: pointX, top: 0,
+                    width: 1, height: SPARK_H, background: '#f0a500',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <SparkTooltip
+                  style={rightHalf
+                    ? { right: SPARK_W - pointX, bottom: SPARK_H + 6 }
+                    : { left: pointX, bottom: SPARK_H + 6 }}
+                >
+                  <div>{fmtTooltipDate(series[hoverIdx].ts)}</div>
+                  <div>Hashrate: {fmtHashrate(series[hoverIdx].value)}</div>
+                  <div>Average: {fmtHashrate(avg)}</div>
+                </SparkTooltip>
+              </>
             )}
           </div>
         )}
