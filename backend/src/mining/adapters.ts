@@ -40,10 +40,12 @@ export function statsUrl(baseUrl: string, kind: AdapterKind): string {
     case 'cryptonote-node':
       return `${baseUrl}/api/stats`;
     case 'sunpool':
+      // No JSON API. Sun Pool exposes a plaintext stats page (the same source
+      // miningpoolstats scrapes); fromSunpoolText() parses it.
+      return `${baseUrl}/txt/pool-stats.php`;
     case 'acepool':
-      // Server-side rendered PHP — no JSON stats endpoint discoverable.
-      // Returning a sentinel URL; normalize() will receive a non-JSON response
-      // and return null (pool shown as offline).
+      // Same Sun Pool software but no /txt/ variant, and currently idle (0 Sol/s,
+      // last block months ago). Left as an offline stub (normalize → null).
       return `${baseUrl}/pool-stats.php`;
     case 'cedric':
       // MiningCore-based pool. Stats at /api/pool/ (custom Django wrapper).
@@ -181,12 +183,47 @@ function fromMiningCore(raw: any): PoolStats | null {
   };
 }
 
+// Sun Pool (sunpool.top) exposes no JSON API — only a server-rendered stats
+// page. We scrape /txt/pool-stats.php (the same plaintext source miningpoolstats
+// reads), strip tags, and regex out the fields. `raw` is the page text.
+// hashrate uses the "1h Average" line to match what miningpoolstats displays.
+// lastBlockTs/blocks24h are left null: the block list's "Server time" column is
+// in the pool's local timezone, so absolute/relative times can't be derived
+// reliably. lastBlockHeight (the most recent pool-found block) is unambiguous.
+function fromSunpoolText(raw: unknown): PoolStats | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
+
+  const hr = text.match(/1h Average Hash Rate:\s*([\d,]+(?:\.\d+)?)\s*Sol\/s/i);
+  if (!hr) return null; // not a Sun Pool stats page / unparseable
+  const hashrate = num(hr[1]!.replace(/,/g, ''));
+
+  const m = text.match(/Total miners connected:\s*(\d+)\s*\(\s*(\d+)\s*workers?\s*\)/i);
+  const miners = m ? num(m[1]) : null;
+  const workers = m ? num(m[2]) : null;
+
+  // First data row under "Last 100 blocks mined by the pool": "<height> - <date> ..."
+  const blk = text.match(/Last 100 blocks mined by the pool[\s\S]*?(\d{6,})\s*-\s*\d{4}-\d{2}-\d{2}/i);
+  const lastBlockHeight = blk ? num(blk[1]) : null;
+
+  return {
+    hashrate,
+    miners,
+    workers,
+    blocks24h: null,
+    lastBlockHeight,
+    lastBlockTs: null,
+    fee: null,      // not shown on the stats page (miningpoolstats lists sunpool at 0%)
+    minPayout: null,
+  };
+}
+
 export function normalize(kind: AdapterKind, raw: unknown): PoolStats | null {
   switch (kind) {
     case 'open-eth':        return fromOpenEth(raw);
     case 'cryptonote-node': return fromCryptonoteNode(raw);
-    case 'sunpool':         return null; // PHP-rendered only, no JSON API
-    case 'acepool':         return null; // PHP-rendered only, no JSON API
+    case 'sunpool':         return fromSunpoolText(raw);
+    case 'acepool':         return null; // idle pool, no /txt/ endpoint — offline stub
     case 'cedric':          return fromMiningCore(raw);
   }
 }

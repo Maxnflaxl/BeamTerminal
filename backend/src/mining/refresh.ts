@@ -15,10 +15,17 @@ async function fetchPoolRaw(url: string): Promise<unknown | null> {
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: { accept: 'application/json', 'user-agent': 'BeamTerminal/1.0' },
+      headers: { accept: 'application/json, text/html', 'user-agent': 'BeamTerminal/1.0' },
     });
     if (!res.ok) return null;
-    return (await res.json()) as unknown;
+    // Read as text, then prefer parsed JSON. JSON pools get a parsed object;
+    // HTML-scraper pools (e.g. sunpool) get the raw string for their adapter.
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return text;
+    }
   } catch {
     return null;
   } finally {
