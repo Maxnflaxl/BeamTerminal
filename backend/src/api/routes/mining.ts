@@ -140,16 +140,19 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
     const rawLimit = parseInt(query['limit'] ?? '50', 10);
     const limit = Math.min(200, Math.max(1, isNaN(rawLimit) ? 50 : rawLimit));
 
+    const rawOffset = parseInt(query['offset'] ?? '0', 10);
+    const offset = Math.max(0, isNaN(rawOffset) ? 0 : rawOffset);
+
     const { rows } = await q<BlocksQueryRow>(
       `WITH recent AS (
-         SELECT height, block_ts FROM block_metrics ORDER BY height DESC LIMIT $1
+         SELECT height, block_ts FROM block_metrics ORDER BY height DESC LIMIT $1 OFFSET $2
        )
        SELECT r.height::text,
               r.block_ts,
               (SELECT MIN(b.pool_id) FROM mining_pool_blocks b WHERE b.height = r.height) AS mined_by
          FROM recent r
         ORDER BY r.height DESC`,
-      [limit],
+      [limit, offset],
     );
 
     const blocks = rows.map((r) => ({
