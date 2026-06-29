@@ -348,7 +348,6 @@ const ResetBtn = styled.button`
 
 const SliderInput = styled.input`
   width: 100%;
-  accent-color: ${theme.color.accent};
   cursor: pointer;
 `;
 

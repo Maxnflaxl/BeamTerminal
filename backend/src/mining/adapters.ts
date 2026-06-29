@@ -238,7 +238,8 @@ export function blocksUrl(baseUrl: string, kind: AdapterKind): string | null {
     case 'cryptonote-node':
       // herominers /api/get_blocks serves a stale 4h-old cache — unusable for
       // recent block attribution. Heights are resolved via difficulty lookup
-      // against block_metrics instead (see refresh.ts). No extra fetch needed.
+      // against block_metrics instead (see refresh.ts). Best-effort: difficulty
+      // is near-unique per block; rare collisions may over-attribute. No extra fetch needed.
       return null;
     case 'sunpool':
       return null; // heights are parsed from the already-fetched stats text

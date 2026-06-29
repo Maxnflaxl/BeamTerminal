@@ -70,7 +70,8 @@ export async function refreshMiningPools(): Promise<{ ok: number; failed: number
         if (p.adapter === 'cryptonote-node') {
           // herominers /api/get_blocks serves a stale 4h cache. Instead, extract
           // difficulties from the already-fetched stats payload and resolve heights
-          // via a single block_metrics lookup (difficulty uniquely maps to height).
+          // via a single block_metrics lookup (best-effort: difficulty is near-unique
+          // per block; rare collisions may over-attribute).
           const diffs = parseBlockDifficulties(p.adapter, raw);
           if (diffs.length > 0) {
             interface DiffRow { difficulty: number; height: string }
