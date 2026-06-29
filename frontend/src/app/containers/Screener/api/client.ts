@@ -80,7 +80,7 @@ export const api = {
   health: (): Promise<ApiHealth> => get<ApiHealth>('/health'),
   stats: (): Promise<ApiStats> => get<ApiStats>('/stats'),
   miningPools: (): Promise<ApiMiningPools> => get<ApiMiningPools>('/mining/pools'),
-  miningBlocks: (limit = 50): Promise<ApiMiningBlocks> => get<ApiMiningBlocks>(`/mining/blocks?limit=${limit}`),
+  miningBlocks: (limit = 50, offset = 0): Promise<ApiMiningBlocks> => get<ApiMiningBlocks>(`/mining/blocks?limit=${limit}&offset=${offset}`),
 
   pairs: (params: PairsQuery = {}): Promise<ApiPairsList> => get<ApiPairsList>(`/pairs${qs(params as Record<string, string | number | boolean | undefined>)}`),
 

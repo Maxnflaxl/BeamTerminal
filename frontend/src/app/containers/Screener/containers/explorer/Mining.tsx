@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { styled } from '@linaria/react';
+import { css } from '@linaria/core';
 import {
   createChart, ColorType,
   type IChartApi, type ISeriesApi, type LineData, type UTCTimestamp,
@@ -192,16 +193,29 @@ const SparkCell = styled.div`
   > * + * { margin-left: 8px; }
 `;
 
+const pagerCss = css`
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  justify-content: center;
+  margin-top: 14px;
+  > * + * { margin-left: 12px; }
+`;
+
 // --- component ---------------------------------------------------------------
 
 type Tab = 'blocks' | 'diffprice' | 'hashrate';
 
 export const Mining: React.FC = () => {
+  const BLOCKS_PER_PAGE = 25;
   const [poolData, setPoolData] = useState<ApiMiningPools | null>(null);
   const [blockData, setBlockData] = useState<ApiMiningBlocks | null>(null);
   const [poolErr, setPoolErr] = useState<string | null>(null);
   const [blocksLoaded, setBlocksLoaded] = useState(false);
   const [blocksError, setBlocksError] = useState(false);
+  const [blockPage, setBlockPage] = useState(0);
   const [tab, setTab] = useState<Tab>('blocks');
   const [calcOpen, setCalcOpen] = useState(false);
 
@@ -220,14 +234,14 @@ export const Mining: React.FC = () => {
       api.miningPools()
         .then((d) => { if (alive) { setPoolData(d); setPoolErr(null); } })
         .catch((e: Error) => { if (alive) setPoolErr(e?.message ?? 'failed to load'); });
-      api.miningBlocks(50)
+      api.miningBlocks(BLOCKS_PER_PAGE, blockPage * BLOCKS_PER_PAGE)
         .then((d) => { if (alive) { setBlockData(d); setBlocksLoaded(true); setBlocksError(false); } })
         .catch(() => { if (alive) { setBlocksLoaded(true); setBlocksError(true); } });
     };
     load();
     const t = setInterval(load, 60_000);
     return () => { alive = false; clearInterval(t); };
-  }, []);
+  }, [blockPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- fetch chart series lazily when tab changes ---------------------------
   useEffect(() => {
@@ -317,6 +331,7 @@ export const Mining: React.FC = () => {
   const blockHt  = poolData?.block_height ?? null;
   const pools    = poolData?.pools ?? [];
   const blocks   = blockData?.blocks ?? [];
+  const hasNext  = blocks.length === BLOCKS_PER_PAGE;
 
   const sorted = useMemo(
     () => [...pools].sort((a, b) => (b.hashrate ?? -1) - (a.hashrate ?? -1)),
@@ -468,33 +483,42 @@ export const Mining: React.FC = () => {
         {blocksLoaded && (blocksError || blocks.length === 0)
           ? <Muted>Recent blocks unavailable.</Muted>
           : blocksLoaded && (
-            <DataTable>
-              <thead>
-                <tr>
-                  <th>Block</th>
-                  <th>Mined by</th>
-                  <th className="right">Age</th>
-                </tr>
-              </thead>
-              <tbody>
-                {blocks.map((b) => {
-                  const site = b.mined_by ? (poolByName[b.mined_by] ?? null) : null;
-                  return (
-                    <tr key={b.height}>
-                      <td className="mono">{b.height.toLocaleString()}</td>
-                      <td>
-                        {b.mined_by
-                          ? site
-                            ? <a href={site} target="_blank" rel="noreferrer">{b.mined_by}</a>
-                            : b.mined_by
-                          : <span className="muted">—</span>}
-                      </td>
-                      <td className="right">{fmtAge(b.ts)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </DataTable>
+            <>
+              <DataTable>
+                <thead>
+                  <tr>
+                    <th>Block</th>
+                    <th>Mined by</th>
+                    <th className="right">Age</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {blocks.map((b) => {
+                    const site = b.mined_by ? (poolByName[b.mined_by] ?? null) : null;
+                    return (
+                      <tr key={b.height}>
+                        <td className="mono">{b.height.toLocaleString()}</td>
+                        <td>
+                          {b.mined_by
+                            ? site
+                              ? <a href={site} target="_blank" rel="noreferrer">{b.mined_by}</a>
+                              : b.mined_by
+                            : <span className="muted">—</span>}
+                        </td>
+                        <td className="right">{fmtAge(b.ts)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </DataTable>
+              <div className={pagerCss}>
+                <Btn type="button" disabled={blockPage === 0}
+                     onClick={() => setBlockPage((p) => Math.max(0, p - 1))}>&#8592; Newer</Btn>
+                <span>Page {blockPage + 1}</span>
+                <Btn type="button" disabled={!hasNext}
+                     onClick={() => setBlockPage((p) => p + 1)}>Older &#8594;</Btn>
+              </div>
+            </>
           )}
       </Card>
 
