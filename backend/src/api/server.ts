@@ -23,6 +23,7 @@ import { pairChartRoutes } from './routes/pair_chart.js';
 import { cgTickersRoutes } from './routes/cg/tickers.js';
 import { cgHistoricalTradesRoutes } from './routes/cg/historical_trades.js';
 import { searchRoutes } from './routes/search.js';
+import { apiDocsRoutes } from './routes/apidocs.js';
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
@@ -89,6 +90,7 @@ export function buildApp(): FastifyInstance {
   // without /api prefix alongside ogRoutes so the URL is short and easily
   // hotlinkable / CDN-cacheable.
   void app.register(pairChartRoutes);
+  void app.register(apiDocsRoutes);
 
   void app.register(cgTickersRoutes, { prefix: '/cg' });
   void app.register(cgHistoricalTradesRoutes, { prefix: '/cg' });
