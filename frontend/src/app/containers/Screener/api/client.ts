@@ -6,6 +6,7 @@
 import type {
   ApiHealth,
   ApiStats,
+  ApiMiningPools,
   ApiPair,
   ApiPairsList,
   ApiOhlcv,
@@ -77,6 +78,7 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
 export const api = {
   health: (): Promise<ApiHealth> => get<ApiHealth>('/health'),
   stats: (): Promise<ApiStats> => get<ApiStats>('/stats'),
+  miningPools: (): Promise<ApiMiningPools> => get<ApiMiningPools>('/mining/pools'),
 
   pairs: (params: PairsQuery = {}): Promise<ApiPairsList> => get<ApiPairsList>(`/pairs${qs(params as Record<string, string | number | boolean | undefined>)}`),
 

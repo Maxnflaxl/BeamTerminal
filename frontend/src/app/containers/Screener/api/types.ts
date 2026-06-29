@@ -542,3 +542,28 @@ export interface ApiSearch {
   groups: SearchGroup[];
   sources: { db: string; explorer: string };
 }
+
+// ---------------------------------------------------------------------------
+// Mining pools
+// ---------------------------------------------------------------------------
+
+export interface ApiMiningPool {
+  id: string;
+  name: string;
+  website: string;
+  payout_scheme: string;
+  hashrate: number | null;
+  miners: number | null;
+  workers: number | null;
+  blocks_24h: number | null;
+  last_block_height: number | null;
+  last_block_ts: string | null;
+  fee: number | null;
+  min_payout: number | null;
+  updated_at: string | null;
+}
+
+export interface ApiMiningPools {
+  network_hashrate: number | null;
+  pools: ApiMiningPool[];
+}
