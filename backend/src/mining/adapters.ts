@@ -218,6 +218,91 @@ function fromSunpoolText(raw: unknown): PoolStats | null {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Block-height extraction
+// ---------------------------------------------------------------------------
+
+// URL to fetch a pool's recently-found blocks, or null when no usable per-block
+// list exists (the pool's blocks are then left unattributed).
+export function blocksUrl(baseUrl: string, kind: AdapterKind): string | null {
+  switch (kind) {
+    case 'open-eth':
+      return `${baseUrl}/api/blocks`;
+    case 'cryptonote-node':
+      // herominers: GET /api/get_blocks?height=<offset> returns up to ~10 blocks
+      // per page starting from the given height offset (descending). Passing a
+      // very large offset returns the most-recent batch.
+      return `${baseUrl}/api/get_blocks?height=99999999`;
+    case 'sunpool':
+      return null; // heights are parsed from the already-fetched stats text
+    case 'acepool':
+    case 'cedric':
+      return null; // no usable per-block list
+  }
+}
+
+// Extract found-block heights from a blocks response. Pure, never throws.
+export function parseBlocks(kind: AdapterKind, raw: unknown): number[] {
+  switch (kind) {
+    case 'open-eth':        return blocksFromOpenEth(raw);
+    case 'cryptonote-node': return blocksFromCryptonote(raw);
+    case 'sunpool':         return blocksFromSunpoolText(raw);
+    default:                return [];
+  }
+}
+
+function asHeights(xs: unknown): number[] {
+  if (!Array.isArray(xs)) return [];
+  const out: number[] = [];
+  for (const b of xs) {
+    const h = num((b as any)?.height);
+    if (h !== null && h > 0) out.push(h);
+  }
+  return out;
+}
+
+function blocksFromOpenEth(raw: unknown): number[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const r = raw as any;
+  return [...asHeights(r.matured), ...asHeights(r.immature), ...asHeights(r.candidates)];
+}
+
+// herominers /api/get_blocks returns a flat JSON array that alternates between:
+//   even indices: colon-delimited block-detail string
+//     "hash:unix_ts_s:difficulty:shares:actual_shares:status:reward:finder:region:mode"
+//   odd  indices: the block height as a bare decimal string, e.g. "3925894"
+// Height fields inside the colon-delimited entries look like share-count numbers
+// (~2–5M) and are NOT the chain height (~3,926,xxx). The standalone height entries
+// (odd indices) are the reliable source; they are > 1,000,000 and match the chain.
+function blocksFromCryptonote(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const out: number[] = [];
+  for (let i = 1; i < raw.length; i += 2) {
+    const entry = raw[i];
+    if (typeof entry === 'string') {
+      const h = num(entry.trim());
+      if (h !== null && h > 1_000_000) out.push(h);
+    }
+  }
+  return out;
+}
+
+// sunpool: heights live in the already-fetched /txt/pool-stats.php text.
+// Block rows look like: "3925894     - 2026-06-26 19:20:42 - ..."
+function blocksFromSunpoolText(raw: unknown): number[] {
+  if (typeof raw !== 'string') return [];
+  const text = raw.replace(/<[^>]+>/g, ' ');
+  const out: number[] = [];
+  const re = /(\d{6,})\s*-\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const h = num(m[1]);
+    if (h !== null && h > 0) out.push(h);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 export function normalize(kind: AdapterKind, raw: unknown): PoolStats | null {
   switch (kind) {
     case 'open-eth':        return fromOpenEth(raw);
