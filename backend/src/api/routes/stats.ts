@@ -45,19 +45,22 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
       `),
       // Latest reserves per active pool, joined with both side's decimals
       // so we can value each leg via the per-AID USD table.
+      // LATERAL + LIMIT 1 uses the (pool_id, ts DESC) index; ~9ms vs ~4.5s
+      // for DISTINCT ON which scanned the entire hypertable.
       q<PoolReserveRow>(`
-        WITH latest AS (
-          SELECT DISTINCT ON (pool_id) pool_id, reserve1, reserve2
-            FROM pool_state_snapshots
-            ORDER BY pool_id, ts DESC
-        )
         SELECT p.aid1::text, p.aid2::text,
                a1.decimals AS decimals1, a2.decimals AS decimals2,
                l.reserve1::text, l.reserve2::text
           FROM pools p
-          JOIN latest l  ON l.pool_id = p.pool_id
           JOIN assets a1 ON a1.aid = p.aid1
           JOIN assets a2 ON a2.aid = p.aid2
+          CROSS JOIN LATERAL (
+            SELECT reserve1, reserve2
+              FROM pool_state_snapshots ss
+             WHERE ss.pool_id = p.pool_id
+             ORDER BY ss.ts DESC
+             LIMIT 1
+          ) l
          WHERE p.destroyed_at_height IS NULL
       `),
       // 24h swap volume per pool, both legs. Volume in USD is summed across
