@@ -17,6 +17,7 @@ import { dappsRoutes } from './routes/dapps.js';
 import { dappDownloadRoutes } from './routes/dapp_download.js';
 import { ipfsGatewayRoutes } from './routes/ipfs_gateway.js';
 import { chartsRoutes, startChartCacheRefresher } from './routes/charts.js';
+import { miningRoutes } from './routes/mining.js';
 import { ogRoutes } from './routes/og.js';
 import { pairChartRoutes } from './routes/pair_chart.js';
 import { cgTickersRoutes } from './routes/cg/tickers.js';
@@ -82,6 +83,7 @@ export function buildApp(): FastifyInstance {
   // ipfs.io / dweb.link → beamterminal.0xmx.net by changing the host.
   void app.register(ipfsGatewayRoutes);
   void app.register(chartsRoutes, { prefix: '/api' });
+  void app.register(miningRoutes, { prefix: '/api' });
   void app.register(ogRoutes);
   // Chart PNG endpoint for chat bots (Telegram /c, Discord /c). Registered
   // without /api prefix alongside ogRoutes so the URL is short and easily
