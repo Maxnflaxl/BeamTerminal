@@ -563,6 +563,7 @@ export interface ApiMiningPool {
   updated_at: string | null;
   hashrate_series: { ts: number; value: number }[];
   blocks_last_100: number | null;
+  blocks_last_1000: number | null;
 }
 
 export interface ApiMiningPools {

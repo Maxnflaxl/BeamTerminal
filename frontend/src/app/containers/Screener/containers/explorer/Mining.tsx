@@ -62,12 +62,16 @@ const Donut: React.FC<{ slices: Slice[]; size?: number }> = ({ slices, size = 18
         {slices.map((s, i) => {
           const frac = s.value / total;
           const len = frac * circ;
+          // Extend each slice's arc by a hair so the next slice (painted on top)
+          // covers the seam. Without this, float accumulation in `offset` can
+          // leave a sub-pixel gap that anti-aliasing renders as a dark notch.
+          const lap = len > 0 ? 0.75 : 0;
           const el = (
             <circle
               key={i}
               cx={r} cy={r} r={radius}
               fill="none" stroke={s.color} strokeWidth={stroke}
-              strokeDasharray={`${len} ${circ - len}`}
+              strokeDasharray={`${len + lap} ${Math.max(0, circ - len - lap)}`}
               strokeDashoffset={-offset}
             />
           );
@@ -472,14 +476,14 @@ export const Mining: React.FC = () => {
     [pools],
   );
 
-  // blocks distribution slices
+  // blocks distribution slices — over the last 1000 network blocks
   const blockSlices: Slice[] = useMemo(() => {
-    const known = sorted.filter((p) => (p.blocks_last_100 ?? 0) > 0);
-    const sum = known.reduce((s, p) => s + (p.blocks_last_100 ?? 0), 0);
+    const known = sorted.filter((p) => (p.blocks_last_1000 ?? 0) > 0);
+    const sum = known.reduce((s, p) => s + (p.blocks_last_1000 ?? 0), 0);
     const out: Slice[] = known.map((p, i) => ({
-      label: p.name, value: p.blocks_last_100 ?? 0, color: COLORS[i % COLORS.length],
+      label: p.name, value: p.blocks_last_1000 ?? 0, color: COLORS[i % COLORS.length],
     }));
-    const unknown = Math.max(0, 100 - sum);
+    const unknown = Math.max(0, 1000 - sum);
     if (unknown > 0) out.push({ label: 'Unknown', value: unknown, color: COLORS[7] });
     return out;
   }, [sorted]);
