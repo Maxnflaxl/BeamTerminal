@@ -568,7 +568,6 @@ export interface ApiMiningPool {
 export interface ApiMiningPools {
   network_hashrate: number | null;
   block_height: number | null;
-  beam_usd: number | null;
   pools: ApiMiningPool[];
 }
 

@@ -373,10 +373,10 @@ export const MiningCalculator: React.FC = () => {
   const [sliderPrice, setSliderPrice] = useState(1.0);
   const [sliderKwh, setSliderKwh] = useState(1.0);
 
-  // Fetch live data on mount — single fast call to /api/mining/pools
+  // Fetch live data on mount — parallel calls to /api/mining/pools and /api/stats
   useEffect(() => {
     let alive = true;
-    api.miningPools().then((pools) => {
+    Promise.all([api.miningPools(), api.stats()]).then(([pools, stats]) => {
       if (!alive) return;
       if (pools.network_hashrate != null && Number.isFinite(pools.network_hashrate)) {
         setNetHashStr(String(Math.round(pools.network_hashrate)));
@@ -385,8 +385,8 @@ export const MiningCalculator: React.FC = () => {
         const r = blockRewardAtHeight(pools.block_height);
         if (Number.isFinite(r) && r > 0) setRewardStr(String(r));
       }
-      if (pools.beam_usd != null && Number.isFinite(pools.beam_usd)) {
-        setPriceStr(pools.beam_usd.toFixed(4));
+      if (stats.beam_usd != null && Number.isFinite(stats.beam_usd)) {
+        setPriceStr(stats.beam_usd.toFixed(4));
       }
     }).catch(() => {
       // silent — leave fields blank/editable
