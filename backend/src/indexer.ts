@@ -18,6 +18,7 @@ import { syncAssetSwapOffers } from './services/assetSwapOffers.js';
 import { syncAtomicSwapOffers, snapshotAtomicSwapTotals } from './services/atomicSwaps.js';
 import { syncDappStore } from './services/dappStore.js';
 import { syncIpfsPins } from './services/ipfsPin.js';
+import { refreshMiningPools } from './mining/refresh.js';
 
 let stopping = false;
 
@@ -65,6 +66,15 @@ let dappStoreInflight = false;
 const IPFS_PIN_RESYNC_MS = 3 * 60 * 1000;
 let lastIpfsPinSync = 0;
 let ipfsPinInflight = false;
+
+// Mining pool stats refresh. Triggered when the chain head advances (pool
+// numbers update once per block, ~1 min on BEAM), inflight-gated and async so a
+// slow/failed pool API never stalls the tick. Bootstrap + 5-min staleness
+// fallback covers startup and a stalled head.
+let miningPoolsInflight = false;
+let lastMiningRefreshHeight = 0;
+let lastMiningRefreshAt = 0;
+const MINING_STALENESS_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Cursor
@@ -230,6 +240,28 @@ function maybeKickDappStoreSync(): void {
       );
     })
     .finally(() => { dappStoreInflight = false; });
+}
+
+function maybeKickMiningPoolsRefresh(headHeight: number): void {
+  if (miningPoolsInflight) return;
+  const heightAdvanced = headHeight > lastMiningRefreshHeight;
+  const stale = Date.now() - lastMiningRefreshAt > MINING_STALENESS_MS;
+  const bootstrap = lastMiningRefreshAt === 0;
+  if (!heightAdvanced && !stale && !bootstrap) return;
+
+  miningPoolsInflight = true;
+  void refreshMiningPools()
+    .then(() => {
+      lastMiningRefreshHeight = headHeight;
+      lastMiningRefreshAt = Date.now();
+    })
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'mining pools refresh failed; will retry next tick',
+      );
+    })
+    .finally(() => { miningPoolsInflight = false; });
 }
 
 function maybeKickIpfsPinSync(): void {
@@ -450,6 +482,7 @@ async function tick(): Promise<void> {
   await q('UPDATE cursor SET last_chain_head = $1 WHERE id = 1', [status.height]);
   maybeKickBlockMetricsCatchUp(status.height);
   maybeKickAtomicSwapsSync(status.height);
+  maybeKickMiningPoolsRefresh(status.height);
   maybeKickDappStoreSync();
   // Pin newly-indexed dapps on our wallet-api node so /ipfs/<cid> and
   // /api/dapp/:cid keep working even when the original publisher's IPFS
