@@ -107,6 +107,16 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
     );
     const blocks100ByPool = new Map<string, number>(b100Rows.map((r) => [r.pool_id, r.n]));
 
+    // Per-pool blocks in last 1000 network heights (used for the distribution donut).
+    const { rows: b1000Rows } = await q<BlocksLast100Row>(
+      `WITH recent AS (SELECT height FROM block_metrics ORDER BY height DESC LIMIT 1000)
+       SELECT b.pool_id, COUNT(*)::int AS n
+         FROM mining_pool_blocks b
+         JOIN recent r ON r.height = b.height
+        GROUP BY b.pool_id`,
+    );
+    const blocks1000ByPool = new Map<string, number>(b1000Rows.map((r) => [r.pool_id, r.n]));
+
     const pools = POOLS.map((p) => {
       const s = byId.get(p.id);
       return {
@@ -125,6 +135,7 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
         updated_at: s?.ts ? s.ts.toISOString() : null,
         hashrate_series: sparkByPool.get(p.id) ?? [],
         blocks_last_100: blocks100ByPool.get(p.id) ?? 0,
+        blocks_last_1000: blocks1000ByPool.get(p.id) ?? 0,
       };
     });
 
