@@ -23,6 +23,29 @@ interface HashrateRow {
   hashrate: number | null;
 }
 
+interface BlockHeightRow {
+  max: string | null;
+}
+
+interface SparkRow {
+  pool_id: string;
+  hashrate: number;
+}
+
+interface BlocksLast100Row {
+  pool_id: string;
+  n: number;
+}
+
+interface BlocksQueryRow {
+  height: string;
+  block_ts: Date;
+  mined_by: string | null;
+}
+
+// Pool id → display name lookup built from the POOLS registry.
+const POOL_NAME_BY_ID = new Map<string, string>(POOLS.map((p) => [p.id, p.name]));
+
 export async function miningRoutes(app: FastifyInstance): Promise<void> {
   app.get('/mining/pools', async (_req, reply) => {
     // Latest snapshot per pool.
@@ -47,6 +70,42 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
     );
     const networkHashrate = hr[0]?.hashrate ?? null;
 
+    // Network tip height.
+    const { rows: bh } = await q<BlockHeightRow>(
+      `SELECT MAX(height)::text FROM block_metrics`,
+    );
+    const blockHeight = bh[0]?.max != null ? Number(bh[0].max) : null;
+
+    // Per-pool hashrate sparkline: last ~30 non-null snapshots, oldest→newest.
+    const { rows: sparkRows } = await q<SparkRow>(
+      `SELECT pool_id, hashrate::float8 AS hashrate
+         FROM (
+           SELECT pool_id, hashrate,
+                  ROW_NUMBER() OVER (PARTITION BY pool_id ORDER BY ts DESC) AS rn
+             FROM mining_pool_snapshots
+            WHERE hashrate IS NOT NULL
+         ) ranked
+        WHERE rn <= 30
+        ORDER BY pool_id, rn DESC`,
+    );
+    // Group into pool_id → number[] (already oldest→newest after ORDER BY rn DESC).
+    const sparkByPool = new Map<string, number[]>();
+    for (const r of sparkRows) {
+      const arr = sparkByPool.get(r.pool_id) ?? [];
+      arr.push(Number(r.hashrate));
+      sparkByPool.set(r.pool_id, arr);
+    }
+
+    // Per-pool blocks in last 100 network heights.
+    const { rows: b100Rows } = await q<BlocksLast100Row>(
+      `WITH recent AS (SELECT height FROM block_metrics ORDER BY height DESC LIMIT 100)
+       SELECT b.pool_id, COUNT(*)::int AS n
+         FROM mining_pool_blocks b
+         JOIN recent r ON r.height = b.height
+        GROUP BY b.pool_id`,
+    );
+    const blocks100ByPool = new Map<string, number>(b100Rows.map((r) => [r.pool_id, r.n]));
+
     const pools = POOLS.map((p) => {
       const s = byId.get(p.id);
       return {
@@ -63,10 +122,43 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
         fee: s?.fee != null ? Number(s.fee) : null,
         min_payout: s?.min_payout != null ? Number(s.min_payout) : null,
         updated_at: s?.ts ? s.ts.toISOString() : null,
+        hashrate_series: sparkByPool.get(p.id) ?? [],
+        blocks_last_100: blocks100ByPool.get(p.id) ?? 0,
       };
     });
 
     void reply.header('cache-control', 'public, max-age=60');
-    return { network_hashrate: networkHashrate, pools };
+    return { network_hashrate: networkHashrate, block_height: blockHeight, pools };
+  });
+
+  // -------------------------------------------------------------------------
+  // /api/mining/blocks?limit=50 — recent blocks with pool attribution
+  // -------------------------------------------------------------------------
+
+  app.get('/mining/blocks', async (req, reply) => {
+    const query = req.query as Record<string, string | undefined>;
+    const rawLimit = parseInt(query['limit'] ?? '50', 10);
+    const limit = Math.min(200, Math.max(1, isNaN(rawLimit) ? 50 : rawLimit));
+
+    const { rows } = await q<BlocksQueryRow>(
+      `WITH recent AS (
+         SELECT height, block_ts FROM block_metrics ORDER BY height DESC LIMIT $1
+       )
+       SELECT r.height::text,
+              r.block_ts,
+              (SELECT MIN(b.pool_id) FROM mining_pool_blocks b WHERE b.height = r.height) AS mined_by
+         FROM recent r
+        ORDER BY r.height DESC`,
+      [limit],
+    );
+
+    const blocks = rows.map((r) => ({
+      height: Number(r.height),
+      ts: r.block_ts.toISOString(),
+      mined_by: r.mined_by != null ? (POOL_NAME_BY_ID.get(r.mined_by) ?? r.mined_by) : null,
+    }));
+
+    void reply.header('cache-control', 'public, max-age=30');
+    return { blocks };
   });
 }

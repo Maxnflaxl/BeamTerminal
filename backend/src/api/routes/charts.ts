@@ -287,6 +287,16 @@ const BEAM_VOL_SQL = `
    ORDER BY day
 `;
 
+// Daily BEAM/USD closing price from oracle snapshots.
+const PRICE_SQL = `
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', ts))::bigint AS ts,
+         last(beam_usd, ts)::float8 AS value
+    FROM oracle_snapshots
+   WHERE beam_usd IS NOT NULL
+   GROUP BY time_bucket(INTERVAL '1 day', ts)
+   ORDER BY 1
+`;
+
 // Per-day DEX-wide volatility index: TVL-weighted average of per-pool realized
 // volatility across all pairs, in percent. Per-pool daily closes come from
 // candles_1d; each pool's 30-day rolling annualized vol is weighted by that
@@ -474,6 +484,7 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'tvl',        sql: TVL_SQL,        maxAgeSec: 1800 },
   { name: 'beam-vol',   sql: BEAM_VOL_SQL,   maxAgeSec: 1800 },
   { name: 'dex-vol',    sql: DEX_VOL_SQL,    maxAgeSec: 1800 },
+  { name: 'price',      sql: PRICE_SQL,      maxAgeSec: 600 },
   // From the explorer's /hdrs endpoint (one fetch yields all ten).
   { name: 'transactions-daily',  fetch: netFetcher('daily_txs'),             maxAgeSec: 600 },
   { name: 'transactions-total',  fetch: netFetcher('total_txs'),             maxAgeSec: 600 },
