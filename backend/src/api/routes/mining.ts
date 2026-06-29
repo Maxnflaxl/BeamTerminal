@@ -29,6 +29,7 @@ interface BlockHeightRow {
 
 interface SparkRow {
   pool_id: string;
+  ts: string;
   hashrate: number;
 }
 
@@ -78,9 +79,9 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
 
     // Per-pool hashrate sparkline: last ~30 non-null snapshots, oldest→newest.
     const { rows: sparkRows } = await q<SparkRow>(
-      `SELECT pool_id, hashrate::float8 AS hashrate
+      `SELECT pool_id, EXTRACT(epoch FROM ts)::bigint AS ts, hashrate::float8 AS hashrate
          FROM (
-           SELECT pool_id, hashrate,
+           SELECT pool_id, ts, hashrate,
                   ROW_NUMBER() OVER (PARTITION BY pool_id ORDER BY ts DESC) AS rn
              FROM mining_pool_snapshots
             WHERE hashrate IS NOT NULL
@@ -88,11 +89,11 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
         WHERE rn <= 30
         ORDER BY pool_id, rn DESC`,
     );
-    // Group into pool_id → number[] (already oldest→newest after ORDER BY rn DESC).
-    const sparkByPool = new Map<string, number[]>();
+    // Group into pool_id → { ts, value }[] (already oldest→newest after ORDER BY rn DESC).
+    const sparkByPool = new Map<string, { ts: number; value: number }[]>();
     for (const r of sparkRows) {
       const arr = sparkByPool.get(r.pool_id) ?? [];
-      arr.push(Number(r.hashrate));
+      arr.push({ ts: Number(r.ts), value: Number(r.hashrate) });
       sparkByPool.set(r.pool_id, arr);
     }
 
