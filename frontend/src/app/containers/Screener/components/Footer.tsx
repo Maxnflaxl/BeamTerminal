@@ -149,6 +149,7 @@ export const Footer: React.FC = () => (
       <Col>
         <ColTitle>BeamTerminal</ColTitle>
         <FLink href="https://github.com/Maxnflaxl/BeamTerminal" target="_blank" rel="noopener noreferrer">GitHub</FLink>
+        <FLink href="https://beamterminal.0xmx.net/api/" target="_blank" rel="noopener noreferrer">API</FLink>
         <FLink href="#/privacy">Privacy Policy</FLink>
       </Col>
       <Col>
