@@ -12,6 +12,7 @@ import {
   Page, Card, H2, H3,
   DataTable, TabBtn, Dot, Btn, Muted, theme,
 } from './shared';
+import { MiningCalculator } from './MiningCalculator';
 
 // --- helpers -----------------------------------------------------------------
 
@@ -148,8 +149,10 @@ const ModalCard = styled.div`
   border-radius: ${theme.radius.lg};
   padding: 24px;
   min-width: 280px;
-  max-width: 480px;
-  width: 90%;
+  max-width: 780px;
+  width: 95%;
+  max-height: 90vh;
+  overflow-y: auto;
 `;
 
 const ModalHeader = styled.div`
@@ -496,7 +499,7 @@ export const Mining: React.FC = () => {
               <H3 style={{ margin: 0 }}>Mining Calculator</H3>
               <CloseBtn type="button" onClick={() => setCalcOpen(false)} aria-label="Close">&#x2715;</CloseBtn>
             </ModalHeader>
-            <Muted>Mining calculator coming soon.</Muted>
+            <MiningCalculator />
           </ModalCard>
         </ModalOverlay>
       )}
