@@ -193,6 +193,112 @@ const SparkCell = styled.div`
   > * + * { margin-left: 8px; }
 `;
 
+const HashrateBarTrack = styled.div`
+  width: 100%;
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  margin-top: 4px;
+`;
+
+const HashrateBarFill = styled.div<{ width: string }>`
+  height: 4px;
+  background: #f0a500;
+  border-radius: 2px;
+  width: ${(props) => props.width};
+`;
+
+const SparkTooltip = styled.div`
+  position: absolute;
+  background: #061f3c;
+  border: 1px solid ${theme.color.border};
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: ${theme.color.text};
+  pointer-events: none;
+  z-index: 10;
+  white-space: nowrap;
+  line-height: 1.5;
+`;
+
+function fmtTooltipDate(ts: number): string {
+  const d = new Date(ts * 1000);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dow = days[d.getDay()];
+  const mon = months[d.getMonth()];
+  const day = d.getDate();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${dow}, ${mon} ${day} ${hh}:${mm}`;
+}
+
+interface HashrateTooltipState {
+  idx: number;
+  x: number;
+  y: number;
+}
+
+interface HashrateSeriesPoint { ts: number; value: number }
+
+const HashrateCell: React.FC<{
+  series: HashrateSeriesPoint[];
+  hashrate: number | null;
+  barWidth: string;
+}> = ({ series, hashrate, barWidth }) => {
+  const [tip, setTip] = useState<HashrateTooltipState | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const avg = useMemo(() => {
+    if (!series.length) return 0;
+    return series.reduce((s, p) => s + p.value, 0) / series.length;
+  }, [series]);
+
+  const values = useMemo(() => series.map((s) => s.value), [series]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!series.length || !wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const raw = (mouseX / rect.width) * (series.length - 1);
+    const idx = Math.max(0, Math.min(series.length - 1, Math.round(raw)));
+    const x = e.clientX - (wrapRef.current.closest('td')?.getBoundingClientRect().left ?? e.clientX);
+    const y = e.clientY - (wrapRef.current.closest('td')?.getBoundingClientRect().top ?? e.clientY);
+    setTip({ idx, x, y });
+  };
+
+  const handleMouseLeave = () => setTip(null);
+
+  return (
+    <div>
+      <SparkCell>
+        <span>{fmtHashrate(hashrate)}</span>
+        {values.length > 0 && (
+          <div
+            ref={wrapRef}
+            style={{ position: 'relative', display: 'inline-block' }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          >
+            <Sparkline values={values} width={80} height={24} />
+            {tip != null && series[tip.idx] && (
+              <SparkTooltip style={{ left: tip.x + 8, top: tip.y - 56 }}>
+                <div>{fmtTooltipDate(series[tip.idx].ts)}</div>
+                <div>Hashrate: {fmtHashrate(series[tip.idx].value)}</div>
+                <div>Average: {fmtHashrate(avg)}</div>
+              </SparkTooltip>
+            )}
+          </div>
+        )}
+      </SparkCell>
+      <HashrateBarTrack>
+        <HashrateBarFill width={barWidth} />
+      </HashrateBarTrack>
+    </div>
+  );
+};
+
 const pagerCss = css`
   display: -webkit-box;
   display: flex;
@@ -345,6 +451,12 @@ export const Mining: React.FC = () => {
     return m;
   }, [pools]);
 
+  // max hashrate for proportional bar
+  const maxHashrate = useMemo(
+    () => Math.max(1, ...pools.map((p) => p.hashrate ?? 0)),
+    [pools],
+  );
+
   // blocks distribution slices
   const blockSlices: Slice[] = useMemo(() => {
     const known = sorted.filter((p) => (p.blocks_last_100 ?? 0) > 0);
@@ -382,7 +494,6 @@ export const Mining: React.FC = () => {
               <tr>
                 <th style={{ width: 32 }}>#</th>
                 <th>Pool</th>
-                <th>Fee</th>
                 <th>Hashrate</th>
                 <th className="right">Blocks / 100</th>
                 <th className="right">Block Height</th>
@@ -402,18 +513,16 @@ export const Mining: React.FC = () => {
                       </div>
                       {p.payout_scheme && (
                         <div style={{ fontSize: 11, color: theme.color.muted, marginTop: 2 }}>
-                          {p.payout_scheme}{p.fee != null ? ` · ${p.fee}%` : ''}
+                          {p.fee != null ? `${p.fee}% ` : ''}{p.payout_scheme}
                         </div>
                       )}
                     </td>
-                    <td>{p.fee != null ? `${p.fee}%` : '—'}</td>
-                    <td>
-                      <SparkCell>
-                        <span>{fmtHashrate(p.hashrate)}</span>
-                        {(p.hashrate_series ?? []).length > 0 && (
-                          <Sparkline values={p.hashrate_series ?? []} width={80} height={24} />
-                        )}
-                      </SparkCell>
+                    <td style={{ position: 'relative' }}>
+                      <HashrateCell
+                        series={p.hashrate_series ?? []}
+                        hashrate={p.hashrate}
+                        barWidth={`${((p.hashrate ?? 0) / maxHashrate) * 100}%`}
+                      />
                     </td>
                     <td className="right">{p.blocks_last_100 ?? '—'}</td>
                     <td className="right">{blockHt != null ? blockHt.toLocaleString() : '—'}</td>
