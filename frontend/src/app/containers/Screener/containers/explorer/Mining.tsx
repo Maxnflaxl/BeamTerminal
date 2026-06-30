@@ -43,6 +43,16 @@ function fmtAge(iso: string | null): string {
   return `${Math.round(secs / 86400)}d ago`;
 }
 
+// Block solve-time bar: width grows with the interval (full at ~5× target),
+// red once a block took noticeably longer than BEAM's ~60s target.
+const BLOCK_TARGET_SECS = 60;
+function ageBar(intervalSecs: number | null): { pct: number; color: string } | null {
+  if (intervalSecs == null || intervalSecs < 0) return null;
+  const pct = Math.max(6, Math.min(100, (intervalSecs / (BLOCK_TARGET_SECS * 5)) * 100));
+  const color = intervalSecs > BLOCK_TARGET_SECS * 2 ? '#f87171' : '#4f9dff';
+  return { pct, color };
+}
+
 const COLORS = ['#00f6d2', '#4f9dff', '#ffb454', '#ff6b9d', '#a78bfa', '#34d399', '#f87171', '#94a3b8'];
 
 // --- Donut -------------------------------------------------------------------
@@ -544,7 +554,7 @@ export const Mining: React.FC = () => {
                       />
                     </td>
                     <td className="right">{p.blocks_last_100 ?? '—'}</td>
-                    <td className="right">{blockHt != null ? blockHt.toLocaleString() : '—'}</td>
+                    <td className="right">{p.last_block_height != null ? p.last_block_height.toLocaleString() : '—'}</td>
                     <td className="right">{fmtAge(p.last_block_ts)}</td>
                     <td><Dot data-kind={offline ? 'error' : 'live'} /></td>
                   </tr>
@@ -621,8 +631,14 @@ export const Mining: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {blocks.map((b) => {
+                  {blocks.map((b, i) => {
                     const site = b.mined_by ? (poolByName[b.mined_by] ?? null) : null;
+                    // Block solve time = gap to the next-older block in the list.
+                    const older = blocks[i + 1];
+                    const interval = older
+                      ? (new Date(b.ts).getTime() - new Date(older.ts).getTime()) / 1000
+                      : null;
+                    const bar = ageBar(interval);
                     return (
                       <tr key={b.height}>
                         <td className="mono">{b.height.toLocaleString()}</td>
@@ -633,7 +649,16 @@ export const Mining: React.FC = () => {
                               : b.mined_by
                             : <span className="muted">—</span>}
                         </td>
-                        <td className="right">{fmtAge(b.ts)}</td>
+                        <td className="right">
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                            <span>{fmtAge(b.ts)}</span>
+                            {bar && (
+                              <div style={{ width: 64, height: 3, borderRadius: 2, background: 'rgba(148,163,184,0.18)' }}>
+                                <div style={{ width: `${bar.pct}%`, height: '100%', borderRadius: 2, background: bar.color }} />
+                              </div>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
