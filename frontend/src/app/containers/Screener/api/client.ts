@@ -20,6 +20,7 @@ import type {
   ApiAsset,
   ApiAssetsList,
   ApiAssetHistory,
+  ApiAssetDistribution,
   ApiAssetSwapsList,
   ApiAtomicSwapsList,
   ApiAtomicSwapTotalsLatest,
@@ -112,6 +113,8 @@ export const api = {
   assets: (): Promise<ApiAssetsList> => get<ApiAssetsList>('/assets'),
 
   assetHistory: (aid: number, limit = 100): Promise<ApiAssetHistory> => get<ApiAssetHistory>(`/asset/${aid}/history${qs({ limit })}`),
+
+  assetDistribution: (aid: number): Promise<ApiAssetDistribution> => get<ApiAssetDistribution>(`/asset/${aid}/distribution`),
 
   // Wallet-gossiped DEX-style asset-to-asset offers (from wallet-api).
   assetSwaps: (

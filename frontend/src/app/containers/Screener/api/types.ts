@@ -334,6 +334,22 @@ export interface ApiAssetHistory {
   cached: boolean;
 }
 
+export interface ApiAssetDistributionEntry {
+  cid: string;
+  kind: string;
+  /** Locked amount in groths (decimal string). Divide by 10**decimals to display. */
+  amount: string;
+}
+
+export interface ApiAssetDistribution {
+  aid: number;
+  entries: ApiAssetDistributionEntry[];
+  /** Unlocked remainder in groths (decimal string). */
+  unlocked: string;
+  /** unlocked + Σ entries.amount, in groths (decimal string). */
+  total: string;
+}
+
 export interface ApiHealth {
   status: 'ok' | 'degraded';
   last_indexed_height: number;

@@ -15,6 +15,7 @@ import type {
   ApiAsset,
   ApiAssetsList,
   ApiAssetHistory,
+  ApiAssetDistribution,
   PairsQuery,
   Interval,
   Denom,
@@ -343,3 +344,6 @@ export const useAsset = (aid: number | undefined): AsyncState<ApiAsset> & { refe
 export const useAssets = (): AsyncState<ApiAssetsList> & { refetch: () => void } => usePolling(() => api.assets(), [], 60_000);
 
 export const useAssetHistory = (aid: number | undefined): AsyncState<ApiAssetHistory> & { refetch: () => void } => usePolling(() => (aid !== undefined ? api.assetHistory(aid) : Promise.reject(new Error('no aid'))), [aid ?? -1], 5 * 60_000);
+
+export const useAssetDistribution = (aid: number | undefined): AsyncState<ApiAssetDistribution> & { refetch: () => void } =>
+  usePolling(() => (aid !== undefined ? api.assetDistribution(aid) : Promise.reject(new Error('no aid'))), [aid ?? -1], 60_000);
