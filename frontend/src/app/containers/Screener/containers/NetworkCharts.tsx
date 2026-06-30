@@ -720,6 +720,7 @@ export const NetworkCharts: React.FC = () => {
   const blockTime          = useOneShot<ApiChartSeries>(() => api.charts.blockTime());
   const coinbase           = useOneShot<ApiChartSeries>(() => api.charts.coinbase());
   const tvl                = useOneShot<ApiChartSeries>(() => api.charts.tvl());
+  const price              = useOneShot<ApiChartSeries>(() => api.charts.price());
   const dexVolume          = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
   const beamVol            = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
   const dexVol             = useOneShot<ApiChartSeries>(() => api.charts.dexVol());
@@ -819,6 +820,7 @@ export const NetworkCharts: React.FC = () => {
     { key: 'dexVolume',          title: 'DEX volume / day',       state: dexVolume,          formatter: fmtUsd, category: 'defi' },
     { key: 'dexVolumeCumulative',title: 'DEX volume (total)',     state: dexVolumeCumulative,formatter: fmtUsd, category: 'defi' },
     // DeFi — standalone
+    { key: 'price',              title: 'BEAM/USD (oracle median)', state: price,            formatter: fmtUsd, category: 'defi' },
     { key: 'tvl',                title: 'DEX TVL',                state: tvl,                formatter: fmtUsd, category: 'defi' },
     { key: 'beamVol',            title: 'BEAM Volatility Index (30d)', state: beamVol,       formatter: fmtVol, category: 'defi' },
     { key: 'dexVol',             title: 'DEX Volatility Index (30d)',  state: dexVol,        formatter: fmtVol, category: 'defi' },
