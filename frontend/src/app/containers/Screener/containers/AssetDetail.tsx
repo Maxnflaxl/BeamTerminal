@@ -3,7 +3,7 @@ import { styled } from '@linaria/react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
 import { BlockHeight } from '@app/shared/components/BlockHeight';
-import { useAsset, useAssetHistory, usePairs } from '../hooks';
+import { useAsset, useAssetDistribution, useAssetHistory, usePairs } from '../hooks';
 import { fmt$, fmtNum, pairUrlId } from '../components/format';
 import { KindBadge } from '../components/KindBadge';
 import { SupplyChart } from '../components/SupplyChart';
@@ -198,12 +198,16 @@ export const AssetDetail: React.FC = () => {
   const navigate = useNavigate();
   const aid = id !== undefined ? Number(id) : undefined;
 
-  const [tab, setTab] = useState<'pools' | 'history'>('pools');
+  const [tab, setTab] = useState<'pools' | 'history' | 'distribution'>('pools');
 
   const { data: asset, loading: assetLoading } = useAsset(aid);
   // Always fetch the supply history when an aid is set — the chart needs it
   // even on the "pools" tab. BEAM (aid 0) has no /history endpoint, skip.
   const { data: history } = useAssetHistory(aid !== undefined && aid > 0 ? aid : undefined);
+  // Locked-in-contracts breakdown. Lazy: only fetch when the tab is open and
+  // aid > 0 (the explorer rejects aid 0 / BEAM for this query).
+  const { data: distribution, loading: distLoading, error: distError } =
+    useAssetDistribution(aid !== undefined && aid > 0 && tab === 'distribution' ? aid : undefined);
   // Pull all pairs so we can show pool ticker symbols + USD valuations next to pool ids.
   const { data: pairsResp } = usePairs({ limit: 500 });
 
@@ -401,6 +405,11 @@ export const AssetDetail: React.FC = () => {
         <button type="button" className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
           Mint / Burn history
         </button>
+        {asset.aid > 0 && (
+          <button type="button" className={tab === 'distribution' ? 'active' : ''} onClick={() => setTab('distribution')}>
+            Distribution
+          </button>
+        )}
       </Tabs>
 
       {tab === 'pools' && (
@@ -463,6 +472,59 @@ export const AssetDetail: React.FC = () => {
                   </tr>
                 );
               })}
+            </tbody>
+          </Table>
+        )
+      )}
+
+      {tab === 'distribution' && (
+        distLoading && !distribution ? (
+          <Empty>Loading distribution…</Empty>
+        ) : distError ? (
+          <Empty>Distribution unavailable.</Empty>
+        ) : !distribution || (distribution.entries.length === 0 && distribution.unlocked === '0') ? (
+          <Empty>No distribution data.</Empty>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <th>Cid</th>
+                <th>Kind</th>
+                <th>Amount</th>
+                <th>%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {distribution.entries.map((e) => {
+                const amt = Number(e.amount) / 10 ** asset.decimals;
+                const pct = Number(distribution.total) > 0
+                  ? (Number(e.amount) / Number(distribution.total)) * 100
+                  : null;
+                return (
+                  <tr key={e.cid} style={{ cursor: 'default' }}>
+                    <td>
+                      <CidLink to={`/explorer/beam?network=mainnet&type=contract&id=${e.cid}`} title={e.cid}>
+                        {`${e.cid.slice(0, 6)}…${e.cid.slice(-4)}`}
+                      </CidLink>
+                    </td>
+                    <td>{e.kind || '—'}</td>
+                    <td className="mono">{fmtNum(amt, 4)}</td>
+                    <td className="mono">{pct !== null ? `${pct.toFixed(2)}%` : '—'}</td>
+                  </tr>
+                );
+              })}
+              {distribution.unlocked !== '0' && (
+                <tr style={{ cursor: 'default' }}>
+                  <td>Unlocked</td>
+                  <td>—</td>
+                  <td className="mono">{fmtNum(Number(distribution.unlocked) / 10 ** asset.decimals, 4)}</td>
+                  <td className="mono">
+                    {Number(distribution.total) > 0
+                      ? `${((Number(distribution.unlocked) / Number(distribution.total)) * 100).toFixed(2)}%`
+                      : '—'}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </Table>
         )
