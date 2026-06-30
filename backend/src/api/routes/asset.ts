@@ -297,6 +297,53 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       return { aid, history, cached: false };
     },
   );
+
+  // -------------------------------------------------------------------------
+  // /asset/{aid}/distribution — pass-through over explorer /asset?id=N,
+  // surfacing the "Asset distribution" table: how much of the asset each
+  // contract currently has locked, plus the Unlocked remainder. Live state.
+  // -------------------------------------------------------------------------
+  app.get<{ Params: { aid: string } }>(
+    '/asset/:aid/distribution',
+    async (req, reply) => {
+      const aid = Number(req.params.aid);
+      if (!Number.isFinite(aid) || aid <= 0) {
+        throw BadRequest(
+          'BAD_REQUEST',
+          aid === 0
+            ? 'aid 0 (BEAM) has no distribution endpoint'
+            : 'aid must be a positive integer',
+        );
+      }
+
+      const resp = await getAssetHistory({ id: aid, hMin: 0, nMaxOps: 1 });
+      const tbl = resp['Asset distribution'];
+
+      const entries: { cid: string; kind: string; amount: string }[] = [];
+      let unlocked = 0n;
+      if (tbl && tbl.type === 'table') {
+        for (const row of tbl.value.slice(1)) {
+          if (!Array.isArray(row)) continue;
+          const r = row as Row;
+          const amtStr = pickAmt(r[2]);
+          const amount = amtStr ? BigInt(amtStr.replace(/^[+]/, '')) : 0n;
+          // The remainder row carries the literal string "Unlocked" in col 0.
+          if (r[0] === 'Unlocked') {
+            unlocked = amount;
+            continue;
+          }
+          const cid = isTyped(r[0]) && r[0].type === 'cid' ? pickS(r[0]) : null;
+          if (!cid) continue;
+          entries.push({ cid, kind: pickS(r[1]) ?? '', amount: amount.toString() });
+        }
+      }
+
+      const total = entries.reduce((sum, e) => sum + BigInt(e.amount), unlocked);
+
+      void reply.header('cache-control', 'public, max-age=30');
+      return { aid, entries, unlocked: unlocked.toString(), total: total.toString() };
+    },
+  );
 }
 
 function isTyped(x: unknown): x is TypedCell {
