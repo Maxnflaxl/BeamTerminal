@@ -1,14 +1,16 @@
 # syntax=docker/dockerfile:1.7
 #
-# Pinned BEAM wallet-api 7.5.13882 (release "Groovy Gluon").
-# We need this daemon to answer `assets_swap_offers_list` for the asset-swaps
-# subsystem — the explorer node cannot serve those (they're wallet-side gossip
-# objects, not on-chain state).
+# Pinned BEAM wallet-api 7.5.14492 (emergency-hf6, HF6-aware at mainnet height
+# 3928666). We need this daemon to answer `assets_swap_offers_list` for the
+# asset-swaps subsystem — the explorer node cannot serve those (they're
+# wallet-side gossip objects, not on-chain state).
 #
 # Policy mirror of explorer-node: pin a known-good binary, never build.
-# SHA256s here match the published Checksums.txt for tag beam-7.5.13882.
-# When bumping versions, update the URLs + sha256 vars + verify against
-# https://github.com/BeamMW/beam/releases/download/<tag>/Checksums.txt
+# The emergency-hf6 release ships per-distro tars (wallet-api-<distro>.tar,
+# beam-wallet-<distro>.tar) instead of the older beam-<version> zip layout.
+# SHA256s below are the published release-asset digests for tag emergency-hf6.
+# When bumping versions, update the tag/URLs + sha256 vars and verify against
+# the release page's asset digests.
 
 FROM debian:bookworm-slim AS fetch
 
@@ -20,23 +22,22 @@ RUN apt-get update \
 
 WORKDIR /opt/beam
 
-ARG BEAM_VERSION=7.5.13882
-ARG WALLET_API_URL=https://github.com/BeamMW/beam/releases/download/beam-${BEAM_VERSION}/linux-wallet-api-${BEAM_VERSION}.zip
-ARG WALLET_CLI_URL=https://github.com/BeamMW/beam/releases/download/beam-${BEAM_VERSION}/linux-beam-wallet-cli-${BEAM_VERSION}.zip
-ARG WALLET_API_SHA256=74e0c8b26fefb2f130d3b051faaf8d2ad759cb819abcc16b6a9238bf18a0e6c7
-ARG WALLET_CLI_SHA256=485c23fd6cb3cd290bbe8e1890c7ce8d4ed2158bad54528fb78bfab56564a62d
+ARG BEAM_TAG=emergency-hf6
+ARG BEAM_DISTRO=ubuntu22.04
+ARG WALLET_API_URL=https://github.com/BeamMW/beam/releases/download/${BEAM_TAG}/wallet-api-${BEAM_DISTRO}.tar
+ARG WALLET_CLI_URL=https://github.com/BeamMW/beam/releases/download/${BEAM_TAG}/beam-wallet-${BEAM_DISTRO}.tar
+ARG WALLET_API_SHA256=b94b7f6381d569724c3dc5f177170c18895c6611fd066e4fe51484b3a65a29cb
+ARG WALLET_CLI_SHA256=8b56c4448dec37cb74e30856d9b22056b894f4418e31c75b7dc927d2d8fa3696
 
 RUN set -eux; \
-    curl -fsSL "$WALLET_API_URL" -o wallet-api.zip; \
-    echo "$WALLET_API_SHA256  wallet-api.zip" | sha256sum -c -; \
-    curl -fsSL "$WALLET_CLI_URL" -o wallet-cli.zip; \
-    echo "$WALLET_CLI_SHA256  wallet-cli.zip" | sha256sum -c -; \
-    unzip -q wallet-api.zip; \
-    unzip -q wallet-cli.zip; \
+    curl -fsSL "$WALLET_API_URL" -o wallet-api.tar; \
+    echo "$WALLET_API_SHA256  wallet-api.tar" | sha256sum -c -; \
+    curl -fsSL "$WALLET_CLI_URL" -o beam-wallet.tar; \
+    echo "$WALLET_CLI_SHA256  beam-wallet.tar" | sha256sum -c -; \
     tar -xf wallet-api.tar; \
     tar -xf beam-wallet.tar; \
     chmod +x wallet-api beam-wallet; \
-    rm -f *.zip *.tar *checksum.txt
+    rm -f *.tar *checksum.txt
 
 FROM debian:bookworm-slim AS runtime
 
