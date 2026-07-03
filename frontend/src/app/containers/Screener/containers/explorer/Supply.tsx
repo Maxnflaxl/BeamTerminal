@@ -197,6 +197,14 @@ export const Supply: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showMarkers]);
 
+  // Dispose the chart on unmount — renderChart only removes the *previous*
+  // instance on re-render, so without this the last chart's canvas + WebGL
+  // context leak every time the Supply page is navigated away from.
+  useEffect(() => () => {
+    chartRef.current?.remove();
+    chartRef.current = null;
+  }, []);
+
   function renderChart(data: ChartData): void {
     const el = chartWrapRef.current;
     if (!el) return;

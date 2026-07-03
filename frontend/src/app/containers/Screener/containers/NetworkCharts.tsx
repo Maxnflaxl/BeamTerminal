@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { api, type ApiChartPoint, type ApiChartSeries, type ApiBlackholeBody, type ApiBlackholeSeries } from '../api/client';
@@ -632,6 +632,35 @@ const InnerChart: React.FC<{
   );
 };
 
+// Only mount a cell's lightweight-charts instance while it's near the viewport.
+// Each chart is ~5 retina canvas layers (~2MB backing + a GPU texture copy), so
+// mounting all ~20 grid cells at once cost ~130MB of canvas/GPU memory. Gating
+// on an IntersectionObserver keeps only the visible rows (+ a preload margin)
+// live; scrolled-away cells unmount, and the chart components' existing cleanup
+// disposes their canvas + WebGL context. Falls back to always-mounted where
+// IntersectionObserver is unavailable (the wallet's older QtWebEngine has it).
+function useInView<T extends Element>(rootMargin = '400px'): [React.RefObject<T>, boolean] {
+  const ref = useRef<T>(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      return undefined;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) setInView(e.isIntersecting);
+      },
+      { rootMargin },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [rootMargin]);
+  return [ref, inView];
+}
+
 // Shared grid-cell chrome (title + lin/log toggle + expand button + plot area).
 // Both the single-series ChartCell and the multi-series BlackholeCell wrap their
 // chart body in it, so the cell shell lives in exactly one place.
@@ -641,22 +670,25 @@ const ChartShell: React.FC<{
   onExpand: () => void;
   onToggleLog: () => void;
   children: React.ReactNode;
-}> = ({ title, logScale, onExpand, onToggleLog, children }) => (
-  <Cell>
-    <CellHeader>
-      <CellTitle>{title}</CellTitle>
-      <CellActions>
-        <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
-          {logScale ? 'log' : 'lin'}
-        </ScaleToggle>
-        <ExpandButton onClick={onExpand} title="Expand chart" aria-label="Expand chart">
-          <ExpandIcon />
-        </ExpandButton>
-      </CellActions>
-    </CellHeader>
-    <ChartArea>{children}</ChartArea>
-  </Cell>
-);
+}> = ({ title, logScale, onExpand, onToggleLog, children }) => {
+  const [areaRef, inView] = useInView<HTMLDivElement>();
+  return (
+    <Cell>
+      <CellHeader>
+        <CellTitle>{title}</CellTitle>
+        <CellActions>
+          <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
+            {logScale ? 'log' : 'lin'}
+          </ScaleToggle>
+          <ExpandButton onClick={onExpand} title="Expand chart" aria-label="Expand chart">
+            <ExpandIcon />
+          </ExpandButton>
+        </CellActions>
+      </CellHeader>
+      <ChartArea ref={areaRef}>{inView ? children : null}</ChartArea>
+    </Cell>
+  );
+};
 
 const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
   { state, title, timeframe, scale, formatter, logScale, chartKey, onExpand, onToggleLog },
