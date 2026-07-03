@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ROUTES } from '@app/shared/constants';
@@ -122,6 +122,30 @@ const MobileOnly = styled.div`
   display: none;
   @media (max-width: 640px) { display: block; }
 `;
+
+// Track a media query so we can render ONLY the active layout's rows. The card
+// (mobile) and table (desktop) lists both map over every pair; without this
+// gate both are in the DOM at all times with one CSS-hidden, doubling the row
+// count — ~8 SVGs per row (icons + sparkline) wasted on the inactive layout.
+// The CSS wrappers stay as an instant-visual guard during a resize before the
+// change event fires. matchMedia is available in the wallet's QtWebEngine.
+const MOBILE_QUERY = '(max-width: 640px)';
+function useMediaQuery(query: string): boolean {
+  const [match, setMatch] = useState(
+    () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false),
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const mql = window.matchMedia(query);
+    const onChange = (): void => setMatch(mql.matches);
+    onChange();
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [query]);
+  return match;
+}
 
 const SortBar = styled.div`
   display: flex;
@@ -365,6 +389,8 @@ export const PairsList: React.FC = () => {
 
   const [filter, setFilter] = useState<DexFilter>('all');
   const [createOpen, setCreateOpen] = useState(false);
+  // Render only the active layout's rows (see useMediaQuery note above).
+  const isMobile = useMediaQuery(MOBILE_QUERY);
   // MY filter + Create Pool are wallet-only (shown inside the BEAM wallet, hidden
   // on the public web). `inWallet` is isInsideWallet() from walletEnv.
   const { inWallet } = useWallet();
@@ -490,7 +516,7 @@ export const PairsList: React.FC = () => {
                 </SortPill>
               ))}
             </SortBar>
-            {filtered.map((p, idx) => {
+            {isMobile && filtered.map((p, idx) => {
               const chg = fmtPct(p.price_change_24h);
               return (
                 <Card
@@ -575,7 +601,7 @@ export const PairsList: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p, idx) => {
+              {!isMobile && filtered.map((p, idx) => {
                 const chg = fmtPct(p.price_change_24h);
                 return (
                   <tr
