@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { q } from '../../db.js';
 import { POOLS } from '../../mining/pools.js';
+import { getNetworkSnapshot } from '../../services/networkSnapshot.js';
 
 // ---------------------------------------------------------------------------
 // /api/mining/pools — latest snapshot per pool + current network hashrate
@@ -17,14 +18,6 @@ interface SnapRow {
   last_block_ts: Date | null;
   fee: string | null;
   min_payout: string | null;
-}
-
-interface HashrateRow {
-  hashrate: number | null;
-}
-
-interface BlockHeightRow {
-  max: string | null;
 }
 
 interface SparkRow {
@@ -59,23 +52,11 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
     );
     const byId = new Map(rows.map((r) => [r.pool_id, r]));
 
-    // Current network hashrate (Sol/s) from recent blocks: Σ difficulty / Δt,
-    // matching the Health/Charts diffToHashrate convention.
-    const { rows: hr } = await q<HashrateRow>(
-      `SELECT (SUM(difficulty)
-                / NULLIF(EXTRACT(EPOCH FROM (MAX(block_ts) - MIN(block_ts))), 0))::float8
-                AS hashrate
-         FROM (SELECT difficulty, block_ts FROM block_metrics
-                ORDER BY height DESC LIMIT 60) t
-        WHERE difficulty > 0`,
-    );
-    const networkHashrate = hr[0]?.hashrate ?? null;
-
-    // Network tip height.
-    const { rows: bh } = await q<BlockHeightRow>(
-      `SELECT MAX(height)::text FROM block_metrics`,
-    );
-    const blockHeight = bh[0]?.max != null ? Number(bh[0].max) : null;
+    // Canonical network hashrate + tip height from the shared snapshot helper,
+    // so this matches /api/network and the Health page byte-for-byte.
+    const net = await getNetworkSnapshot();
+    const networkHashrate = net.hashrate;
+    const blockHeight = net.tip_height;
 
     // Per-pool hashrate sparkline: past 7 days, hourly-averaged (≤168 points),
     // oldest→newest. Snapshots are written per block (~1/min), so raw rows would
