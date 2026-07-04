@@ -480,6 +480,16 @@ export const Mining: React.FC = () => {
     return m;
   }, [pools]);
 
+  // summary totals across pools (only pools that report a count)
+  const totalMiners = useMemo(() => {
+    const vals = pools.map((p) => p.miners).filter((n): n is number => n != null);
+    return vals.length ? vals.reduce((s, n) => s + n, 0) : null;
+  }, [pools]);
+  const totalWorkers = useMemo(() => {
+    const vals = pools.map((p) => p.workers).filter((n): n is number => n != null);
+    return vals.length ? vals.reduce((s, n) => s + n, 0) : null;
+  }, [pools]);
+
   // max hashrate for proportional bar
   const maxHashrate = useMemo(
     () => Math.max(1, ...pools.map((p) => p.hashrate ?? 0)),
@@ -513,6 +523,12 @@ export const Mining: React.FC = () => {
             {blockHt != null && (
               <span style={{ marginLeft: 12 }}>Block: <strong>{blockHt.toLocaleString()}</strong></span>
             )}
+            {totalMiners != null && (
+              <span style={{ marginLeft: 12 }}>Miners: <strong>{totalMiners.toLocaleString()}</strong></span>
+            )}
+            {totalWorkers != null && (
+              <span style={{ marginLeft: 12 }}>Workers: <strong>{totalWorkers.toLocaleString()}</strong></span>
+            )}
           </NetInfo>
         </HeaderStrip>
         {poolErr && <Muted>Could not load pool data: {poolErr}</Muted>}
@@ -524,6 +540,8 @@ export const Mining: React.FC = () => {
                 <th style={{ width: 32 }}>#</th>
                 <th>Pool</th>
                 <th>Hashrate</th>
+                <th className="right">Miners</th>
+                <th className="right">Workers</th>
                 <th className="right">Blocks / 100</th>
                 <th className="right">Block Height</th>
                 <th className="right">Last Found</th>
@@ -553,6 +571,8 @@ export const Mining: React.FC = () => {
                         barWidth={`${((p.hashrate ?? 0) / maxHashrate) * 100}%`}
                       />
                     </td>
+                    <td className="right">{p.miners != null ? p.miners.toLocaleString() : '—'}</td>
+                    <td className="right">{p.workers != null ? p.workers.toLocaleString() : '—'}</td>
                     <td className="right">{p.blocks_last_100 ?? '—'}</td>
                     <td className="right">{p.last_block_height != null ? p.last_block_height.toLocaleString() : '—'}</td>
                     <td className="right">{fmtAge(p.last_block_ts)}</td>
