@@ -9,14 +9,21 @@ import type {
 import {
   Page, ExplorerHeader, H1, Subtitle, Label, Dot,
   Btn, Input, NodeSelector, StatGrid, StatCard, ErrorBox, theme,
+  fmtHashrateParts,
 } from './shared';
+import { api } from '../../api/client';
+import type { ApiNetwork } from '../../api/types';
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
 const REFRESH_INTERVAL_MS = 30_000;
-const UNIQUE_BLOCKS_NEEDED = 60;
+// The node is now only used for the live block feed (per-block hashes, which we
+// don't store) + shielded-pool/peer stats. All numeric tiles and the hashrate/
+// block-time/kernels charts come from our backend (/api/network), so we fetch
+// just enough blocks to fill the feed instead of the old 60-block window.
+const FEED_BLOCKS = 20;
 
 const NODE_OPTIONS: { label: string; url: string }[] = [
   { label: 'explorer.0xmx.net', url: 'https://explorer.0xmx.net/api' },
@@ -56,10 +63,6 @@ interface StatusData {
   shielded_possible_ready_in_hours?: string | number;
 }
 
-interface HdrsResponse {
-  value?: unknown[];
-}
-
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
@@ -82,31 +85,8 @@ function diffToHashrate(diff: number, blockTimeSecs: number): number {
   return diff / blockTimeSecs;
 }
 
-function fmtBeamSolutionsPerSec(solPerSec: number): { val: string; unit: string } {
-  const ks = solPerSec / 1e3;
-  if (ks >= 1e6) return { val: (ks / 1e6).toFixed(2), unit: 'MS/s' };
-  if (ks >= 1e3) return { val: (ks / 1e3).toFixed(2), unit: 'GS/s' };
-  return { val: ks.toFixed(2), unit: 'KS/s' };
-}
-
 function getHeight(b: BlockData): number {
   return (b.height ?? b.h ?? 0);
-}
-
-// Δ cumulative T.Txs across 1440 blocks (~24h at 60s target).
-function parseTxs24hFromHdrs(data: HdrsResponse | null): number | null {
-  if (!data || !Array.isArray(data.value) || data.value.length < 3) return null;
-  const parseCell = (cell: unknown): number => {
-    if (typeof cell === 'string') return parseInt(cell.replace(/,/g, ''), 10);
-    return NaN;
-  };
-  const row1 = data.value[1] as unknown[];
-  const row2 = data.value[2] as unknown[];
-  if (!Array.isArray(row1) || !Array.isArray(row2)) return null;
-  const hi = parseCell(row1[row1.length - 1]);
-  const lo = parseCell(row2[row2.length - 1]);
-  if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
-  return Math.max(0, hi - lo);
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +436,6 @@ const LastUpdate = styled.div`
 interface FetchState {
   status: StatusData | null;
   blocks: BlockData[];
-  txs24h: number | null;
   loading: boolean;
   error: string | null;
   connState: 'live' | 'error' | 'idle';
@@ -467,7 +446,6 @@ interface FetchState {
 const initialState: FetchState = {
   status: null,
   blocks: [],
-  txs24h: null,
   loading: true,
   error: null,
   connState: 'idle',
@@ -475,11 +453,22 @@ const initialState: FetchState = {
   lastUpdated: '—',
 };
 
+// Backend-sourced network data (canonical hashrate/difficulty/block-time/tip
+// and oracle price). Independent of the node feed so a node outage never
+// blanks these, and vice-versa.
+interface NetworkState {
+  net: ApiNetwork | null;
+  beamUsd: number | null;
+}
+
+const initialNetworkState: NetworkState = { net: null, beamUsd: null };
+
 export const Health: React.FC = () => {
   const [apiBase, setApiBase] = useState<string>(NODE_OPTIONS[0].url);
   const [selectedOption, setSelectedOption] = useState<string>(NODE_OPTIONS[0].url);
   const [customNodeInput, setCustomNodeInput] = useState<string>('');
   const [state, setState] = useState<FetchState>(initialState);
+  const [netState, setNetState] = useState<NetworkState>(initialNetworkState);
   const lastKnownHeightRef = useRef<number>(0);
   const newHeightsRef = useRef<Set<number>>(new Set());
 
@@ -493,15 +482,16 @@ export const Health: React.FC = () => {
     return res.json() as Promise<T>;
   }, []);
 
+  // Node fetch — the live block feed (per-block hashes) + shielded/peer stats
+  // from /status only. Numeric tiles and charts come from the backend below.
   const fetchData = useCallback(async (base: string, isRefresh: boolean) => {
     try {
       setState((s) => ({ ...s, statusMsg: isRefresh ? 'Refreshing…' : 'Connecting…', connState: 'idle' }));
       const status = await apiFetch<StatusData>(base, '/status');
-      const heights = Array.from({ length: UNIQUE_BLOCKS_NEEDED }, (_, i) => status.height - i);
-      const [blocksRaw, hdrs] = await Promise.all([
-        Promise.all(heights.map((h) => apiFetch<BlockData>(base, `/block?height=${h}`).catch(() => null))),
-        apiFetch<HdrsResponse>(base, `/hdrs?hMax=${status.height}&nMax=2&dh=1440&cols=K`).catch(() => null),
-      ]);
+      const heights = Array.from({ length: FEED_BLOCKS }, (_, i) => status.height - i);
+      const blocksRaw = await Promise.all(
+        heights.map((h) => apiFetch<BlockData>(base, `/block?height=${h}`).catch(() => null)),
+      );
       const blocks = (blocksRaw.filter((b): b is BlockData => !!b && b.found !== false))
         .sort((a, b) => getHeight(b) - getHeight(a));
 
@@ -521,7 +511,6 @@ export const Health: React.FC = () => {
       setState({
         status,
         blocks,
-        txs24h: parseTxs24hFromHdrs(hdrs),
         loading: false,
         error: null,
         connState: 'live',
@@ -547,49 +536,68 @@ export const Health: React.FC = () => {
     return () => { window.clearInterval(id); };
   }, [apiBase, fetchData]);
 
-  // Compute derived metrics
-  const blocks = state.blocks;
-  const latest = blocks[0];
+  // Backend fetch — canonical network snapshot, oracle price, tx throughput.
+  // Runs on the same cadence but is independent of the selected node.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      const [net, stats] = await Promise.all([
+        api.network().catch(() => null),
+        api.stats().catch(() => null),
+      ]);
+      if (cancelled) return;
+      setNetState((prev) => ({
+        net: net ?? prev.net,
+        beamUsd: stats?.beam_usd ?? prev.beamUsd,
+      }));
+    };
+    void load();
+    const id = window.setInterval(() => { void load(); }, REFRESH_INTERVAL_MS);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, []);
 
+  // Compute derived metrics
+  const blocks = state.blocks;   // node blocks — used for the live feed only
+  const latest = blocks[0];      // newest node block (hash + BTC price)
+  const net = netState.net;
+
+  // Recent blocks from the backend (oldest→newest) power the numeric tiles and
+  // the hashrate/block-time/kernels charts — the canonical, node-independent
+  // source that matches the Mining page and /api/network.
+  const recent = net?.recent ?? [];
+
+  // Per-interval block times (seconds), oldest→newest, for the bars.
   const blockTimes: number[] = [];
-  for (let i = 0; i < blocks.length - 1; i += 1) {
-    const dt = blocks[i].timestamp - blocks[i + 1].timestamp;
+  for (let i = 0; i < recent.length - 1; i += 1) {
+    const dt = recent[i + 1].ts - recent[i].ts;
     if (dt > 0 && dt < 1800) blockTimes.push(dt);
   }
-  const avgBlockTime = blockTimes.length > 0
-    ? blockTimes.reduce((a, b) => a + b, 0) / blockTimes.length
-    : 0;
 
-  const latestDiff = latest?.difficulty ?? 0;
-  const solPerSec = avgBlockTime > 0 ? diffToHashrate(latestDiff, avgBlockTime) : 0;
-  const hashrate = fmtBeamSolutionsPerSec(solPerSec);
+  const avgBlockTime = net?.avg_block_time ?? 0;
+  const latestDiff = net?.difficulty ?? 0;
+  const solPerSec = net?.hashrate ?? 0;
+  const hashrate = fmtHashrateParts(net?.hashrate ?? null);
 
   const txs24hDisplay: { val: string; sub: string } = (() => {
-    if (state.txs24h != null) {
-      return {
-        val: state.txs24h.toLocaleString(),
-        sub: 'Δ T.Txs · 1440 blocks (~24h)',
-      };
-    }
-    if (blocks.length > 0) {
-      const kernelsIn60 = blocks.reduce((acc, b) => acc + (b.kernels ?? []).filter((k) => (k.fee ?? 0) > 0).length, 0);
-      const txs24h = Math.round(kernelsIn60 * 24);
-      return { val: txs24h.toLocaleString(), sub: 'estimated · last 60 blocks × 24' };
+    if (recent.length > 0) {
+      const kernelsInWindow = recent.reduce((acc, b) => acc + (b.kernels ?? 0), 0);
+      const perBlock = kernelsInWindow / recent.length;
+      const txs24h = Math.round(perBlock * 1440); // kernels/block × blocks/day
+      return { val: txs24h.toLocaleString(), sub: `estimated · kernels/block × 1440 (${recent.length} blocks)` };
     }
     return { val: '···', sub: 'kernels processed' };
   })();
 
-  // Build hashrate series (oldest first for left-to-right)
+  // Build hashrate series (oldest→newest for left-to-right) from backend blocks.
   const hashrateSeriesData: LineData[] = (() => {
-    if (!blocks || blocks.length < 2 || avgBlockTime <= 0) return [];
-    const sortedAsc = [...blocks].reverse(); // oldest first
-    const points = sortedAsc.map((b, idx) => {
-      const next = sortedAsc[idx + 1];
-      const bt = next ? (next.timestamp - b.timestamp) : avgBlockTime;
-      const safeBt = (bt > 0 && bt < 1800) ? bt : avgBlockTime;
+    if (recent.length < 2) return [];
+    const points = recent.map((b, idx) => {
+      const next = recent[idx + 1];
+      const bt = next ? (next.ts - b.ts) : avgBlockTime;
+      const safeBt = (bt > 0 && bt < 1800) ? bt : (avgBlockTime || 60);
       return {
-        time: b.timestamp as UTCTimestamp,
-        value: diffToHashrate(b.difficulty ?? latestDiff, safeBt) / 1000, // KS/s
+        time: b.ts as UTCTimestamp,
+        value: diffToHashrate(b.difficulty, safeBt) / 1000, // KSol/s
       };
     });
     // lightweight-charts requires strictly-ascending, unique timestamps. Block
@@ -660,7 +668,7 @@ export const Health: React.FC = () => {
   const btMaxT = Math.max(...blockTimes, 120);
   const btHeight = 100;
   const btTargetBottom = (60 / btMaxT) * btHeight;
-  const btTimesForDisplay = [...blockTimes].reverse(); // oldest first → display left-to-right? original uses reversed list
+  const btTimesForDisplay = blockTimes; // already oldest→newest (left→right)
 
   // Shielded
   const shieldedTotal = state.status?.shielded_outputs_total ?? 0;
@@ -672,9 +680,10 @@ export const Health: React.FC = () => {
   else if (readyHours > 24) readyDisplay = `${Math.round(readyHours / 24)} days`;
   else if (readyHours > 0) readyDisplay = `${Math.round(readyHours)}h`;
 
-  // Price
-  const priceUsd = latest?.rate_usd && parseFloat(String(latest.rate_usd)) > 0
-    ? `$${parseFloat(String(latest.rate_usd)).toFixed(4)}` : '—';
+  // Price — USD from the oracle (same source as the rest of the app); BTC from
+  // the node's latest block (the oracle only publishes BEAM/USD).
+  const priceUsd = netState.beamUsd != null && netState.beamUsd > 0
+    ? `$${netState.beamUsd.toFixed(4)}` : '—';
   const priceBtc = latest?.rate_btc && parseFloat(String(latest.rate_btc)) > 0
     ? `₿ ${parseFloat(String(latest.rate_btc)).toFixed(8)}` : '—';
 
@@ -750,8 +759,10 @@ export const Health: React.FC = () => {
         <StatCard>
           <StatCardAccentBar />
           <Label>Block height</Label>
-          <StatValue tone={state.status ? 'accent' : 'loading'}>
-            {state.status ? Number(state.status.height).toLocaleString() : '···'}
+          <StatValue tone={net?.tip_height != null || state.status ? 'accent' : 'loading'}>
+            {net?.tip_height != null
+              ? net.tip_height.toLocaleString()
+              : (state.status ? Number(state.status.height).toLocaleString() : '···')}
           </StatValue>
           <StatSub>{latest?.hash ? `${latest.hash.slice(0, 20)}…` : '—'}</StatSub>
         </StatCard>
@@ -762,7 +773,7 @@ export const Health: React.FC = () => {
           </StatValue>
           <StatSub>
             {solPerSec > 0
-              ? `BeamHash III · difficulty ÷ avg block time (${blockTimes.length} intervals)`
+              ? `BeamHash III · Σ difficulty ÷ Δt (${recent.length} blocks)`
               : 'estimated from difficulty'}
           </StatSub>
         </StatCard>

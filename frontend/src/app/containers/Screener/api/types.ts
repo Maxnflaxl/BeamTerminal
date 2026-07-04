@@ -588,6 +588,22 @@ export interface ApiMiningPools {
   pools: ApiMiningPool[];
 }
 
+// GET /api/network — canonical current network snapshot from block_metrics.
+export interface ApiNetworkRecentBlock {
+  height: number;
+  ts: number; // unix seconds
+  difficulty: number;
+  kernels: number;
+}
+
+export interface ApiNetwork {
+  hashrate: number | null; // Sol/s, Σdiff/Δt over last 60 blocks
+  difficulty: number | null; // latest block difficulty
+  avg_block_time: number | null; // seconds
+  tip_height: number | null;
+  recent: ApiNetworkRecentBlock[]; // last 60 blocks, oldest→newest
+}
+
 export interface ApiMiningBlock {
   height: number;
   ts: string;

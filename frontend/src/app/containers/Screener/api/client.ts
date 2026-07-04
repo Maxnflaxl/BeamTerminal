@@ -8,6 +8,7 @@ import type {
   ApiStats,
   ApiMiningPools,
   ApiMiningBlocks,
+  ApiNetwork,
   ApiPair,
   ApiPairsList,
   ApiOhlcv,
@@ -81,6 +82,7 @@ export const api = {
   health: (): Promise<ApiHealth> => get<ApiHealth>('/health'),
   stats: (): Promise<ApiStats> => get<ApiStats>('/stats'),
   miningPools: (): Promise<ApiMiningPools> => get<ApiMiningPools>('/mining/pools'),
+  network: (): Promise<ApiNetwork> => get<ApiNetwork>('/network'),
   miningBlocks: (limit = 50, offset = 0): Promise<ApiMiningBlocks> => get<ApiMiningBlocks>(`/mining/blocks?limit=${limit}&offset=${offset}`),
 
   pairs: (params: PairsQuery = {}): Promise<ApiPairsList> => get<ApiPairsList>(`/pairs${qs(params as Record<string, string | number | boolean | undefined>)}`),

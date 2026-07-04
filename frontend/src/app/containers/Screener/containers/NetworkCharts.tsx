@@ -6,6 +6,7 @@ import { SimpleChart } from '../components/SimpleChart';
 import { ConfidentialAssetsChart } from '../components/ConfidentialAssetsChart';
 import { BlackholeChart, buildBlackholeColors, buildBlackholeLineStyles, LINE_STYLE_DASH } from '../components/BlackholeChart';
 import { downloadBlob, downloadSvgAsPng } from '../components/chart-compare/download';
+import { fmtHashrate } from './explorer/shared';
 
 type Timeframe = '1W' | '1M' | '3M' | 'YTD' | 'ALL';
 const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1W', '1M', '3M', 'YTD', 'ALL'];
@@ -320,20 +321,6 @@ function fmtUsd(v: number): string {
   if (v >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
   if (v >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'k';
   return '$' + v.toFixed(2);
-}
-
-function fmtSIUnit(v: number, unit: string): string {
-  if (!Number.isFinite(v)) return '';
-  const abs = Math.abs(v);
-  if (abs >= 1e12) return (v / 1e12).toFixed(2) + ' T' + unit;
-  if (abs >= 1e9)  return (v / 1e9).toFixed(2)  + ' G' + unit;
-  if (abs >= 1e6)  return (v / 1e6).toFixed(2)  + ' M' + unit;
-  if (abs >= 1e3)  return (v / 1e3).toFixed(0)  + ' K' + unit;
-  return v.toFixed(0) + ' ' + unit;
-}
-
-function fmtHashrate(v: number): string {
-  return fmtSIUnit(v, 'Sol/s');
 }
 
 function fmtBlockTime(v: number): string {

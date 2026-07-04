@@ -11,20 +11,11 @@ import type { ApiChartPoint } from '../../api/client';
 import { Sparkline } from '../../components/Sparkline';
 import {
   Page, Card, H2, H3,
-  DataTable, TabBtn, Dot, Btn, Muted, theme,
+  DataTable, TabBtn, Dot, Btn, Muted, theme, fmtHashrate,
 } from './shared';
 import { MiningCalculator } from './MiningCalculator';
 
 // --- helpers -----------------------------------------------------------------
-
-function fmtHashrate(solPerSec: number | null): string {
-  if (solPerSec == null || !Number.isFinite(solPerSec)) return '—';
-  const units = ['Sol/s', 'KSol/s', 'MSol/s', 'GSol/s'];
-  let v = solPerSec;
-  let i = 0;
-  while (v >= 1000 && i < units.length - 1) { v /= 1000; i++; }
-  return `${v.toFixed(2)} ${units[i]}`;
-}
 
 function fmtSI(v: number): string {
   if (!Number.isFinite(v)) return '—';
