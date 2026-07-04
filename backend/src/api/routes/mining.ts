@@ -77,19 +77,20 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
     );
     const blockHeight = bh[0]?.max != null ? Number(bh[0].max) : null;
 
-    // Per-pool hashrate sparkline: last ~30 non-null snapshots, oldest→newest.
+    // Per-pool hashrate sparkline: past 7 days, hourly-averaged (≤168 points),
+    // oldest→newest. Snapshots are written per block (~1/min), so raw rows would
+    // be ~10k/pool — bucket to keep the payload and the sparkline sane.
     const { rows: sparkRows } = await q<SparkRow>(
-      `SELECT pool_id, EXTRACT(epoch FROM ts)::bigint AS ts, hashrate::float8 AS hashrate
-         FROM (
-           SELECT pool_id, ts, hashrate,
-                  ROW_NUMBER() OVER (PARTITION BY pool_id ORDER BY ts DESC) AS rn
-             FROM mining_pool_snapshots
-            WHERE hashrate IS NOT NULL
-         ) ranked
-        WHERE rn <= 30
-        ORDER BY pool_id, rn DESC`,
+      `SELECT pool_id,
+              EXTRACT(epoch FROM time_bucket('1 hour', ts))::bigint AS ts,
+              AVG(hashrate)::float8 AS hashrate
+         FROM mining_pool_snapshots
+        WHERE hashrate IS NOT NULL
+          AND ts >= now() - interval '7 days'
+        GROUP BY pool_id, time_bucket('1 hour', ts)
+        ORDER BY pool_id, time_bucket('1 hour', ts)`,
     );
-    // Group into pool_id → { ts, value }[] (already oldest→newest after ORDER BY rn DESC).
+    // Group into pool_id → { ts, value }[] (already oldest→newest after ORDER BY).
     const sparkByPool = new Map<string, { ts: number; value: number }[]>();
     for (const r of sparkRows) {
       const arr = sparkByPool.get(r.pool_id) ?? [];
