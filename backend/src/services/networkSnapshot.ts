@@ -33,6 +33,14 @@ interface Row {
 
 // Reads the last WINDOW_BLOCKS rows of block_metrics and derives the scalars
 // from that same array — one query, no duplication of the hashrate formula.
+//
+// Order by block_ts (the hypertable partition column), NOT height: `height` is
+// a plain per-chunk index, and `ORDER BY height DESC LIMIT n` across a
+// TimescaleDB hypertable produces an unstable MergeAppend that intermittently
+// returns rows from an old chunk (observed returning height ~1M instead of the
+// ~3.9M tip). block_ts is the partitioning column, so ordered-append on it is
+// reliable; height correlates monotonically, so the last-N-by-time window is
+// the last-N-by-height window. We re-sort by height in JS to be exact.
 export async function getNetworkSnapshot(): Promise<NetworkSnapshot> {
   const { rows } = await q<Row>(
     `SELECT height::text,
@@ -40,12 +48,12 @@ export async function getNetworkSnapshot(): Promise<NetworkSnapshot> {
             difficulty::float8 AS difficulty,
             kernels
        FROM block_metrics
-      ORDER BY height DESC
+      ORDER BY block_ts DESC
       LIMIT $1`,
     [WINDOW_BLOCKS],
   );
 
-  // rows are newest→oldest from the query; flip to oldest→newest for consumers.
+  // Re-sort ascending by height so recent[] is block-ordered oldest→newest.
   const recent: RecentBlock[] = rows
     .map((r) => ({
       height: Number(r.height),
@@ -53,7 +61,7 @@ export async function getNetworkSnapshot(): Promise<NetworkSnapshot> {
       difficulty: Number(r.difficulty),
       kernels: r.kernels,
     }))
-    .reverse();
+    .sort((a, b) => a.height - b.height);
 
   if (recent.length < 2) {
     const only = recent[0] ?? null;
