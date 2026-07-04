@@ -8,7 +8,7 @@ import type {
 } from 'lightweight-charts';
 import {
   Page, ExplorerHeader, H1, Subtitle, Label, Dot,
-  Btn, Input, NodeSelector, StatGrid, StatCard, ErrorBox, theme,
+  StatGrid, StatCard, ErrorBox, theme,
   fmtHashrateParts,
 } from './shared';
 import { api } from '../../api/client';
@@ -25,16 +25,9 @@ const REFRESH_INTERVAL_MS = 30_000;
 // just enough blocks to fill the feed instead of the old 60-block window.
 const FEED_BLOCKS = 20;
 
-const NODE_OPTIONS: { label: string; url: string }[] = [
-  { label: 'explorer.0xmx.net', url: 'https://explorer.0xmx.net/api' },
-  { label: 'explorer-api.beamprivacy.com', url: 'https://explorer-api.beamprivacy.com' },
-  { label: 'explorer.beam.mw (official)', url: 'https://explorer.beam.mw/api' },
-];
-
-const NODE_SELECT_OPTIONS = [
-  ...NODE_OPTIONS.map((o) => ({ value: o.url, label: o.label })),
-  { value: 'custom', label: 'Custom node…' },
-];
+// Fixed explorer node — the node selector was removed; the live block feed and
+// shielded/peer stats always read from our own explorer.
+const EXPLORER_API_BASE = 'https://explorer.0xmx.net/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -112,13 +105,6 @@ const StatusRow = styled.div`
   font-size: 11px;
   color: ${theme.color.muted};
   letter-spacing: 0.05em;
-`;
-
-const CustomNodeRow = styled.div`
-  display: flex;
-  & > * + * { margin-left: 6px; }
-  & input { width: 220px; font-size: 11px; padding: 5px 10px; }
-  & button { font-size: 11px; padding: 5px 10px; }
 `;
 
 const PriceBar = styled.div`
@@ -464,9 +450,7 @@ interface NetworkState {
 const initialNetworkState: NetworkState = { net: null, beamUsd: null };
 
 export const Health: React.FC = () => {
-  const [apiBase, setApiBase] = useState<string>(NODE_OPTIONS[0].url);
-  const [selectedOption, setSelectedOption] = useState<string>(NODE_OPTIONS[0].url);
-  const [customNodeInput, setCustomNodeInput] = useState<string>('');
+  const apiBase = EXPLORER_API_BASE;
   const [state, setState] = useState<FetchState>(initialState);
   const [netState, setNetState] = useState<NetworkState>(initialNetworkState);
   const lastKnownHeightRef = useRef<number>(0);
@@ -694,20 +678,6 @@ export const Health: React.FC = () => {
   const blockTimeKpi = avgBlockTime > 0 ? `${avgBlockTime.toFixed(1)}s` : '···';
   const blockTimeAmber = avgBlockTime > 0 && (avgBlockTime < 45 || avgBlockTime > 90);
 
-  const onNodeChange = (val: string): void => {
-    setSelectedOption(val);
-    if (val !== 'custom') {
-      setApiBase(val);
-    }
-  };
-
-  const applyCustomNode = (): void => {
-    const v = customNodeInput.trim().replace(/\/$/, '');
-    if (!v) return;
-    setApiBase(v);
-    setSelectedOption('custom');
-  };
-
   const dotKind: 'live' | 'error' | 'idle' = state.connState;
 
   return (
@@ -722,22 +692,6 @@ export const Health: React.FC = () => {
             <Dot data-kind={dotKind} />
             <span>{state.statusMsg}</span>
           </StatusRow>
-          <NodeSelector
-            options={NODE_SELECT_OPTIONS}
-            value={selectedOption}
-            onChange={onNodeChange}
-            label="Node:"
-          />
-          {selectedOption === 'custom' && (
-            <CustomNodeRow>
-              <Input
-                placeholder="http://localhost:8888"
-                value={customNodeInput}
-                onChange={(e) => setCustomNodeInput(e.target.value)}
-              />
-              <Btn type="button" onClick={applyCustomNode}>Connect</Btn>
-            </CustomNodeRow>
-          )}
         </HeaderRight>
       </ExplorerHeader>
 

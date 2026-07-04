@@ -7,7 +7,6 @@ import {
   H1,
   Subtitle,
   Dot,
-  NodeSelector,
   StatGrid,
   StatCard,
   Label,
@@ -34,13 +33,7 @@ const CONTRACT_NMAXTXS = 500;
 const POLL_MS = 60_000;
 const BLOCK_SECONDS = 60;
 
-const API_BASES = [
-  { value: 'https://explorer.0xmx.net/api', label: 'explorer.0xmx.net' },
-  { value: 'https://explorer-api.beamprivacy.com', label: 'explorer-api.beamprivacy.com' },
-  { value: 'https://explorer.beam.mw/api', label: 'explorer.beam.mw' },
-];
-
-const LS_API = 'bans_api_base';
+const EXPLORER_API_BASE = 'https://explorer.0xmx.net/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -448,9 +441,9 @@ const ArgKey = styled.span`
 // ---------------------------------------------------------------------------
 
 export const BANS: React.FC = () => {
-  const [apiBase, setApiBase] = useState<string>(() => {
-    try { return localStorage.getItem(LS_API) || API_BASES[0].value; } catch { return API_BASES[0].value; }
-  });
+  // Fixed explorer node — the node selector was removed; we always read from
+  // our own explorer.
+  const apiBase = EXPLORER_API_BASE;
 
   const [tipHeight, setTipHeight] = useState<number | null>(null);
   const [kind, setKind] = useState<string>('—');
@@ -528,12 +521,6 @@ export const BANS: React.FC = () => {
     const id = setInterval(() => { void load(); }, POLL_MS);
     return () => clearInterval(id);
   }, [load]);
-
-  // Reload on API base change
-  useEffect(() => {
-    try { localStorage.setItem(LS_API, apiBase); } catch { /* ignore */ }
-    void load();
-  }, [apiBase, load]);
 
   // ---- KPIs ----
   const kpi = useMemo(() => {
@@ -646,12 +633,6 @@ export const BANS: React.FC = () => {
             <Dot data-kind={status.kind} />
             <span>{status.text}</span>
           </StatusLine>
-          <NodeSelector
-            label="Explorer API"
-            options={API_BASES}
-            value={apiBase}
-            onChange={setApiBase}
-          />
         </HeaderRight>
       </ExplorerHeader>
 
