@@ -50,10 +50,6 @@ export function statsUrl(baseUrl: string, kind: AdapterKind): string {
       // No JSON API. Sun Pool exposes a plaintext stats page (the same source
       // miningpoolstats scrapes); fromSunpoolText() parses it.
       return `${baseUrl}/txt/pool-stats.php`;
-    case 'acepool':
-      // Same Sun Pool software but no /txt/ variant, and currently idle (0 Sol/s,
-      // last block months ago). Left as an offline stub (normalize → null).
-      return `${baseUrl}/pool-stats.php`;
     case 'cedric':
       // MiningCore-based pool. Stats at /api/pool/ (custom Django wrapper).
       return `${baseUrl}/api/pool/`;
@@ -94,7 +90,7 @@ function fromOpenEth(raw: any): PoolStats | null {
   };
 }
 
-// cryptonote-nodejs-pool family (e.g. herominers, leafpool).
+// cryptonote-nodejs-pool family (e.g. herominers).
 // Live shape: { pool: { hashrate, miners, workers, stats: { lastBlockFound (ms) },
 //                       blocks: ["hash:ts_s:...", ...] },
 //               config: { fee, minPaymentThreshold (groths), coinUnits },
@@ -243,7 +239,6 @@ export function blocksUrl(baseUrl: string, kind: AdapterKind): string | null {
       return null;
     case 'sunpool':
       return null; // heights are parsed from the already-fetched stats text
-    case 'acepool':
     case 'cedric':
       return null; // no usable per-block list
   }
@@ -340,7 +335,6 @@ export function normalize(kind: AdapterKind, raw: unknown): PoolStats | null {
     case 'open-eth':        return fromOpenEth(raw);
     case 'cryptonote-node': return fromCryptonoteNode(raw);
     case 'sunpool':         return fromSunpoolText(raw);
-    case 'acepool':         return null; // idle pool, no /txt/ endpoint — offline stub
     case 'cedric':          return fromMiningCore(raw);
   }
 }

@@ -6,9 +6,8 @@
 
 export type AdapterKind =
   | 'open-eth'         // open-ethereum-pool family (2miners)
-  | 'cryptonote-node'  // cryptonote-nodejs-pool family (herominers, leafpool)
+  | 'cryptonote-node'  // cryptonote-nodejs-pool family (herominers)
   | 'sunpool'
-  | 'acepool'
   | 'cedric';
 
 export interface PoolDescriptor {
@@ -28,8 +27,6 @@ export const POOLS: PoolDescriptor[] = [
   { id: '2miners',        name: '2Miners',        website: 'https://beam.2miners.com',        baseUrl: 'https://beam.2miners.com',        adapter: 'open-eth',        payoutScheme: 'PPLNS', fee: 1 },
   { id: '2miners-solo',   name: '2Miners (Solo)', website: 'https://solo-beam.2miners.com',   baseUrl: 'https://solo-beam.2miners.com',   adapter: 'open-eth',        payoutScheme: 'SOLO',  fee: 1.5 },
   { id: 'herominers',     name: 'HeroMiners',     website: 'https://beam.herominers.com',      baseUrl: 'https://beam.herominers.com',      adapter: 'cryptonote-node', payoutScheme: 'PROP',  fee: 0.9 },
-  { id: 'leafpool',       name: 'LeafPool',       website: 'https://beam.leafpool.com',        baseUrl: 'https://beam.leafpool.com',        adapter: 'cryptonote-node', payoutScheme: 'PPLNT', fee: 0.5 },
   { id: 'sunpool',        name: 'SunPool',        website: 'https://beam.sunpool.top',         baseUrl: 'https://beam.sunpool.top',         adapter: 'sunpool',         payoutScheme: 'PPLNS', fee: 0 },
-  { id: 'acepool',        name: 'AcePool',        website: 'https://beam.acepool.top',         baseUrl: 'https://beam.acepool.top',         adapter: 'acepool',         payoutScheme: 'PPLNS', fee: 0 },
   { id: 'cedric-crispin', name: 'Cedric Crispin', website: 'https://beam.cedric-crispin.com',  baseUrl: 'https://beam.cedric-crispin.com',  adapter: 'cedric',          payoutScheme: 'PPLNS', fee: 0.1 },
 ];
