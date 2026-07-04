@@ -79,9 +79,13 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
       sparkByPool.set(r.pool_id, arr);
     }
 
-    // Per-pool blocks in last 100 network heights.
+    // Per-pool blocks in last 100 network blocks. Order by block_ts (the
+    // hypertable partition column), not height: ORDER BY height DESC LIMIT n
+    // produces an unstable MergeAppend across per-chunk height indexes that can
+    // return an old chunk's rows (see services/networkSnapshot.ts). block_ts is
+    // monotonic with height, so this is the same window.
     const { rows: b100Rows } = await q<BlocksLast100Row>(
-      `WITH recent AS (SELECT height FROM block_metrics ORDER BY height DESC LIMIT 100)
+      `WITH recent AS (SELECT height FROM block_metrics ORDER BY block_ts DESC LIMIT 100)
        SELECT b.pool_id, COUNT(*)::int AS n
          FROM mining_pool_blocks b
          JOIN recent r ON r.height = b.height
@@ -89,9 +93,10 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
     );
     const blocks100ByPool = new Map<string, number>(b100Rows.map((r) => [r.pool_id, r.n]));
 
-    // Per-pool blocks in last 1000 network heights (used for the distribution donut).
+    // Per-pool blocks in last 1000 network blocks (used for the distribution
+    // donut). Order by block_ts, not height — same reason as above.
     const { rows: b1000Rows } = await q<BlocksLast100Row>(
-      `WITH recent AS (SELECT height FROM block_metrics ORDER BY height DESC LIMIT 1000)
+      `WITH recent AS (SELECT height FROM block_metrics ORDER BY block_ts DESC LIMIT 1000)
        SELECT b.pool_id, COUNT(*)::int AS n
          FROM mining_pool_blocks b
          JOIN recent r ON r.height = b.height
@@ -137,9 +142,12 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
     const rawOffset = parseInt(query['offset'] ?? '0', 10);
     const offset = Math.max(0, isNaN(rawOffset) ? 0 : rawOffset);
 
+    // Select the recent-blocks window by block_ts (partition column) to avoid
+    // the unstable height-ordered MergeAppend; the outer ORDER BY r.height sorts
+    // the small materialized CTE for display (a plain sort, not a chunk scan).
     const { rows } = await q<BlocksQueryRow>(
       `WITH recent AS (
-         SELECT height, block_ts FROM block_metrics ORDER BY height DESC LIMIT $1 OFFSET $2
+         SELECT height, block_ts FROM block_metrics ORDER BY block_ts DESC LIMIT $1 OFFSET $2
        )
        SELECT r.height::text,
               r.block_ts,
