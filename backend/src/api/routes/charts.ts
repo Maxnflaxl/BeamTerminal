@@ -230,6 +230,37 @@ const ASSETS_SQL = `
    ORDER BY day
 `;
 
+// Hourly cumulative confidential-asset count over a recent bounded window.
+// Seeds the running sum with the count of assets locked before the window so
+// the line starts at its true level instead of near zero.
+const ASSETS_HOURLY_SQL = `
+  WITH win AS (
+    SELECT EXTRACT(epoch FROM now())::bigint - 35 * 86400 AS since_ts
+  ),
+  resolved AS (
+    SELECT a.aid,
+           EXTRACT(epoch FROM COALESCE(bm.block_ts, bt.ts))::bigint AS ts
+      FROM assets a
+      LEFT JOIN block_metrics    bm ON bm.height = a.lock_height
+      LEFT JOIN block_timestamps bt ON bt.height = a.lock_height
+     WHERE a.aid > 0 AND a.lock_height IS NOT NULL
+  ),
+  baseline AS (
+    SELECT COUNT(*)::numeric AS n
+      FROM resolved WHERE ts IS NOT NULL AND ts < (SELECT since_ts FROM win)
+  ),
+  per_hour AS (
+    SELECT time_bucket(INTERVAL '1 hour', to_timestamp(ts)) AS hour, COUNT(*) AS new_assets
+      FROM resolved
+     WHERE ts IS NOT NULL AND ts >= (SELECT since_ts FROM win)
+     GROUP BY 1
+  )
+  SELECT EXTRACT(epoch FROM hour)::bigint AS ts,
+         ((SELECT n FROM baseline) + SUM(new_assets) OVER (ORDER BY hour))::float8 AS value
+    FROM per_hour
+   ORDER BY hour
+`;
+
 // Per-day DEX volume in USD. Daily granularity throughout (we don't actually
 // need hourly precision for a multi-year chart). Materializes:
 //   - per-day BEAM/USD from oracle_snapshots,
@@ -363,6 +394,17 @@ const PRICE_SQL = `
     FROM oracle_snapshots
    WHERE beam_usd IS NOT NULL
    GROUP BY time_bucket(INTERVAL '1 day', ts)
+   ORDER BY 1
+`;
+
+// Hourly BEAM/USD close over a recent bounded window.
+const PRICE_HOURLY_SQL = `
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 hour', ts))::bigint AS ts,
+         last(beam_usd, ts)::float8 AS value
+    FROM oracle_snapshots
+   WHERE beam_usd IS NOT NULL
+     AND ts > now() - INTERVAL '35 days'
+   GROUP BY time_bucket(INTERVAL '1 hour', ts)
    ORDER BY 1
 `;
 
