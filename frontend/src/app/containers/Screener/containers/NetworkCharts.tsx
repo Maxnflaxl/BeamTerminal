@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
-import { api, type ApiChartPoint, type ApiChartSeries, type ApiBlackholeBody, type ApiBlackholeSeries } from '../api/client';
+import { api, type ApiChartPoint, type ApiChartSeries, type ApiBlackholeBody, type ApiBlackholeSeries, type ChartRes } from '../api/client';
 import { SimpleChart } from '../components/SimpleChart';
 import { ConfidentialAssetsChart } from '../components/ConfidentialAssetsChart';
 import { BlackholeChart, buildBlackholeColors, buildBlackholeLineStyles, LINE_STYLE_DASH } from '../components/BlackholeChart';
 import { downloadBlob, downloadSvgAsPng } from '../components/chart-compare/download';
 import { fmtHashrate } from './explorer/shared';
 
-type Timeframe = '1W' | '1M' | '3M' | 'YTD' | 'ALL';
-const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1W', '1M', '3M', 'YTD', 'ALL'];
-const TIMEFRAME_DAYS: Record<Timeframe, number | null> = { '1W': 7, '1M': 30, '3M': 90, YTD: -1, ALL: null };
+type Timeframe = '1D' | '1W' | '1M' | '3M' | 'YTD' | 'ALL';
+const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1D', '1W', '1M', '3M', 'YTD', 'ALL'];
+const TIMEFRAME_DAYS: Record<Timeframe, number | null> = { '1D': 1, '1W': 7, '1M': 30, '3M': 90, YTD: -1, ALL: null };
+// Which server resolution each window pulls. Sub-daily windows use the bounded
+// hourly tier; longer windows use the full-history daily tier.
+const TIMEFRAME_RES: Record<Timeframe, ChartRes> = { '1D': '1h', '1W': '1h', '1M': '1h', '3M': '1d', YTD: '1d', ALL: '1d' };
 
 function filterByTimeframe(series: ReadonlyArray<ApiChartPoint>, tf: Timeframe): ApiChartPoint[] {
   if (series.length === 0) return [];
@@ -60,10 +63,14 @@ function filterBlackholeByTimeframe(
 
 interface FetchState<T> { data: T | null; loading: boolean; error: string | null }
 
-function useOneShot<T>(fetcher: () => Promise<T>): FetchState<T> {
-  const [state, setState] = useState<FetchState<T>>({ data: null, loading: true, error: null });
+function useOneShot<T>(fetcher: () => Promise<T>, enabled = true): FetchState<T> {
+  const [state, setState] = useState<FetchState<T>>({ data: null, loading: enabled, error: null });
+  const started = useRef(false);
   useEffect(() => {
+    if (!enabled || started.current) return undefined;
+    started.current = true;
     let cancelled = false;
+    setState((s) => ({ ...s, loading: true }));
     fetcher()
       .then((data) => { if (!cancelled) setState({ data, loading: false, error: null }); })
       .catch((err: unknown) => {
@@ -71,10 +78,24 @@ function useOneShot<T>(fetcher: () => Promise<T>): FetchState<T> {
         setState({ data: null, loading: false, error: err instanceof Error ? err.message : String(err) });
       });
     return () => { cancelled = true; };
-    // Run once on mount; chart endpoints have a 10–30min server cache anyway.
+    // Fetch once, on mount or the first time `enabled` flips true. Fetcher
+    // identity intentionally ignored (endpoints are server-cached).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
   return state;
+}
+
+// Two-tier chart series: always loads the daily tier; lazily loads the hourly
+// tier the first time a sub-daily window is selected. Returns whichever tier
+// the current resolution asks for.
+function useTiered(
+  dailyFetcher: () => Promise<ApiChartSeries>,
+  hourlyFetcher: () => Promise<ApiChartSeries>,
+  res: ChartRes,
+): FetchState<ApiChartSeries> {
+  const daily = useOneShot<ApiChartSeries>(dailyFetcher);
+  const hourly = useOneShot<ApiChartSeries>(hourlyFetcher, res === '1h');
+  return res === '1h' ? hourly : daily;
 }
 
 type Category = 'blockchain' | 'lelantus' | 'defi';
@@ -734,49 +755,53 @@ interface ChartSpec {
 }
 
 export const NetworkCharts: React.FC = () => {
-  const hashrate           = useOneShot<ApiChartSeries>(() => api.charts.hashrate());
-  const difficulty         = useOneShot<ApiChartSeries>(() => api.charts.difficulty());
-  const blockTime          = useOneShot<ApiChartSeries>(() => api.charts.blockTime());
-  const coinbase           = useOneShot<ApiChartSeries>(() => api.charts.coinbase());
-  const tvl                = useOneShot<ApiChartSeries>(() => api.charts.tvl());
-  const price              = useOneShot<ApiChartSeries>(() => api.charts.price());
-  const dexVolume          = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
-  const beamVol            = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
-  const dexVol             = useOneShot<ApiChartSeries>(() => api.charts.dexVol());
+  const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
+  const res = TIMEFRAME_RES[timeframe];
 
-  // Cumulative DEX volume derived from the daily series — running sum.
-  // Avoids a second backend round-trip and stays in lock-step with the
-  // daily chart's methodology.
+  const hashrate   = useTiered(() => api.charts.hashrate(), () => api.charts.hashrate({ res: '1h' }), res);
+  const difficulty = useTiered(() => api.charts.difficulty(), () => api.charts.difficulty({ res: '1h' }), res);
+  const blockTime  = useTiered(() => api.charts.blockTime(), () => api.charts.blockTime({ res: '1h' }), res);
+  const coinbase   = useTiered(() => api.charts.coinbase(), () => api.charts.coinbase({ res: '1h' }), res);
+  const tvl        = useTiered(() => api.charts.tvl(), () => api.charts.tvl({ res: '1h' }), res);
+  const price      = useTiered(() => api.charts.price(), () => api.charts.price({ res: '1h' }), res);
+  const dexVolume  = useTiered(() => api.charts.dexVolume(), () => api.charts.dexVolume({ res: '1h' }), res);
+  const beamVol    = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
+  const dexVol     = useOneShot<ApiChartSeries>(() => api.charts.dexVol());
+
+  // DEX volume (total) is an all-time cumulative — it can only come from the
+  // daily tier (the hourly tier is a bounded trailing-24h window). Derive its
+  // running sum from a dedicated daily fetch, independent of the active tier.
+  const dexVolumeDaily = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
   const dexVolumeCumulative = useMemo<FetchState<ApiChartSeries>>(() => {
-    if (!dexVolume.data) {
-      return { data: null, loading: dexVolume.loading, error: dexVolume.error };
+    if (!dexVolumeDaily.data) {
+      return { data: null, loading: dexVolumeDaily.loading, error: dexVolumeDaily.error };
     }
     let acc = 0;
-    const series = dexVolume.data.series.map((p) => {
+    const series = dexVolumeDaily.data.series.map((p) => {
       acc += p.value;
       return { ts: p.ts, value: acc };
     });
     return { data: { series }, loading: false, error: null };
-  }, [dexVolume.data, dexVolume.loading, dexVolume.error]);
-  const assets             = useOneShot<ApiChartSeries>(() => api.charts.assets());
-  const transactionsDaily  = useOneShot<ApiChartSeries>(() => api.charts.transactionsDaily());
-  const transactionsTotal  = useOneShot<ApiChartSeries>(() => api.charts.transactionsTotal());
-  const txosTotal          = useOneShot<ApiChartSeries>(() => api.charts.txosTotal());
-  const utxosTotal         = useOneShot<ApiChartSeries>(() => api.charts.utxosTotal());
-  const shieldedInsDaily   = useOneShot<ApiChartSeries>(() => api.charts.shieldedInsDaily());
-  const shieldedInsTotal   = useOneShot<ApiChartSeries>(() => api.charts.shieldedInsTotal());
-  const shieldedOutsDaily  = useOneShot<ApiChartSeries>(() => api.charts.shieldedOutsDaily());
-  const shieldedOutsTotal  = useOneShot<ApiChartSeries>(() => api.charts.shieldedOutsTotal());
-  const contractsTotal     = useOneShot<ApiChartSeries>(() => api.charts.contractsTotal());
-  const sizeTotal          = useOneShot<ApiChartSeries>(() => api.charts.sizeTotal());
-  const archiveTotal       = useOneShot<ApiChartSeries>(() => api.charts.archiveTotal());
-  const feesDaily          = useOneShot<ApiChartSeries>(() => api.charts.feesDaily());
-  const feesTotal          = useOneShot<ApiChartSeries>(() => api.charts.feesTotal());
-  const contractCallsDaily = useOneShot<ApiChartSeries>(() => api.charts.contractCallsDaily());
-  const contractCallsTotal = useOneShot<ApiChartSeries>(() => api.charts.contractCallsTotal());
+  }, [dexVolumeDaily.data, dexVolumeDaily.loading, dexVolumeDaily.error]);
+
+  const assets             = useTiered(() => api.charts.assets(), () => api.charts.assets({ res: '1h' }), res);
+  const transactionsDaily  = useTiered(() => api.charts.transactionsDaily(), () => api.charts.transactionsDaily({ res: '1h' }), res);
+  const transactionsTotal  = useTiered(() => api.charts.transactionsTotal(), () => api.charts.transactionsTotal({ res: '1h' }), res);
+  const txosTotal          = useTiered(() => api.charts.txosTotal(), () => api.charts.txosTotal({ res: '1h' }), res);
+  const utxosTotal         = useTiered(() => api.charts.utxosTotal(), () => api.charts.utxosTotal({ res: '1h' }), res);
+  const shieldedInsDaily   = useTiered(() => api.charts.shieldedInsDaily(), () => api.charts.shieldedInsDaily({ res: '1h' }), res);
+  const shieldedInsTotal   = useTiered(() => api.charts.shieldedInsTotal(), () => api.charts.shieldedInsTotal({ res: '1h' }), res);
+  const shieldedOutsDaily  = useTiered(() => api.charts.shieldedOutsDaily(), () => api.charts.shieldedOutsDaily({ res: '1h' }), res);
+  const shieldedOutsTotal  = useTiered(() => api.charts.shieldedOutsTotal(), () => api.charts.shieldedOutsTotal({ res: '1h' }), res);
+  const contractsTotal     = useTiered(() => api.charts.contractsTotal(), () => api.charts.contractsTotal({ res: '1h' }), res);
+  const sizeTotal          = useTiered(() => api.charts.sizeTotal(), () => api.charts.sizeTotal({ res: '1h' }), res);
+  const archiveTotal       = useTiered(() => api.charts.archiveTotal(), () => api.charts.archiveTotal({ res: '1h' }), res);
+  const feesDaily          = useTiered(() => api.charts.feesDaily(), () => api.charts.feesDaily({ res: '1h' }), res);
+  const feesTotal          = useTiered(() => api.charts.feesTotal(), () => api.charts.feesTotal({ res: '1h' }), res);
+  const contractCallsDaily = useTiered(() => api.charts.contractCallsDaily(), () => api.charts.contractCallsDaily({ res: '1h' }), res);
+  const contractCallsTotal = useTiered(() => api.charts.contractCallsTotal(), () => api.charts.contractCallsTotal({ res: '1h' }), res);
   const blackhole          = useOneShot<ApiBlackholeBody>(() => api.charts.blackhole());
 
-  const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   // Deep-link from the global search bar: /explorer/charts?chart=<key> opens
