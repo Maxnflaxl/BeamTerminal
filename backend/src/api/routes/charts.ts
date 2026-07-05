@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { q } from '../../db.js';
-import { fetchNetworkSeries, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
+import { fetchNetworkSeries, fetchNetworkSeriesHourly, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
 import { fetchBlackholeSeries } from '../../services/blackhole.js';
 
 interface SeriesPoint {
@@ -712,6 +712,10 @@ interface ChartDef {
   fetchBody?: () => Promise<ChartBody>;
   /** Browser cache hint (the server-side cache is independent). */
   maxAgeSec: number;
+  /** Hourly-resolution SQL (bounded recent window). Enables `?res=1h`. */
+  hourlySql?: string;
+  /** Hourly-resolution custom fetcher (explorer charts). Enables `?res=1h`. */
+  hourlyFetch?: () => Promise<SeriesPoint[]>;
 }
 
 // Network-stats group is fetched once and split into ten series; this group
@@ -737,35 +741,55 @@ function netFetcher(key: keyof NetworkSeries): () => Promise<SeriesPoint[]> {
   };
 }
 
+let networkSeriesHourlyInflight: Promise<NetworkSeries> | null = null;
+let networkSeriesHourlyAt = 0;
+const NETWORK_SERIES_HOURLY_TTL_MS = 10 * 60 * 1000; // recent data: refresh more often
+async function getNetworkSeriesHourly(): Promise<NetworkSeries> {
+  const now = Date.now();
+  if (now - networkSeriesHourlyAt > NETWORK_SERIES_HOURLY_TTL_MS) networkSeriesHourlyInflight = null;
+  if (!networkSeriesHourlyInflight) {
+    networkSeriesHourlyInflight = fetchNetworkSeriesHourly()
+      .then((s) => { networkSeriesHourlyAt = Date.now(); return s; })
+      .catch((err) => { networkSeriesHourlyInflight = null; throw err; });
+  }
+  return networkSeriesHourlyInflight;
+}
+function netFetcherHourly(key: keyof NetworkSeries): () => Promise<SeriesPoint[]> {
+  return async () => {
+    const s = await getNetworkSeriesHourly();
+    return s[key] as ChartPoint[];
+  };
+}
+
 const CHART_DEFS: ReadonlyArray<ChartDef> = [
-  { name: 'hashrate',   sql: HASHRATE_SQL,   maxAgeSec: 600 },
-  { name: 'coinbase',   sql: COINBASE_SQL,   maxAgeSec: 600 },
-  { name: 'assets',     sql: ASSETS_SQL,     maxAgeSec: 600 },
-  { name: 'dex-volume', sql: DEX_VOLUME_SQL, maxAgeSec: 1800 },
-  { name: 'difficulty', sql: DIFFICULTY_SQL, maxAgeSec: 600 },
-  { name: 'block-time', sql: BLOCK_TIME_SQL, maxAgeSec: 600 },
-  { name: 'tvl',        sql: TVL_SQL,        maxAgeSec: 1800 },
+  { name: 'hashrate',   sql: HASHRATE_SQL,   hourlySql: HASHRATE_HOURLY_SQL,   maxAgeSec: 600 },
+  { name: 'coinbase',   sql: COINBASE_SQL,   hourlySql: COINBASE_HOURLY_SQL,   maxAgeSec: 600 },
+  { name: 'assets',     sql: ASSETS_SQL,     hourlySql: ASSETS_HOURLY_SQL,     maxAgeSec: 600 },
+  { name: 'dex-volume', sql: DEX_VOLUME_SQL, hourlySql: DEX_VOLUME_HOURLY_SQL, maxAgeSec: 1800 },
+  { name: 'difficulty', sql: DIFFICULTY_SQL, hourlySql: DIFFICULTY_HOURLY_SQL, maxAgeSec: 600 },
+  { name: 'block-time', sql: BLOCK_TIME_SQL, hourlySql: BLOCK_TIME_HOURLY_SQL, maxAgeSec: 600 },
+  { name: 'tvl',        sql: TVL_SQL,        hourlySql: TVL_HOURLY_SQL,        maxAgeSec: 1800 },
   { name: 'beam-vol',   sql: BEAM_VOL_SQL,   maxAgeSec: 1800 },
   { name: 'dex-vol',    sql: DEX_VOL_SQL,    maxAgeSec: 1800 },
-  { name: 'price',      sql: PRICE_SQL,      maxAgeSec: 600 },
+  { name: 'price',      sql: PRICE_SQL,      hourlySql: PRICE_HOURLY_SQL,      maxAgeSec: 600 },
   // From the explorer's /hdrs endpoint (one fetch yields all ten).
-  { name: 'transactions-daily',  fetch: netFetcher('daily_txs'),             maxAgeSec: 600 },
-  { name: 'transactions-total',  fetch: netFetcher('total_txs'),             maxAgeSec: 600 },
-  { name: 'txos-total',          fetch: netFetcher('total_mw_outputs'),      maxAgeSec: 600 },
-  { name: 'utxos-total',         fetch: netFetcher('total_utxos'),           maxAgeSec: 600 },
-  { name: 'size-total',          fetch: netFetcher('total_size_bytes'),      maxAgeSec: 600 },
-  { name: 'archive-total',       fetch: netFetcher('total_archive_bytes'),   maxAgeSec: 600 },
-  { name: 'shielded-ins-daily',  fetch: netFetcher('daily_sh_inputs'),       maxAgeSec: 600 },
-  { name: 'shielded-ins-total',  fetch: netFetcher('total_sh_inputs'),       maxAgeSec: 600 },
-  { name: 'shielded-outs-daily', fetch: netFetcher('daily_sh_outputs'),      maxAgeSec: 600 },
-  { name: 'shielded-outs-total', fetch: netFetcher('total_sh_outputs'),      maxAgeSec: 600 },
-  { name: 'contracts-total',     fetch: netFetcher('total_contracts'),       maxAgeSec: 600 },
-  { name: 'fees-daily',          fetch: netFetcher('daily_fee_groth'),       maxAgeSec: 600 },
-  { name: 'fees-total',          fetch: netFetcher('total_fee_groth'),       maxAgeSec: 600 },
-  { name: 'contract-calls-daily',fetch: netFetcher('daily_contract_calls'),  maxAgeSec: 600 },
-  { name: 'contract-calls-total',fetch: netFetcher('total_contract_calls'),  maxAgeSec: 600 },
+  { name: 'transactions-daily',  fetch: netFetcher('daily_txs'),            hourlyFetch: netFetcherHourly('daily_txs'),            maxAgeSec: 600 },
+  { name: 'transactions-total',  fetch: netFetcher('total_txs'),            hourlyFetch: netFetcherHourly('total_txs'),            maxAgeSec: 600 },
+  { name: 'txos-total',          fetch: netFetcher('total_mw_outputs'),     hourlyFetch: netFetcherHourly('total_mw_outputs'),     maxAgeSec: 600 },
+  { name: 'utxos-total',         fetch: netFetcher('total_utxos'),          hourlyFetch: netFetcherHourly('total_utxos'),          maxAgeSec: 600 },
+  { name: 'size-total',          fetch: netFetcher('total_size_bytes'),     hourlyFetch: netFetcherHourly('total_size_bytes'),     maxAgeSec: 600 },
+  { name: 'archive-total',       fetch: netFetcher('total_archive_bytes'),  hourlyFetch: netFetcherHourly('total_archive_bytes'),  maxAgeSec: 600 },
+  { name: 'shielded-ins-daily',  fetch: netFetcher('daily_sh_inputs'),      hourlyFetch: netFetcherHourly('daily_sh_inputs'),      maxAgeSec: 600 },
+  { name: 'shielded-ins-total',  fetch: netFetcher('total_sh_inputs'),      hourlyFetch: netFetcherHourly('total_sh_inputs'),      maxAgeSec: 600 },
+  { name: 'shielded-outs-daily', fetch: netFetcher('daily_sh_outputs'),     hourlyFetch: netFetcherHourly('daily_sh_outputs'),     maxAgeSec: 600 },
+  { name: 'shielded-outs-total', fetch: netFetcher('total_sh_outputs'),     hourlyFetch: netFetcherHourly('total_sh_outputs'),     maxAgeSec: 600 },
+  { name: 'contracts-total',     fetch: netFetcher('total_contracts'),      hourlyFetch: netFetcherHourly('total_contracts'),      maxAgeSec: 600 },
+  { name: 'fees-daily',          fetch: netFetcher('daily_fee_groth'),      hourlyFetch: netFetcherHourly('daily_fee_groth'),      maxAgeSec: 600 },
+  { name: 'fees-total',          fetch: netFetcher('total_fee_groth'),      hourlyFetch: netFetcherHourly('total_fee_groth'),      maxAgeSec: 600 },
+  { name: 'contract-calls-daily',fetch: netFetcher('daily_contract_calls'), hourlyFetch: netFetcherHourly('daily_contract_calls'), maxAgeSec: 600 },
+  { name: 'contract-calls-total',fetch: netFetcher('total_contract_calls'), hourlyFetch: netFetcherHourly('total_contract_calls'), maxAgeSec: 600 },
   // Multi-series: one cumulative line per asset locked in the BlackHole contract.
-  { name: 'blackhole',           fetchBody: fetchBlackholeSeries,             maxAgeSec: 1800 },
+  { name: 'blackhole',           fetchBody: fetchBlackholeSeries,           maxAgeSec: 1800 },
 ];
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
@@ -785,10 +809,23 @@ function computeEtag(body: ChartBody): string {
   return `"${createHash('sha1').update(JSON.stringify(body)).digest('hex')}"`;
 }
 
-async function runQuery(def: ChartDef): Promise<ChartBody> {
+type Res = '1h' | '1d';
+function hasHourly(def: ChartDef): boolean {
+  return def.hourlySql !== undefined || def.hourlyFetch !== undefined;
+}
+function cacheKey(name: string, res: Res): string {
+  return `${name}:${res}`;
+}
+
+async function runQuery(def: ChartDef, res: Res): Promise<ChartBody> {
   const t0 = Date.now();
   let body: ChartBody;
-  if (def.fetchBody) {
+  if (res === '1h' && def.hourlyFetch) {
+    body = { series: await def.hourlyFetch() };
+  } else if (res === '1h' && def.hourlySql) {
+    const { rows } = await q<Row>(def.hourlySql);
+    body = { series: toSeries(rows) };
+  } else if (def.fetchBody) {
     body = await def.fetchBody();
   } else if (def.fetch) {
     body = { series: await def.fetch() };
@@ -800,15 +837,16 @@ async function runQuery(def: ChartDef): Promise<ChartBody> {
   }
   const n = Array.isArray(body.series) ? body.series.length : 0;
   // eslint-disable-next-line no-console -- Fastify pino logger is per-request.
-  console.log(`[charts] ${def.name} refreshed: ${n} pts in ${Date.now() - t0}ms`);
+  console.log(`[charts] ${def.name}:${res} refreshed: ${n} pts in ${Date.now() - t0}ms`);
   return body;
 }
 
-async function refresh(def: ChartDef): Promise<ChartBody> {
-  const existing = cache.get(def.name);
+async function refresh(def: ChartDef, res: Res): Promise<ChartBody> {
+  const key = cacheKey(def.name, res);
+  const existing = cache.get(key);
   if (existing?.inflight) return existing.inflight;
-  const inflight = runQuery(def);
-  cache.set(def.name, {
+  const inflight = runQuery(def, res);
+  cache.set(key, {
     body:   existing?.body   ?? null,
     etag:   existing?.etag   ?? null,
     refreshedAt: existing?.refreshedAt ?? 0,
@@ -816,10 +854,10 @@ async function refresh(def: ChartDef): Promise<ChartBody> {
   });
   try {
     const body = await inflight;
-    cache.set(def.name, { body, etag: computeEtag(body), refreshedAt: Date.now(), inflight: null });
+    cache.set(key, { body, etag: computeEtag(body), refreshedAt: Date.now(), inflight: null });
     return body;
   } catch (err) {
-    cache.set(def.name, {
+    cache.set(key, {
       body:   existing?.body   ?? null,
       etag:   existing?.etag   ?? null,
       refreshedAt: existing?.refreshedAt ?? 0,
@@ -829,35 +867,41 @@ async function refresh(def: ChartDef): Promise<ChartBody> {
   }
 }
 
-async function getBody(def: ChartDef): Promise<ChartBody> {
-  const entry = cache.get(def.name);
+async function getBody(def: ChartDef, res: Res): Promise<ChartBody> {
+  // A daily-only chart asked for 1h falls back to its daily body.
+  const eff: Res = res === '1h' && !hasHourly(def) ? '1d' : res;
+  const entry = cache.get(cacheKey(def.name, eff));
   if (entry?.body && !entry.inflight) return entry.body;
-  if (entry?.inflight) {
-    // First-request-after-boot waits for the in-flight pre-warm.
-    return entry.body ?? entry.inflight;
-  }
-  return refresh(def);
+  if (entry?.inflight) return entry.body ?? entry.inflight;
+  return refresh(def, eff);
 }
 
 /** Kick off pre-warm + periodic refresh. Call once on API startup. */
 export function startChartCacheRefresher(): void {
-  // Serial pre-warm — don't slam Postgres with seven heavy queries at once.
+  // (def, res) units: every chart's daily tier, plus the hourly tier for
+  // intraday-capable charts.
+  const units: ReadonlyArray<{ def: ChartDef; res: Res }> = CHART_DEFS.flatMap((def) =>
+    hasHourly(def)
+      ? [{ def, res: '1d' as Res }, { def, res: '1h' as Res }]
+      : [{ def, res: '1d' as Res }],
+  );
+  // Serial pre-warm — don't slam Postgres with many heavy queries at once.
   void (async () => {
-    for (const def of CHART_DEFS) {
-      await refresh(def).catch((err) => {
+    for (const u of units) {
+      await refresh(u.def, u.res).catch((err) => {
         // eslint-disable-next-line no-console
-        console.warn(`[charts] pre-warm failed for ${def.name}:`, err instanceof Error ? err.message : err);
+        console.warn(`[charts] pre-warm failed for ${u.def.name}:${u.res}:`, err instanceof Error ? err.message : err);
       });
     }
   })();
-  // Periodic refresh runs each chart on its own offset to spread DB load.
-  CHART_DEFS.forEach((def, i) => {
-    const offset = (REFRESH_INTERVAL_MS / CHART_DEFS.length) * i;
+  // Periodic refresh, each unit on its own offset to spread DB load.
+  units.forEach((u, i) => {
+    const offset = (REFRESH_INTERVAL_MS / units.length) * i;
     setTimeout(() => {
       setInterval(() => {
-        refresh(def).catch((err) => {
+        refresh(u.def, u.res).catch((err) => {
           // eslint-disable-next-line no-console
-          console.warn(`[charts] refresh failed for ${def.name}:`, err instanceof Error ? err.message : err);
+          console.warn(`[charts] refresh failed for ${u.def.name}:${u.res}:`, err instanceof Error ? err.message : err);
         });
       }, REFRESH_INTERVAL_MS);
     }, offset);
@@ -867,15 +911,16 @@ export function startChartCacheRefresher(): void {
 export async function chartsRoutes(app: FastifyInstance): Promise<void> {
   for (const def of CHART_DEFS) {
     app.get(`/charts/${def.name}`, async (req, reply) => {
-      const body = await getBody(def);
-      const entry = cache.get(def.name);
+      const raw = (req.query as { res?: string }).res;
+      const res: Res = raw === '1h' ? '1h' : '1d';
+      const body = await getBody(def, res);
+      const eff: Res = res === '1h' && !hasHourly(def) ? '1d' : res;
+      const entry = cache.get(cacheKey(def.name, eff));
       const etag = entry?.etag ?? computeEtag(body);
 
       void reply.header('cache-control', `public, max-age=${def.maxAgeSec}`);
       void reply.header('etag', etag);
 
-      // If-None-Match: list of quoted ETags or "*". Honour any direct match
-      // and short-circuit with 304 + empty body.
       const inm = req.headers['if-none-match'];
       if (typeof inm === 'string') {
         const candidates = inm.split(',').map((s) => s.trim());
