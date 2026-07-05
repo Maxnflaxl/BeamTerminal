@@ -33,6 +33,21 @@ const HASHRATE_SQL = `
    ORDER BY 1
 `;
 
+// Hourly hashrate — same Σdifficulty/Δt method as HASHRATE_SQL, bucketed hourly
+// over a recent bounded window. Hashrate is a per-bucket rate, scale-invariant
+// to bucket size, so no rolling window is needed.
+const HASHRATE_HOURLY_SQL = `
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 hour', block_ts))::bigint AS ts,
+         (SUM(difficulty)::float8
+            / NULLIF(EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts)), 0))::float8 AS value
+    FROM block_metrics
+   WHERE difficulty > 0
+     AND block_ts > now() - INTERVAL '35 days'
+   GROUP BY time_bucket(INTERVAL '1 hour', block_ts)
+  HAVING COUNT(*) > 1
+   ORDER BY 1
+`;
+
 // Per-day average block time in seconds (Δt across the day's blocks).
 const BLOCK_TIME_SQL = `
   SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
@@ -40,6 +55,17 @@ const BLOCK_TIME_SQL = `
             / NULLIF(COUNT(*) - 1, 0))::float8 AS value
     FROM block_metrics
    GROUP BY time_bucket(INTERVAL '1 day', block_ts)
+  HAVING COUNT(*) > 1
+   ORDER BY 1
+`;
+
+const BLOCK_TIME_HOURLY_SQL = `
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 hour', block_ts))::bigint AS ts,
+         (EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts))
+            / NULLIF(COUNT(*) - 1, 0))::float8 AS value
+    FROM block_metrics
+   WHERE block_ts > now() - INTERVAL '35 days'
+   GROUP BY time_bucket(INTERVAL '1 hour', block_ts)
   HAVING COUNT(*) > 1
    ORDER BY 1
 `;
@@ -121,6 +147,16 @@ const DIFFICULTY_SQL = `
    ORDER BY 1
 `;
 
+const DIFFICULTY_HOURLY_SQL = `
+  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 hour', block_ts))::bigint AS ts,
+         AVG(difficulty)::float8 AS value
+    FROM block_metrics
+   WHERE difficulty > 0
+     AND block_ts > now() - INTERVAL '35 days'
+   GROUP BY time_bucket(INTERVAL '1 hour', block_ts)
+   ORDER BY 1
+`;
+
 // Coinbase transactions per day. BEAM emits exactly one coinbase OUTPUT per
 // block, so the coinbase baseline equals the block count per day. Drawn as a
 // baseline overlay under "Transactions / day" — the gap between the two is the
@@ -132,6 +168,39 @@ const COINBASE_SQL = `
          COUNT(*)::float8 AS value
     FROM block_metrics
    GROUP BY time_bucket(INTERVAL '1 day', block_ts)
+   ORDER BY 1
+`;
+
+// Hourly coinbase — blocks in the trailing 24h, plotted hourly. Fetches 36d so
+// every point in the visible 35d window has a complete 24-bucket trailing sum.
+const COINBASE_HOURLY_SQL = `
+  WITH hourly AS (
+    SELECT time_bucket(INTERVAL '1 hour', block_ts) AS hour, COUNT(*)::numeric AS n
+      FROM block_metrics
+     WHERE block_ts > now() - INTERVAL '36 days'
+     GROUP BY 1
+  ),
+  spine AS (
+    SELECT generate_series(
+             time_bucket(INTERVAL '1 hour', now() - INTERVAL '36 days'),
+             time_bucket(INTERVAL '1 hour', now()),
+             INTERVAL '1 hour'
+           ) AS hour
+  ),
+  filled AS (
+    SELECT s.hour, COALESCE(h.n, 0) AS n
+      FROM spine s LEFT JOIN hourly h ON h.hour = s.hour
+  ),
+  rolled AS (
+    SELECT hour,
+           SUM(n)   OVER (ORDER BY hour ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) AS n24,
+           COUNT(*) OVER (ORDER BY hour ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) AS w
+      FROM filled
+  )
+  SELECT EXTRACT(epoch FROM hour)::bigint AS ts, n24::float8 AS value
+    FROM rolled
+   WHERE w = 24
+     AND hour > now() - INTERVAL '35 days'
    ORDER BY 1
 `;
 
