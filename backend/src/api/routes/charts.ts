@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { q } from '../../db.js';
 import { fetchNetworkSeries, fetchNetworkSeriesHourly, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
 import { fetchBlackholeSeries } from '../../services/blackhole.js';
+import { serveRange, RANGE_META, type Res as RangeRes } from './chart-range.js';
 
 interface SeriesPoint {
   ts: number;
@@ -911,6 +912,20 @@ export function startChartCacheRefresher(): void {
 export async function chartsRoutes(app: FastifyInstance): Promise<void> {
   for (const def of CHART_DEFS) {
     app.get(`/charts/${def.name}`, async (req, reply) => {
+      const qp = req.query as { res?: string; from?: string; to?: string };
+      if (qp.from !== undefined && qp.to !== undefined && RANGE_META[def.name]) {
+        const fromSec = Number(qp.from), toSec = Number(qp.to);
+        const res: RangeRes = qp.res === '1m' ? '1m' : qp.res === '1h' ? '1h' : '1d';
+        if (!Number.isFinite(fromSec) || !Number.isFinite(toSec) || toSec <= fromSec) {
+          void reply.status(400); return { error: 'bad from/to' };
+        }
+        const { body, etag, immutable } = await serveRange(def.name, res, fromSec, toSec);
+        void reply.header('cache-control', `public, max-age=${immutable ? 86400 : 60}`);
+        void reply.header('etag', etag);
+        const inm = req.headers['if-none-match'];
+        if (typeof inm === 'string' && inm.split(',').map((s) => s.trim()).includes(etag)) { void reply.status(304); return null; }
+        return body;
+      }
       const raw = (req.query as { res?: string }).res;
       const res: Res = raw === '1h' ? '1h' : '1d';
       const body = await getBody(def, res);

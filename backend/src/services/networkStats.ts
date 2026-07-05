@@ -43,7 +43,7 @@ export interface NetworkSeries {
   total_archive_bytes: ChartPoint[];   // Size.Archive — current archive size
 }
 
-interface ExplorerRow {
+export interface ExplorerRow {
   height: number;
   ts: number;
   values: Record<string, number>;
@@ -231,3 +231,28 @@ export async function fetchNetworkSeriesHourly(): Promise<NetworkSeries> {
   logger.info({ rows: rows.length, ms: Date.now() - t0 }, 'hourly network series fetched');
   return series;
 }
+
+const RES_DH: Record<'1m' | '1h' | '1d', number> = { '1m': 1, '1h': 60, '1d': 1440 };
+
+/**
+ * Windowed /hdrs fetch: page descending from `hMax` at step `dh` until the
+ * oldest fetched row precedes `stopTs`, then return ascending. Tight to the
+ * requested window (+caller-supplied 24h lookback for rate series) — NOT widened.
+ */
+export async function fetchNetworkRangeByHeight(dh: number, hMax: number, stopTs: number): Promise<ExplorerRow[]> {
+  const all: ExplorerRow[] = [];
+  let cursor: number | undefined = hMax;
+  for (let i = 0; i < 8; i += 1) { // bound: ~8 pages of 2000 rows caps a wide dh=1 window
+    const { rows, nextHMax } = await fetchPage(cursor, dh, PAGE_SIZE);
+    if (rows.length === 0) break;
+    all.push(...rows);
+    const oldest = Math.min(...rows.map((r) => r.ts));
+    if (oldest < stopTs) break;
+    if (nextHMax === undefined || nextHMax === cursor) break;
+    cursor = nextHMax;
+  }
+  all.sort((a, b) => a.height - b.height);
+  return all;
+}
+
+export function resToDh(res: '1m' | '1h' | '1d'): number { return RES_DH[res]; }
