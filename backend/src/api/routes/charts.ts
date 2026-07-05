@@ -415,6 +415,96 @@ const DEX_VOLUME_SQL = `
    ORDER BY 1
 `;
 
+// Hourly DEX volume in USD, expressed as a trailing-24h rolling sum so the
+// chart keeps its "/ day" units at hourly granularity. Same cross-rate pricing
+// as DEX_VOLUME_SQL. Fetches 36d so every visible point (35d) has a full
+// 24-bucket window; quiet hours are zero-filled via the spine.
+const DEX_VOLUME_HOURLY_SQL = `
+  WITH oracle_h AS (
+    SELECT time_bucket(INTERVAL '1 hour', ts) AS hour, last(beam_usd, ts) AS beam_usd
+      FROM oracle_snapshots
+     WHERE ts > now() - INTERVAL '36 days'
+     GROUP BY 1
+  ),
+  pool_h AS (
+    SELECT pool_id, time_bucket(INTERVAL '1 hour', ts) AS hour,
+           last(reserve1, ts)::numeric AS reserve1,
+           last(reserve2, ts)::numeric AS reserve2
+      FROM pool_state_snapshots
+     WHERE ts > now() - INTERVAL '36 days'
+     GROUP BY pool_id, time_bucket(INTERVAL '1 hour', ts)
+  ),
+  beam_paired AS (
+    SELECT DISTINCT ON (ph.hour, p.aid2)
+           ph.hour, p.aid2 AS asset_aid,
+           ph.reserve1::numeric AS beam_reserve,
+           ph.reserve2::numeric AS asset_reserve
+      FROM pool_h ph
+      JOIN pools p ON p.pool_id = ph.pool_id
+     WHERE p.aid1 = 0 AND ph.reserve1 > 0 AND ph.reserve2 > 0
+     ORDER BY ph.hour, p.aid2, ph.reserve1 DESC
+  ),
+  trade_h AS (
+    SELECT t.pool_id, time_bucket(INTERVAL '1 hour', t.block_ts) AS hour,
+           SUM(t.volume_aid1)::numeric AS vol1,
+           SUM(t.volume_aid2)::numeric AS vol2
+      FROM trades t
+     WHERE t.confirmed = TRUE
+       AND t.block_ts > now() - INTERVAL '36 days'
+     GROUP BY t.pool_id, time_bucket(INTERVAL '1 hour', t.block_ts)
+  ),
+  priced AS (
+    SELECT th.hour,
+           CASE
+             WHEN p.aid1 = 0 AND od.beam_usd IS NOT NULL THEN
+               (th.vol1 / 1e8::numeric) * od.beam_usd
+             WHEN bp1.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               (th.vol1 / power(10::numeric, a1.decimals))
+                * (bp1.beam_reserve / 1e8::numeric)
+                / NULLIF(bp1.asset_reserve / power(10::numeric, a1.decimals), 0)
+                * od.beam_usd
+             WHEN bp2.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               (th.vol2 / power(10::numeric, a2.decimals))
+                * (bp2.beam_reserve / 1e8::numeric)
+                / NULLIF(bp2.asset_reserve / power(10::numeric, a2.decimals), 0)
+                * od.beam_usd
+           END AS usd_value
+      FROM trade_h th
+      JOIN pools  p  ON p.pool_id = th.pool_id
+      JOIN assets a1 ON a1.aid = p.aid1
+      JOIN assets a2 ON a2.aid = p.aid2
+      LEFT JOIN oracle_h    od  ON od.hour  = th.hour
+      LEFT JOIN beam_paired bp1 ON bp1.hour = th.hour AND bp1.asset_aid = p.aid1
+      LEFT JOIN beam_paired bp2 ON bp2.hour = th.hour AND bp2.asset_aid = p.aid2
+  ),
+  hourly_usd AS (
+    SELECT hour, SUM(usd_value)::float8 AS value
+      FROM priced WHERE usd_value IS NOT NULL GROUP BY hour
+  ),
+  spine AS (
+    SELECT generate_series(
+             time_bucket(INTERVAL '1 hour', now() - INTERVAL '36 days'),
+             time_bucket(INTERVAL '1 hour', now()),
+             INTERVAL '1 hour'
+           ) AS hour
+  ),
+  filled AS (
+    SELECT s.hour, COALESCE(d.value, 0) AS value
+      FROM spine s LEFT JOIN hourly_usd d ON d.hour = s.hour
+  ),
+  rolled AS (
+    SELECT hour,
+           SUM(value) OVER (ORDER BY hour ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) AS v24,
+           COUNT(*)   OVER (ORDER BY hour ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) AS w
+      FROM filled
+  )
+  SELECT EXTRACT(epoch FROM hour)::bigint AS ts, v24::float8 AS value
+    FROM rolled
+   WHERE w = 24
+     AND hour > now() - INTERVAL '35 days'
+   ORDER BY 1
+`;
+
 // Per-day BEAM volatility index: 30-day rolling, annualized standard deviation
 // of daily BEAM/USD log returns, in percent. No options market exists on the
 // DEX, so this is *realized* volatility — the faithful analog of a VIX. The
