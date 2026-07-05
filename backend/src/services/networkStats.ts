@@ -69,8 +69,12 @@ function parseNumber(cell: unknown): number | null {
   return null;
 }
 
-async function fetchPage(hMax: number | undefined): Promise<{ rows: ExplorerRow[]; nextHMax: number | undefined }> {
-  const params = new URLSearchParams({ cols: COLS, nMax: String(PAGE_SIZE), dh: String(DH) });
+async function fetchPage(
+  hMax: number | undefined,
+  dh: number = DH,
+  nMax: number = PAGE_SIZE,
+): Promise<{ rows: ExplorerRow[]; nextHMax: number | undefined }> {
+  const params = new URLSearchParams({ cols: COLS, nMax: String(nMax), dh: String(dh) });
   if (hMax !== undefined) params.set('hMax', String(hMax));
   const url = `${config.EXPLORER_URL}/hdrs?${params.toString()}`;
   const { statusCode, body } = await request(url);
@@ -148,6 +152,29 @@ function deltaSeries(rows: ExplorerRow[], code: string): ChartPoint[] {
   return out;
 }
 
+// Trailing-24h delta of a cumulative column, for hourly rows. For each row we
+// find the most recent earlier row that is >= 24h behind and subtract its
+// value — i.e. "how much this counter advanced over the trailing day". Points
+// without a full 24h of history behind them (series warm-up) are skipped.
+function trailing24hDelta(rows: ExplorerRow[], code: string): ChartPoint[] {
+  const out: ChartPoint[] = [];
+  let lo = 0;
+  for (let hi = 0; hi < rows.length; hi += 1) {
+    const row = rows[hi]!;
+    const cur = row.values[code];
+    if (cur === undefined) continue;
+    const cutoff = row.ts - 86_400;
+    // Advance lo to the last row with ts <= cutoff (the 24h-ago baseline).
+    while (lo + 1 < hi && rows[lo + 1]!.ts <= cutoff) lo += 1;
+    const baseRow = rows[lo]!;
+    if (baseRow.ts > cutoff) continue;          // no full-24h baseline yet
+    const base = baseRow.values[code];
+    if (base === undefined) continue;
+    out.push({ ts: row.ts, value: cur - base });
+  }
+  return out;
+}
+
 export async function fetchNetworkSeries(): Promise<NetworkSeries> {
   const t0 = Date.now();
   const rows = await fetchAllRows();
@@ -169,5 +196,38 @@ export async function fetchNetworkSeries(): Promise<NetworkSeries> {
     total_archive_bytes:  passthrough(rows, 'A'),
   };
   logger.info({ rows: rows.length, ms: Date.now() - t0 }, 'network series fetched');
+  return series;
+}
+
+// Hourly-resolution network series over a recent bounded window (~36 days).
+// dh=60 ≈ one row per hour at the 60s target block time; a single page covers
+// the window (36d ≈ 864 rows, well under the 2048 cap). total_* pass through
+// the absolute cumulative column; daily_* become trailing-24h deltas so their
+// "/ day" units survive the finer resolution.
+const HOURLY_DH = 60;
+const HOURLY_ROWS = 900; // ~37.5 days of margin over the 35d visible window
+
+export async function fetchNetworkSeriesHourly(): Promise<NetworkSeries> {
+  const t0 = Date.now();
+  const { rows } = await fetchPage(undefined, HOURLY_DH, HOURLY_ROWS);
+  rows.sort((a, b) => a.height - b.height);
+  const series: NetworkSeries = {
+    total_txs:            passthrough(rows, 'K'),
+    daily_txs:            trailing24hDelta(rows, 'K'),
+    total_fee_groth:      passthrough(rows, 'F'),
+    daily_fee_groth:      trailing24hDelta(rows, 'F'),
+    total_utxos:          passthrough(rows, 'U'),
+    total_contracts:      passthrough(rows, 'B'),
+    total_contract_calls: passthrough(rows, 'P'),
+    daily_contract_calls: trailing24hDelta(rows, 'P'),
+    total_mw_outputs:     passthrough(rows, 'O'),
+    daily_sh_inputs:      trailing24hDelta(rows, 'Y'),
+    total_sh_inputs:      passthrough(rows, 'Y'),
+    daily_sh_outputs:     trailing24hDelta(rows, 'Z'),
+    total_sh_outputs:     passthrough(rows, 'Z'),
+    total_size_bytes:     passthrough(rows, 'C'),
+    total_archive_bytes:  passthrough(rows, 'A'),
+  };
+  logger.info({ rows: rows.length, ms: Date.now() - t0 }, 'hourly network series fetched');
   return series;
 }
