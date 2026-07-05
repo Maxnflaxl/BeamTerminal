@@ -428,6 +428,43 @@ Response:
 
 `Cache-Control: public, max-age=300`.
 
+## `GET /api/network`
+
+Canonical snapshot of current network health — hashrate, difficulty, average block time, and the chain tip — plus the last 60 blocks. Everything derives from a single read of `block_metrics`, and this is the single source of truth for the `network_hashrate` reported by `/api/mining/pools` and shown on the Health page.
+
+No query params.
+
+```json
+{
+  "hashrate": 78528.17,
+  "difficulty": 5141867.25,
+  "avg_block_time": 65.58,
+  "tip_height": 3935205,
+  "recent": [
+    {
+      "height": 3935146,
+      "ts": 1783283812,
+      "difficulty": 5001484.5,
+      "kernels": 2
+    }
+  ]
+}
+```
+
+* `hashrate` — network-wide hashrate in Sol/s (BeamHash III), the time-weighted average `Σ difficulty / Δt` across the window; `null` until at least two blocks are indexed.
+* `difficulty` — difficulty of the latest block; `null` if `block_metrics` is empty.
+* `avg_block_time` — mean seconds between blocks, `Δt / (N − 1)` across the window; `null` until at least two blocks are indexed.
+* `tip_height` — height of the current chain tip; `null` if `block_metrics` is empty.
+* `recent` — the last 60 blocks (fewer if the chain is shorter), ordered oldest → newest. Each entry:
+  * `height` — block height.
+  * `ts` — block timestamp in **unix seconds** (note: `/api/mining/blocks` reports `ts` as an ISO 8601 string; this endpoint uses epoch seconds).
+  * `difficulty` — that block's difficulty.
+  * `kernels` — number of kernels in the block.
+
+The window is the last 60 blocks (≈ 1h at the 60s block target), matching the `/api/charts/hashrate` convention.
+
+`Cache-Control: public, max-age=30`.
+
 ## `GET /api/mining/pools`
 
 Current snapshot of every tracked mining pool plus the live network hashrate.
@@ -518,6 +555,22 @@ Historical chart data for a named series. All series share the same response sha
 
 Responses support `ETag` / `If-None-Match` conditional requests; a 304 is returned when the cached series has not changed.
 
+### Query params
+
+All optional. With none, the endpoint returns the full daily history — the original shape, unchanged.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `res` | `1m` \| `1h` \| `1d` | `1d` | Resolution. `1m` applies only in range mode (below); in default mode any unrecognized value — including `1m` — serves `1d`. |
+| `from` | unix seconds | — | Start of a zoom window. Must be sent together with `to`. |
+| `to` | unix seconds | — | End of a zoom window. Must be greater than `from`. |
+
+**Default mode** — no `from`/`to`. Returns the full-history series at daily (`res=1d`) or hourly (`res=1h`) resolution. Hourly exists for every series **except** `beam-vol`, `dex-vol`, and `blackhole`; requesting `res=1h` on those silently serves `1d`. Both resolutions come from the in-process cache described above, so `Cache-Control` is the per-series `max-age` in the table below.
+
+**Range ("zoom") mode** — `from` **and** `to` both present. Returns only the points inside `[from, to)`, served from a separate tile-quantized, bounded cache, at `res=1m|1h|1d` (default `1d`). Supported for every series **except** `beam-vol`, `dex-vol`, and `blackhole`, which are daily-only and return an empty `series` here. Bad bounds (`to ≤ from`, or non-numeric) yield `400 {"error":"bad from/to"}`. `Cache-Control: public, max-age=86400` once the whole window has settled (`to` older than the ~80-minute / 80-block confirmation horizon), otherwise `max-age=60`.
+
+Both modes return the same `{ "series": [ … ] }` shape and honor `ETag` / `If-None-Match` (304 when unchanged).
+
 Available series (the full set is defined in `backend/src/api/routes/charts.ts`):
 
 | Series name | Unit | `max-age` | Source |
@@ -549,7 +602,7 @@ Available series (the full set is defined in `backend/src/api/routes/charts.ts`)
 | `contract-calls-total` | cumulative count | 600 s | Explorer `/hdrs` |
 | `blackhole` | — | 1800 s | Multi-series: `series` is not a flat `SeriesPoint[]` but an array of per-asset cumulative-lock series (one line per asset locked in the BlackHole contract). |
 
-`Cache-Control` is per-series as listed above.
+In default mode, `Cache-Control` is the per-series `max-age` listed above; range mode is scoped under **Query params** above.
 
 ## Quote endpoint — intentionally not present
 
