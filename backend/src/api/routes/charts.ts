@@ -137,6 +137,68 @@ const TVL_SQL = `
    ORDER BY 1
 `;
 
+// Hourly DEX TVL in USD over a recent bounded window. Same cross-rate pricing
+// as TVL_SQL, bucketed hourly. A level metric, so no spine/rolling — hours
+// without a snapshot simply produce no point (pool_state_snapshots is written
+// every ~30s, so gaps are rare).
+const TVL_HOURLY_SQL = `
+  WITH oracle_h AS (
+    SELECT time_bucket(INTERVAL '1 hour', ts) AS hour, last(beam_usd, ts) AS beam_usd
+      FROM oracle_snapshots
+     WHERE ts > now() - INTERVAL '35 days'
+     GROUP BY 1
+  ),
+  pool_h AS (
+    SELECT pool_id, time_bucket(INTERVAL '1 hour', ts) AS hour,
+           last(reserve1, ts)::numeric AS reserve1,
+           last(reserve2, ts)::numeric AS reserve2
+      FROM pool_state_snapshots
+     WHERE ts > now() - INTERVAL '35 days'
+     GROUP BY pool_id, time_bucket(INTERVAL '1 hour', ts)
+  ),
+  beam_paired AS (
+    SELECT DISTINCT ON (ph.hour, p.aid2)
+           ph.hour, p.aid2 AS asset_aid,
+           ph.reserve1::numeric AS beam_reserve,
+           ph.reserve2::numeric AS asset_reserve
+      FROM pool_h ph
+      JOIN pools p ON p.pool_id = ph.pool_id
+     WHERE p.aid1 = 0 AND ph.reserve1 > 0 AND ph.reserve2 > 0
+     ORDER BY ph.hour, p.aid2, ph.reserve1 DESC
+  ),
+  priced AS (
+    SELECT ph.hour,
+           CASE
+             WHEN p.aid1 = 0 AND od.beam_usd IS NOT NULL THEN
+               2 * (ph.reserve1 / 1e8::numeric) * od.beam_usd
+             WHEN bp1.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               2 * (ph.reserve1 / power(10::numeric, a1.decimals))
+                 * (bp1.beam_reserve / 1e8::numeric)
+                 / NULLIF(bp1.asset_reserve / power(10::numeric, a1.decimals), 0)
+                 * od.beam_usd
+             WHEN bp2.beam_reserve IS NOT NULL AND od.beam_usd IS NOT NULL THEN
+               2 * (ph.reserve2 / power(10::numeric, a2.decimals))
+                 * (bp2.beam_reserve / 1e8::numeric)
+                 / NULLIF(bp2.asset_reserve / power(10::numeric, a2.decimals), 0)
+                 * od.beam_usd
+           END AS tvl_usd
+      FROM pool_h ph
+      JOIN pools  p  ON p.pool_id = ph.pool_id
+      JOIN assets a1 ON a1.aid = p.aid1
+      JOIN assets a2 ON a2.aid = p.aid2
+      LEFT JOIN oracle_h    od  ON od.hour  = ph.hour
+      LEFT JOIN beam_paired bp1 ON bp1.hour = ph.hour AND bp1.asset_aid = p.aid1
+      LEFT JOIN beam_paired bp2 ON bp2.hour = ph.hour AND bp2.asset_aid = p.aid2
+     WHERE ph.reserve1 > 0 OR ph.reserve2 > 0
+  )
+  SELECT EXTRACT(epoch FROM hour)::bigint AS ts,
+         SUM(tvl_usd)::float8 AS value
+    FROM priced
+   WHERE tvl_usd IS NOT NULL
+   GROUP BY hour
+   ORDER BY 1
+`;
+
 // Per-day average network difficulty (mean across the day's blocks).
 const DIFFICULTY_SQL = `
   SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
