@@ -7,6 +7,25 @@ import { ConfidentialAssetsChart } from '../components/ConfidentialAssetsChart';
 import { BlackholeChart, buildBlackholeColors, buildBlackholeLineStyles, LINE_STYLE_DASH } from '../components/BlackholeChart';
 import { downloadBlob, downloadSvgAsPng } from '../components/chart-compare/download';
 import { fmtHashrate } from './explorer/shared';
+import { LADDERS, MAX_POINTS, TILE_BUCKETS, type ZoomRes } from '../lib/zoomResolution';
+
+// chartKey → the range-mode fetcher (`?res&from&to`) the zoom hook calls once
+// the user has zoomed past the daily-only view. Keys without an entry (or
+// whose LADDERS entry is daily-only) never leave the static `filterByTimeframe`
+// path — see `canZoom` in ExpandedChart.
+const RANGE_FETCHERS: Record<string, (a?: { res?: ZoomRes; from?: number; to?: number }) => Promise<ApiChartSeries>> = {
+  price: (a) => api.charts.price(a), tvl: (a) => api.charts.tvl(a), hashrate: (a) => api.charts.hashrate(a),
+  difficulty: (a) => api.charts.difficulty(a), blockTime: (a) => api.charts.blockTime(a), coinbase: (a) => api.charts.coinbase(a),
+  dexVolume: (a) => api.charts.dexVolume(a), assets: (a) => api.charts.assets(a),
+  transactionsDaily: (a) => api.charts.transactionsDaily(a), transactionsTotal: (a) => api.charts.transactionsTotal(a),
+  txosTotal: (a) => api.charts.txosTotal(a), utxosTotal: (a) => api.charts.utxosTotal(a),
+  sizeTotal: (a) => api.charts.sizeTotal(a), archiveTotal: (a) => api.charts.archiveTotal(a),
+  shieldedIns: (a) => api.charts.shieldedInsDaily(a), shieldedInsTotal: (a) => api.charts.shieldedInsTotal(a),
+  shieldedOuts: (a) => api.charts.shieldedOutsDaily(a), shieldedOutsTotal: (a) => api.charts.shieldedOutsTotal(a),
+  contractsTotal: (a) => api.charts.contractsTotal(a), feesDaily: (a) => api.charts.feesDaily(a),
+  feesTotal: (a) => api.charts.feesTotal(a), callsDaily: (a) => api.charts.contractCallsDaily(a),
+  callsTotal: (a) => api.charts.contractCallsTotal(a),
+};
 
 type Timeframe = '1D' | '1W' | '1M' | '3M' | 'YTD' | 'ALL';
 const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1D', '1W', '1M', '3M', 'YTD', 'ALL'];
@@ -28,6 +47,80 @@ function filterByTimeframe(series: ReadonlyArray<ApiChartPoint>, tf: Timeframe):
     cutoff = series[series.length - 1].ts - (days as number) * 86400;
   }
   return series.filter((p) => p.ts >= cutoff);
+}
+
+// ── Range (timeframe) + interval model for the expanded chart ───────────────
+// The timeframe buttons pick the WINDOW [from, to]; the interval buttons pick
+// the bucket. The expanded chart fetches that window at that bucket and renders
+// it statically — no auto-resolution, no viewport restoration.
+// Stable empty array so `full.data?.series ?? EMPTY_SERIES` keeps a constant
+// reference while loading (avoids a useMemo/effect refire loop on every render).
+const EMPTY_SERIES: ApiChartPoint[] = [];
+
+const INTERVAL_ORDER: ZoomRes[] = ['1m', '1h', '1d']; // finest → coarsest
+const INTERVAL_SEC: Record<ZoomRes, number> = { '1m': 60, '1h': 3600, '1d': 86_400 };
+
+// Approximate window length of a timeframe, data-independent — lets the toolbar
+// size the interval buttons before the series has loaded. ALL → Infinity (so
+// only the coarsest bucket qualifies).
+function timeframeSpanSec(tf: Timeframe): number {
+  const days = TIMEFRAME_DAYS[tf];
+  if (days === null) return Number.POSITIVE_INFINITY;
+  if (tf === 'YTD') {
+    const now = Date.now() / 1000;
+    return now - Date.UTC(new Date(now * 1000).getUTCFullYear(), 0, 1) / 1000;
+  }
+  return days * 86_400;
+}
+
+// Intervals offered for a window: in the chart's ladder AND ≤ MAX_POINTS buckets,
+// with the coarsest ladder entry always allowed as a fallback.
+function validIntervals(spanSec: number, ladder: ZoomRes[]): ZoomRes[] {
+  const out = INTERVAL_ORDER.filter(
+    (iv) => ladder.includes(iv) && spanSec / INTERVAL_SEC[iv] <= MAX_POINTS,
+  );
+  const coarsest = ladder[ladder.length - 1];
+  if (coarsest && !out.includes(coarsest)) out.push(coarsest);
+  return out;
+}
+
+// Real [from, to] for a timeframe, anchored on the daily series' ACTUAL bounds
+// (never epoch-0 → no 1970 axis).
+function rangeBoundsFor(series: ReadonlyArray<ApiChartPoint>, tf: Timeframe): { from: number; to: number } | null {
+  if (series.length === 0) return null;
+  const first = series[0].ts;
+  const to = series[series.length - 1].ts;
+  const days = TIMEFRAME_DAYS[tf];
+  if (days === null) return { from: first, to };
+  if (tf === 'YTD') return { from: Date.UTC(new Date(to * 1000).getUTCFullYear(), 0, 1) / 1000, to };
+  return { from: Math.max(first, to - days * 86_400), to };
+}
+
+// Tile-align the visible window so mouse-zoom refetches share cache keys and the
+// key only changes when you cross a tile boundary (no refetch-per-pixel storm).
+// Clamped to the data's real [dataFrom, dataTo] — never epoch-0 (no 1970 axis).
+function alignFetchWindow(fromSec: number, toSec: number, res: ZoomRes, dataFrom: number, dataTo: number): { from: number; to: number } {
+  const tile = INTERVAL_SEC[res] * TILE_BUCKETS;
+  const lo = Math.floor(dataFrom / tile) * tile;
+  const hi = Math.ceil(dataTo / tile) * tile;
+  let from = Math.max(lo, Math.floor(fromSec / tile) * tile);
+  let to = Math.min(hi, Math.ceil(toSec / tile) * tile);
+  if (to <= from) to = from + tile;
+  return { from: Math.max(0, from), to };
+}
+
+// Overlay the fine window series onto the daily full series: keep the daily
+// points OUTSIDE [from,to] and use the fine points inside. The chart then always
+// has full-range coverage (daily everywhere, fine where you're zoomed) — so
+// panning never hits whitespace, zoom-out instantly shows the daily base, and an
+// in-flight refetch never blanks the view.
+function mergeWindow(base: ReadonlyArray<ApiChartPoint>, fine: ReadonlyArray<ApiChartPoint>, from: number, to: number): ApiChartPoint[] {
+  if (fine.length === 0) return base.slice();
+  const out: ApiChartPoint[] = [];
+  for (const p of base) if (p.ts < from || p.ts > to) out.push(p);
+  for (const p of fine) out.push(p);
+  out.sort((a, b) => a.ts - b.ts);
+  return out;
 }
 
 // Timeframe filter for the multi-series blackhole chart. Anchors on the latest
@@ -88,6 +181,30 @@ function useOneShot<T>(fetcher: () => Promise<T>, enabled = true): FetchState<T>
 // Two-tier chart series: always loads the daily tier; lazily loads the hourly
 // tier the first time a sub-daily window is selected. Returns whichever tier
 // the current resolution asks for.
+// Fetch an ApiChartSeries and REFETCH whenever `key` changes (the expanded
+// chart's key = chartKey:timeframe:interval). Unlike useOneShot (fetch-once),
+// this re-runs on key change and keeps the prior data visible during the
+// refetch so switching interval/timeframe doesn't flash "Loading…".
+function useKeyedSeries(fetcher: () => Promise<ApiChartSeries>, key: string, enabled: boolean): FetchState<ApiChartSeries> {
+  const [state, setState] = useState<FetchState<ApiChartSeries>>({ data: null, loading: enabled, error: null });
+  const fetcherRef = useRef(fetcher);
+  fetcherRef.current = fetcher;
+  useEffect(() => {
+    if (!enabled) { setState({ data: null, loading: false, error: null }); return undefined; }
+    let cancelled = false;
+    setState((s) => ({ data: s.data, loading: true, error: null }));
+    fetcherRef.current()
+      .then((d) => { if (!cancelled) setState({ data: d, loading: false, error: null }); })
+      // Keep the last-good data on a failed refetch (transient network blip on a
+      // zoom) so the chart shows stale data instead of blanking to an error.
+      .catch((e: unknown) => { if (!cancelled) setState((s) => ({ data: s.data, loading: false, error: e instanceof Error ? e.message : String(e) })); });
+    return () => { cancelled = true; };
+    // Refetch only when the key or enabled flag changes; fetcher is read via ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, enabled]);
+  return state;
+}
+
 function useTiered(
   dailyFetcher: () => Promise<ApiChartSeries>,
   hourlyFetcher: () => Promise<ApiChartSeries>,
@@ -146,6 +263,24 @@ const TfButton = styled.button<{ active?: boolean }>`
     color: #00f6d2;
     border-color: rgba(0, 246, 210, 0.5);
   }
+
+  &:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    color: rgba(255, 255, 255, 0.4);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+`;
+
+// Candle-interval selector shown in the expanded modal, visually separated from
+// the timeframe group by a trailing divider.
+const IntervalGroup = styled.div`
+  display: flex;
+  align-items: center;
+  padding-right: 12px;
+  margin-right: 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  & > * + * { margin-left: 6px; }
 `;
 
 const Grid = styled.div`
@@ -613,7 +748,16 @@ const InnerChart: React.FC<{
   hideAmml?: boolean;
   overlaySeries?: ReadonlyArray<ApiChartPoint>;
   overlayLabel?: string;
-}> = ({ chartKey, expanded, series, title, scale, formatter, logScale, hideAmml, overlaySeries, overlayLabel }) => {
+  // Zoom-adaptive resolution (expanded modal only — grid cells never pass
+  // these). `assets` renders through ConfidentialAssetsChart, which doesn't
+  // have an interactive mode, so these are no-ops on that branch.
+  interactive?: boolean;
+  onVisibleRangeChange?: (fromSec: number, toSec: number) => void;
+  presetWindow?: { from: number; to: number; nonce: number };
+}> = ({
+  chartKey, expanded, series, title, scale, formatter, logScale, hideAmml, overlaySeries, overlayLabel,
+  interactive, onVisibleRangeChange, presetWindow,
+}) => {
   if (chartKey === 'assets') {
     return (
       <ConfidentialAssetsChart
@@ -636,6 +780,9 @@ const InnerChart: React.FC<{
       logScale={logScale}
       overlaySeries={overlaySeries}
       overlayLabel={overlayLabel}
+      interactive={interactive}
+      onVisibleRangeChange={onVisibleRangeChange}
+      presetWindow={presetWindow}
     />
   );
 };
@@ -757,6 +904,14 @@ interface ChartSpec {
 export const NetworkCharts: React.FC = () => {
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const res = TIMEFRAME_RES[timeframe];
+  // Interval (candle bucket) for the EXPANDED chart only. 'auto' = finest bucket
+  // that fits the current VISIBLE window. Reset to 'auto' whenever the timeframe
+  // or which chart is expanded changes (see effect below).
+  const [chartInterval, setChartInterval] = useState<ZoomRes | 'auto'>('auto');
+  // The expanded chart's current visible span (seconds), reported up so the
+  // interval buttons enable/disable against what's on screen — as you mouse-zoom
+  // in, finer buckets become available. null = not yet reported (use timeframe).
+  const [viewSpan, setViewSpan] = useState<number | null>(null);
 
   const hashrate   = useTiered(() => api.charts.hashrate(), () => api.charts.hashrate({ res: '1h' }), res);
   const difficulty = useTiered(() => api.charts.difficulty(), () => api.charts.difficulty({ res: '1h' }), res);
@@ -803,6 +958,9 @@ export const NetworkCharts: React.FC = () => {
   const blackhole          = useOneShot<ApiBlackholeBody>(() => api.charts.blackhole());
 
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  // Interval resets to 'auto' (and the reported visible span clears) when the
+  // timeframe changes or a different chart is expanded.
+  useEffect(() => { setChartInterval('auto'); setViewSpan(null); }, [expandedKey, timeframe]);
   const [searchParams, setSearchParams] = useSearchParams();
   // Deep-link from the global search bar: /explorer/charts?chart=<key> opens
   // that chart's extended (expanded) view. An unknown key is a harmless no-op
@@ -995,6 +1153,31 @@ export const NetworkCharts: React.FC = () => {
                   </TfButton>
                 )}
               </ModalActionGroup>
+              {expanded && !expanded.multiState && (LADDERS[expanded.key]?.length ?? 1) > 1 && expanded.key !== 'assets' && (
+                <IntervalGroup title="Candle interval">
+                  <TfButton
+                    active={chartInterval === 'auto'}
+                    onClick={() => setChartInterval('auto')}
+                    title="Auto: finest bucket that fits the range"
+                  >
+                    Auto
+                  </TfButton>
+                  {INTERVAL_ORDER.map((iv) => {
+                    const ok = validIntervals(viewSpan ?? timeframeSpanSec(timeframe), LADDERS[expanded.key]!).includes(iv);
+                    return (
+                      <TfButton
+                        key={iv}
+                        active={chartInterval === iv}
+                        disabled={!ok}
+                        onClick={() => ok && setChartInterval(iv)}
+                        title={ok ? `${iv} candles` : 'Too many points for this range'}
+                      >
+                        {iv}
+                      </TfButton>
+                    );
+                  })}
+                </IntervalGroup>
+              )}
               <TimeframeGroup>
                 {TIMEFRAMES.map((tf) => (
                   <TfButton
@@ -1017,10 +1200,13 @@ export const NetworkCharts: React.FC = () => {
                 />
               ) : (
                 <ExpandedChart
+                  key={expanded.key}
                   chartKey={expanded.key}
                   state={expanded.state!}
                   title={expanded.title}
                   timeframe={timeframe}
+                  interval={chartInterval}
+                  onViewSpan={setViewSpan}
                   scale={expanded.scale}
                   formatter={expanded.formatter}
                   logScale={!!logPerKey[expanded.key]}
@@ -1037,8 +1223,74 @@ export const NetworkCharts: React.FC = () => {
 };
 
 const ExpandedChart: React.FC<
-  Omit<ChartCellProps, 'onExpand'> & { overlay?: { state: FetchState<ApiChartSeries>; label: string } }
-> = ({ chartKey, state, title, timeframe, scale, formatter, logScale, hideAmml, overlay }) => {
+  Omit<ChartCellProps, 'onExpand'> & { overlay?: { state: FetchState<ApiChartSeries>; label: string }; interval: ZoomRes | 'auto'; onViewSpan: (spanSec: number) => void }
+> = ({ chartKey, state, title, timeframe, interval, scale, formatter, logScale, hideAmml, overlay, onViewSpan }) => {
+  const ladder = (chartKey && LADDERS[chartKey]) || ['1d'];
+  const fetcher = chartKey ? RANGE_FETCHERS[chartKey] : undefined;
+  // `assets` renders through ConfidentialAssetsChart (no range support here), so
+  // it keeps the static filterByTimeframe path despite having a fetcher.
+  const rangeable = !!fetcher && ladder.length > 1 && chartKey !== 'assets';
+
+  // Stable daily full-history series: real [from,to] bounds + the ALL/1d view.
+  const full = useKeyedSeries(
+    () => (fetcher ? fetcher() : Promise.resolve({ series: [] })),
+    `${chartKey ?? ''}:full`,
+    rangeable,
+  );
+  const fullSeries = full.data?.series ?? EMPTY_SERIES;
+  const dataFrom = fullSeries.length ? fullSeries[0].ts : 0;
+  const dataTo = fullSeries.length ? fullSeries[fullSeries.length - 1].ts : 0;
+
+  // Visible window. `null` = follow the timeframe bounds; mouse-zoom sets it.
+  const [view, setView] = useState<{ from: number; to: number } | null>(null);
+  useEffect(() => { setView(null); }, [timeframe]);
+  const tfBounds = useMemo(() => rangeBoundsFor(fullSeries, timeframe), [fullSeries, timeframe]);
+  const effView = view ?? tfBounds;
+  const spanSec = effView ? effView.to - effView.from : 0;
+
+  // Report the VISIBLE span up so the toolbar sizes the interval buttons to what
+  // is on screen — finer buckets light up as you zoom in.
+  const onViewSpanRef = useRef(onViewSpan);
+  onViewSpanRef.current = onViewSpan;
+  useEffect(() => { if (spanSec > 0) onViewSpanRef.current(spanSec); }, [spanSec]);
+
+  // Effective interval: user's pick if valid for the visible span, else the
+  // finest that fits. In Auto mode it adapts automatically as you zoom.
+  const valid = validIntervals(spanSec || Number.POSITIVE_INFINITY, ladder);
+  const effInterval: ZoomRes = interval !== 'auto' && valid.includes(interval) ? interval : (valid[0] ?? '1d');
+
+  const fetchWin = useMemo(
+    () => (effView && fullSeries.length ? alignFetchWindow(effView.from, effView.to, effInterval, dataFrom, dataTo) : null),
+    [effView, effInterval, dataFrom, dataTo, fullSeries.length],
+  );
+  // A daily window covering the whole history == the full series already loaded.
+  const useFull = !!fetchWin && effInterval === '1d' && fetchWin.from <= dataFrom && fetchWin.to >= dataTo;
+  const win = useKeyedSeries(
+    () => (fetcher && fetchWin ? fetcher({ res: effInterval, from: fetchWin.from, to: fetchWin.to }) : Promise.resolve({ series: [] })),
+    `${chartKey ?? ''}:${effInterval}:${fetchWin?.from ?? 0}:${fetchWin?.to ?? 0}`,
+    rangeable && !!fetchWin && !useFull,
+  );
+
+  // Command the chart to show exactly the timeframe window on open and on each
+  // timeframe click (the tile-aligned fetch covers a bit more; we only VIEW the
+  // exact window). Mouse-zoom moves the view from there and drives the refetch.
+  const presetNonce = useRef(0);
+  const [preset, setPreset] = useState<{ from: number; to: number; nonce: number } | undefined>(undefined);
+  useEffect(() => {
+    if (!rangeable || !tfBounds) return;
+    presetNonce.current += 1;
+    setPreset({ ...tfBounds, nonce: presetNonce.current });
+  }, [rangeable, tfBounds]); // tfBounds ref changes on data load + timeframe change
+
+  // Debounced zoom → view update (drives the finer refetch); tile-aligned keys
+  // make the loop converge and self-terminate.
+  const zoomTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onVisibleRange = useCallback((from: number, to: number) => {
+    if (zoomTimer.current) clearTimeout(zoomTimer.current);
+    zoomTimer.current = setTimeout(() => setView({ from, to }), 200);
+  }, []);
+  useEffect(() => () => { if (zoomTimer.current) clearTimeout(zoomTimer.current); }, []);
+
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
@@ -1047,12 +1299,28 @@ const ExpandedChart: React.FC<
     () => (overlay?.state.data ? filterByTimeframe(overlay.state.data.series, timeframe) : null),
     [overlay?.state.data, timeframe],
   );
-  if (!filtered) return <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>;
+
+  let shown: ReadonlyArray<ApiChartPoint> | null;
+  let loading: boolean;
+  let error: string | null;
+  if (rangeable) {
+    loading = full.loading || win.loading;
+    error = full.error ?? win.error;
+    if (!full.data) shown = null;                                              // initial load
+    else if (!useFull && win.data && fetchWin) shown = mergeWindow(fullSeries, win.data.series, fetchWin.from, fetchWin.to);
+    else shown = fullSeries;                                                   // daily base: zoomed out, or fine still loading
+  } else {
+    shown = filtered;
+    loading = state.loading;
+    error = state.error;
+  }
+
+  if (!shown) return <Loading>{error ?? (loading ? 'Loading…' : 'No data')}</Loading>;
   return (
     <InnerChart
       chartKey={chartKey}
       expanded
-      series={filtered}
+      series={shown}
       title={title}
       scale={scale}
       formatter={formatter}
@@ -1060,6 +1328,9 @@ const ExpandedChart: React.FC<
       hideAmml={hideAmml}
       overlaySeries={filteredOverlay ?? undefined}
       overlayLabel={overlay?.label}
+      interactive={rangeable}
+      onVisibleRangeChange={rangeable ? onVisibleRange : undefined}
+      presetWindow={rangeable ? preset : undefined}
     />
   );
 };

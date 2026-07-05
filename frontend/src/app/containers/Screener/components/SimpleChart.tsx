@@ -4,6 +4,7 @@ import {
   CrosshairMode,
   LineStyle,
   PriceScaleMode,
+  type AutoscaleInfo,
   type IChartApi,
   type ISeriesApi,
   type LineData,
@@ -53,6 +54,53 @@ interface Props {
   overlayLabel?: string;
   /** Overlay line colour. Defaults to a muted amber. */
   overlayColor?: string;
+  /** When true, preserve the user's zoom/pan across data updates instead of
+   *  re-fitting on every refresh: `fitContent` runs once, then subsequent
+   *  `setData` swaps restore the last visible range. */
+  interactive?: boolean;
+  /** Called (in interactive mode) whenever the user pans/zooms the chart,
+   *  with the new visible range in unix seconds. */
+  onVisibleRangeChange?: (fromSec: number, toSec: number) => void;
+  /** Imperative "preset" window (e.g. a timeframe button) to apply via
+   *  `setVisibleRange`. Bump `nonce` to re-apply the same from/to — the effect
+   *  keys off it rather than from/to so clicking the same button twice still
+   *  re-centers. Only honoured in interactive mode. */
+  presetWindow?: { from: number; to: number; nonce: number };
+}
+
+// lightweight-charts asserts on non-ascending or duplicate timestamps. Per-block
+// explorer data (dh=1) can carry two points in the same second, so sort by time
+// and collapse duplicates (keeping the last value) before handing it to setData.
+function toLineData(series: ReadonlyArray<ApiChartPoint>, scale: number): LineData[] {
+  const mapped = series.map((p) => ({ time: p.ts as UTCTimestamp, value: p.value * scale }));
+  mapped.sort((a, b) => (a.time as number) - (b.time as number));
+  const out: LineData[] = [];
+  for (const pt of mapped) {
+    const n = out.length;
+    if (n > 0 && out[n - 1].time === pt.time) out[n - 1] = pt;
+    else out.push(pt);
+  }
+  return out;
+}
+
+// lightweight-charts pads the auto-scaled range below the data minimum, which
+// shows negative axis labels even when every value is >= 0 (counts, totals,
+// hashrate, prices…). When the data is non-negative, floor the visible range at
+// 0 (with a little symmetric headroom); genuine negative data is left untouched.
+function nonNegAutoscale(base: () => AutoscaleInfo | null, nonNeg: boolean): AutoscaleInfo | null {
+  const info = base();
+  if (!info || !nonNeg || info.priceRange.minValue < 0) return info;
+  const { minValue, maxValue } = info.priceRange;
+  const pad = (maxValue - minValue) * 0.05 || Math.abs(maxValue) * 0.05 || 1;
+  return {
+    priceRange: { minValue: Math.max(0, minValue - pad), maxValue: maxValue + pad },
+    margins: { above: 0, below: 0 },
+  };
+}
+
+function allNonNegative(data: ReadonlyArray<{ value: number }>): boolean {
+  for (const d of data) if (d.value < 0) return false;
+  return true;
 }
 
 function defaultFormatter(v: number): string {
@@ -66,7 +114,7 @@ function defaultFormatter(v: number): string {
   return '0';
 }
 
-export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter, logScale = false, onChartReady, overlaySeries, overlayLabel, overlayColor = '#f5a623' }) => {
+export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter, logScale = false, onChartReady, overlaySeries, overlayLabel, overlayColor = '#f5a623', interactive = false, onVisibleRangeChange, presetWindow }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
@@ -77,13 +125,37 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
   const onChartReadyRef = useRef(onChartReady);
   useEffect(() => { onChartReadyRef.current = onChartReady; }, [onChartReady]);
 
+  // Interactive (zoom-preserving) mode bookkeeping.
+  const didFitRef = useRef(false);
+  const programmaticRef = useRef(false);           // guards setData/setVisibleRange re-entrancy
+  const onRangeRef = useRef(onVisibleRangeChange); // ref-stash so the once-on-creation subscribe
+  useEffect(() => { onRangeRef.current = onVisibleRangeChange; }, [onVisibleRangeChange]); // effect never depends on the raw prop
+  const lastRangeRef = useRef<{ from: number; to: number } | null>(null);
+  // Whether the current main / overlay data is all >= 0 (read by the series'
+  // autoscaleInfoProvider to floor the axis at 0 — see nonNegAutoscale).
+  const nonNegRef = useRef(true);
+  const overlayNonNegRef = useRef(true);
+
   useEffect(() => {
     const el = innerRef.current;
     if (!el) return undefined;
     // Magnet crosshair (snaps to the series) — unique to this chart.
     const chart = createBeamChart(el, {
       crosshair: { mode: CrosshairMode.Magnet },
-      timeScale: { minBarSpacing: 0.01 },
+      // No bottom margin — the axis floor comes from the series autoscale
+      // (nonNegAutoscale), which never dips below 0 for non-negative data. Top
+      // headroom keeps the latest-value label from clipping.
+      rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0 } },
+      timeScale: {
+        minBarSpacing: 0.01,
+        // Interactive (expanded) chart: show the time of day and fix the data
+        // edges so you can't pan/scroll into empty whitespace past the series.
+        ...(interactive ? { timeVisible: true, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true } : {}),
+      },
+      // Grid cells are static previews (no free pan/zoom). The expanded chart is
+      // interactive: native wheel/drag zoom is on, and zooming refetches finer
+      // data for the visible window (handled by ExpandedChart).
+      ...(interactive ? {} : { handleScroll: false, handleScale: false }),
     });
     chartRef.current = chart;
     seriesRef.current = chart.addAreaSeries({
@@ -92,7 +164,16 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
       bottomColor: 'rgba(0, 246, 210, 0.02)',
       lineWidth: 2,
       priceFormat: { type: 'custom', formatter, minMove: 0.000001 },
+      autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => nonNegAutoscale(base, nonNegRef.current),
     });
+    if (interactive) {
+      chart.timeScale().subscribeVisibleTimeRangeChange((r) => {
+        if (programmaticRef.current || !r) return;              // ignore our own writes + null edges
+        const from = Number(r.from), to = Number(r.to);
+        lastRangeRef.current = { from, to };
+        onRangeRef.current?.(from, to);
+      });
+    }
     const teardown = onChartReadyRef.current?.(chart, el);
     return () => {
       if (typeof teardown === 'function') teardown();
@@ -116,16 +197,48 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
     });
   }, [logScale]);
 
+  // NOTE: this MUST be a passive `useEffect`, not `useLayoutEffect`. The chart +
+  // series are created in the passive create-effect above; a layout effect here
+  // would run (in the layout phase) BEFORE that create-effect on mount, find
+  // `seriesRef.current` null, bail, and never call `setData` — leaving every
+  // chart blank until `series` next changes (which never happens for the static
+  // grid charts). Passive phase runs effects in declaration order, so this runs
+  // after the create-effect. The one-frame settle in interactive mode is
+  // acceptable; a blank grid is not.
   useEffect(() => {
     const s = seriesRef.current;
-    if (!s) return;
-    const data: LineData[] = series.map((p) => ({
-      time: p.ts as UTCTimestamp,
-      value: p.value * scale,
-    }));
+    const chart = chartRef.current;
+    if (!s || !chart) return;
+    const data: LineData[] = toLineData(series, scale);
+    nonNegRef.current = allNonNegative(data);        // floor the axis at 0 when all >= 0
+    programmaticRef.current = true;                 // suppress the range event our writes cause
     s.setData(data);
-    if (data.length > 0) chartRef.current?.timeScale().fitContent();
-  }, [series, scale]);
+    if (!interactive) {
+      if (data.length > 0) chart.timeScale().fitContent();
+    } else if (!didFitRef.current) {
+      if (data.length > 0) { chart.timeScale().fitContent(); didFitRef.current = true; }
+    } else if (lastRangeRef.current) {
+      chart.timeScale().setVisibleRange({ from: lastRangeRef.current.from as never, to: lastRangeRef.current.to as never });
+    }
+    // release the guard after LWC processes the writes
+    requestAnimationFrame(() => { programmaticRef.current = false; });
+  }, [series, scale, interactive]);
+
+  // Buttons-as-presets: a timeframe click sets the visible window imperatively.
+  // Initialised to the incoming nonce (not null) so mounting with a preset
+  // already set doesn't re-trigger a redundant setVisibleRange; only a later
+  // nonce bump (a fresh click) applies one.
+  const presetNonceRef = useRef<number | null>(presetWindow?.nonce ?? null);
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !interactive || !presetWindow) return;
+    if (presetNonceRef.current === presetWindow.nonce) return;
+    presetNonceRef.current = presetWindow.nonce;
+    programmaticRef.current = true;               // suppress the range event our own write causes
+    chart.timeScale().setVisibleRange({ from: presetWindow.from as never, to: presetWindow.to as never });
+    lastRangeRef.current = { from: presetWindow.from, to: presetWindow.to };
+    requestAnimationFrame(() => { programmaticRef.current = false; });
+  }, [interactive, presetWindow]);
 
   // Optional overlay comparison line — created lazily on the same right axis,
   // updated on data/scale change, and removed if the prop clears. Mirrors the
@@ -142,11 +255,12 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
+          autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => nonNegAutoscale(base, overlayNonNegRef.current),
         });
       }
-      overlayRef.current.setData(
-        overlaySeries.map((p) => ({ time: p.ts as UTCTimestamp, value: p.value * scale })),
-      );
+      const overlayData = toLineData(overlaySeries, scale);
+      overlayNonNegRef.current = allNonNegative(overlayData);
+      overlayRef.current.setData(overlayData);
     } else if (overlayRef.current) {
       chart.removeSeries(overlayRef.current);
       overlayRef.current = null;
