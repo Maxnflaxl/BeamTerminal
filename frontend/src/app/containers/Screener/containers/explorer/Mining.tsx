@@ -319,6 +319,34 @@ const HashrateCell: React.FC<{
   );
 };
 
+// Age cell for the Recent Blocks table: the age text + solve-time bar, plus a
+// hover tooltip revealing the block time (seconds since the previous block).
+const AgeCell: React.FC<{ iso: string | null; interval: number | null }> = ({ iso, interval }) => {
+  const [hover, setHover] = useState(false);
+  const bar = ageBar(interval);
+  return (
+    <div
+      style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <span>{fmtAge(iso)}</span>
+      {bar && (
+        <div style={{ width: 64, height: 3, borderRadius: 2, background: 'rgba(148,163,184,0.18)' }}>
+          <div style={{ width: `${bar.pct}%`, height: '100%', borderRadius: 2, background: bar.color }} />
+        </div>
+      )}
+      {/* Anchored to the age+bar box (inline-flex): vertically centered on the row,
+          and `right: 100%` places it left of the solve-time bar so it never covers it. */}
+      {hover && interval != null && interval >= 0 && (
+        <SparkTooltip style={{ right: '100%', top: '50%', transform: 'translateY(-50%)', marginRight: 10 }}>
+          Block time: {Math.round(interval)} s
+        </SparkTooltip>
+      )}
+    </div>
+  );
+};
+
 const pagerCss = css`
   display: -webkit-box;
   display: flex;
@@ -649,7 +677,6 @@ export const Mining: React.FC = () => {
                     const interval = older
                       ? (new Date(b.ts).getTime() - new Date(older.ts).getTime()) / 1000
                       : null;
-                    const bar = ageBar(interval);
                     return (
                       <tr key={b.height}>
                         <td className="mono">{b.height.toLocaleString()}</td>
@@ -661,14 +688,7 @@ export const Mining: React.FC = () => {
                             : <span className="muted">—</span>}
                         </td>
                         <td className="right">
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-                            <span>{fmtAge(b.ts)}</span>
-                            {bar && (
-                              <div style={{ width: 64, height: 3, borderRadius: 2, background: 'rgba(148,163,184,0.18)' }}>
-                                <div style={{ width: `${bar.pct}%`, height: '100%', borderRadius: 2, background: bar.color }} />
-                              </div>
-                            )}
-                          </div>
+                          <AgeCell iso={b.ts} interval={interval} />
                         </td>
                       </tr>
                     );
