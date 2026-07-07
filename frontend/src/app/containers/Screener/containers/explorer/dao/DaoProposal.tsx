@@ -8,7 +8,7 @@ import { api } from '../../../api/client';
 import type { ApiDaoProposalDetail } from '../../../api/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeLabel } from './daoShared';
+import { fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeLabel, ExternalLink } from './daoShared';
 
 const LIMIT = 25;
 
@@ -52,7 +52,7 @@ const Meta = styled.div`
   letter-spacing: 0.05em;
   margin: 6px 0 10px;
 `;
-const ForumLink = styled.a`
+const forumCls = css`
   display: inline-block;
   font-size: 12px;
   color: ${theme.color.accent};
@@ -128,10 +128,6 @@ const Pager = styled.div`
   color: ${theme.color.muted};
   & > span > * + * { margin-left: 6px; }
 `;
-const Note = styled.div`
-  font-size: 11px;
-  color: ${theme.color.muted};
-`;
 
 function truncPk(pk: string): string {
   if (!pk || pk.length <= 14) return pk;
@@ -182,16 +178,21 @@ export const DaoProposal: React.FC = () => {
             {p.quorum_pct != null ? ` · quorum ${p.quorum_pct}%` : ''}
             {p.turnout_pct != null ? ` · turnout ${p.turnout_pct.toFixed(1)}%` : ''}
           </Meta>
-          {p.forum_link && /^https?:\/\//i.test(p.forum_link) && (
+          {p.forum_link && (
             <div>
-              <ForumLink href={p.forum_link} target="_blank" rel="noreferrer">
+              <ExternalLink href={p.forum_link} className={forumCls}>
                 Open forum discussion ↗
-              </ForumLink>
+              </ExternalLink>
             </div>
           )}
           {p.description && (
             <Desc>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{p.description}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{ a: ({ href, children }) => <ExternalLink href={href}>{children}</ExternalLink> }}
+              >
+                {p.description}
+              </ReactMarkdown>
             </Desc>
           )}
 

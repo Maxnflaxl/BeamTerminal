@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { styled } from '@linaria/react';
 import { theme } from '../shared';
 
@@ -147,3 +147,112 @@ export function outcomeLabel(status: string, outcome: string | null): string {
   if (outcome === 'failed') return 'Failed';
   return 'Closed';
 }
+
+// External link with a "you are leaving BeamTerminal" interstitial that shows
+// the full URL before opening it. Only http(s) is ever navigable (proposal
+// links are attacker-controlled); anything else renders as plain text.
+const ExtOverlay = styled.div`
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: rgba(2, 12, 24, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+`;
+const ExtModal = styled.div`
+  width: 90%;
+  max-width: 440px;
+  background: ${theme.color.surface};
+  border: 1px solid ${theme.color.border};
+  border-radius: ${theme.radius.lg};
+  overflow: hidden;
+`;
+const ExtHead = styled.div`
+  padding: 14px 16px;
+  border-bottom: 1px solid ${theme.color.borderDim};
+  font-weight: 700;
+  color: ${theme.color.text};
+`;
+const ExtBody = styled.div`
+  padding: 16px;
+  & > p { margin: 0 0 12px; color: ${theme.color.muted}; font-size: 13px; }
+`;
+const ExtUrl = styled.div`
+  background: ${theme.color.surface2};
+  border: 1px solid ${theme.color.borderDim};
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: ${theme.color.accent};
+  word-break: break-all;
+  margin-bottom: 16px;
+`;
+const ExtActions = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+`;
+const ExtCancel = styled.button`
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid ${theme.color.border};
+  color: ${theme.color.muted};
+  cursor: pointer;
+  &:hover { color: ${theme.color.text}; border-color: ${theme.color.muted}; }
+`;
+const ExtOpen = styled.a`
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  background: ${theme.color.accent};
+  border: 1px solid ${theme.color.accent};
+  cursor: pointer;
+  &, &:link, &:visited, &:hover { color: #04121e; text-decoration: none; }
+`;
+
+export const ExternalLink: React.FC<{ href?: string; className?: string; children: React.ReactNode }> = ({
+  href,
+  className,
+  children,
+}) => {
+  const [open, setOpen] = useState(false);
+  if (!href || !/^https?:\/\//i.test(href)) return <>{children}</>;
+  return (
+    <>
+      <a
+        href={href}
+        className={className}
+        onClick={(e) => {
+          e.preventDefault();
+          setOpen(true);
+        }}
+      >
+        {children}
+      </a>
+      {open && (
+        <ExtOverlay onClick={() => setOpen(false)}>
+          <ExtModal onClick={(e) => e.stopPropagation()}>
+            <ExtHead>You are leaving BeamTerminal</ExtHead>
+            <ExtBody>
+              <p>Are you sure you want to open this external URL?</p>
+              <ExtUrl>{href}</ExtUrl>
+              <ExtActions>
+                <ExtCancel type="button" onClick={() => setOpen(false)}>
+                  Cancel
+                </ExtCancel>
+                <ExtOpen href={href} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+                  Open ↗
+                </ExtOpen>
+              </ExtActions>
+            </ExtBody>
+          </ExtModal>
+        </ExtOverlay>
+      )}
+    </>
+  );
+};
