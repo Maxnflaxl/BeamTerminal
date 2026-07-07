@@ -147,8 +147,11 @@ const Legend = styled.div`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  & > * + * { margin-left: 8px; }
-  margin-bottom: 10px;
+  /* Per-chip right + bottom margins (not flexbox \`gap\`, which QtWebEngine 5.15.2
+     / Chrome 83 lacks) give the chips comfortable spacing between each other and
+     keep the rows apart when they wrap on a narrow panel / the wallet DApp. */
+  margin: 2px 0 8px;
+  & > * { margin-right: 10px; margin-bottom: 8px; }
 `;
 const Chip = styled.button`
   display: inline-flex;
