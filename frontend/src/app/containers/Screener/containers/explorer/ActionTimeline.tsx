@@ -156,7 +156,6 @@ const Legend = styled.div`
 const Chip = styled.button`
   display: inline-flex;
   align-items: center;
-  & > * + * { margin-left: 6px; }
   background: ${theme.color.surface2};
   border: 1px solid ${theme.color.borderDim};
   border-radius: 6px;
@@ -171,6 +170,10 @@ const Swatch = styled.span`
   height: 10px;
   border-radius: 2px;
   display: inline-block;
+  /* Gap between the swatch and its label. Must live on the swatch itself: the
+     label is a bare text node, so the Chip's sibling rule couldn't target it —
+     which is why the swatch previously sat flush against the text. */
+  margin-right: 6px;
 `;
 const SvgWrap = styled.div`
   position: relative;
