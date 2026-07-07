@@ -32,7 +32,9 @@ import type { ApiBansAction } from '../../api/types';
 const CID = 'af4550f1f8a6051ffeffea06e0cb978f8076fdfc2101d2273d4e62c86540bc5e';
 const PAGE_SIZE = 50;
 const ACTIVITY_PAGE_SIZE = 25;
-const CONTRACT_NMAXTXS = 500;
+// History now comes from /api/bans/actions; the live explorer read only needs
+// State.Domains + contract meta, so skip the calls list entirely.
+const CONTRACT_NMAXTXS = 0;
 const POLL_MS = 60_000;
 const BLOCK_SECONDS = 60;
 
@@ -52,13 +54,6 @@ interface Domain {
   statusRaw: string;
   price: number | null;
   priceAid: number | null;
-}
-
-interface Activity {
-  height: number | null;
-  method: string;
-  args: Record<string, unknown> | null;
-  name: string | null;
 }
 
 type SortKey = 'name' | 'owner' | 'expiration' | 'status' | 'price';
@@ -128,38 +123,6 @@ function parseDomains(data: any): Domain[] {
       if (v !== null && v !== undefined) price = parseFloat(String(v).replace(/,/g, ''));
     }
     out.push({ name: String(name), owner: String(owner), expiration, status, statusRaw, price, priceAid });
-  }
-  return out;
-}
-
-function flattenArgs(args: any): Record<string, unknown> | null {
-  if (!args || typeof args !== 'object') return null;
-  const out: Record<string, unknown> = {};
-  for (const k of Object.keys(args)) {
-    const v = args[k];
-    if (v && typeof v === 'object' && 'value' in v) out[k] = (v as { value: unknown }).value;
-    else if (v && typeof v === 'object') out[k] = JSON.stringify(v);
-    else out[k] = v;
-  }
-  return out;
-}
-
-function parseActivity(data: any): Activity[] {
-  const out: Activity[] = [];
-  const node = data && data['Calls history'];
-  const rows = node && node.value;
-  if (!Array.isArray(rows) || rows.length < 2) return out;
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || row.type !== 'group' || !Array.isArray(row.value) || row.value.length === 0) continue;
-    const first = row.value[0];
-    if (!Array.isArray(first) || first.length < 5) continue;
-    const height = Number(first[0]) || null;
-    const method = String(first[3] || '');
-    const argsObj = (first[4] && typeof first[4] === 'object' && !Array.isArray(first[4])) ? first[4] : null;
-    const args = flattenArgs(argsObj);
-    const name = args && (args.name || args.Name) ? String(args.name || args.Name) : null;
-    out.push({ height, method, args, name });
   }
   return out;
 }
@@ -452,7 +415,6 @@ export const BANS: React.FC = () => {
   const [kind, setKind] = useState<string>('—');
   const [deployedAt, setDeployedAt] = useState<number | null>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
-  const [activity, setActivity] = useState<Activity[]>([]);
   const [apiActions, setApiActions] = useState<ApiBansAction[]>([]);
   const [status, setStatus] = useState<{ kind: 'idle' | 'live' | 'error'; text: string }>({ kind: 'idle', text: 'Loading…' });
   const [error, setError] = useState<string | null>(null);
@@ -500,7 +462,6 @@ export const BANS: React.FC = () => {
       setTipHeight(typeof data.h === 'number' ? data.h : null);
       setKind(data.kind || '—');
       setDomains(parseDomains(data));
-      setActivity(parseActivity(data));
 
       const vh = data && data['Version History'] && data['Version History'].value;
       if (Array.isArray(vh) && vh.length > 1) {
@@ -527,14 +488,14 @@ export const BANS: React.FC = () => {
     return () => clearInterval(id);
   }, [load]);
 
-  // Full BANS action history from our indexed API (drives the timeline chart;
-  // the activity list moves here in a later change).
+  // Full BANS action history from our indexed API — drives both the timeline
+  // chart and the activity list below.
   const loadActions = useCallback(async () => {
     try {
       const res = await api.bansActions();
       setApiActions(res.actions);
     } catch {
-      /* keep last-good; the explorer-backed list still renders */
+      /* keep last-good; list/timeline just stay on stale data until the next poll */
     }
   }, []);
   useEffect(() => {
@@ -598,11 +559,12 @@ export const BANS: React.FC = () => {
 
   const sortArrow = (key: SortKey): string | null => (sort.key === key ? (sort.dir > 0 ? '▲' : '▼') : null);
 
-  // ---- Activity pagination (over every loaded call, not just the latest) ----
-  const activityPages = Math.max(1, Math.ceil(activity.length / ACTIVITY_PAGE_SIZE));
+  // ---- Activity pagination (full indexed history from the API, newest first) ----
+  const reversedActions = useMemo(() => apiActions.slice().reverse(), [apiActions]);
+  const activityPages = Math.max(1, Math.ceil(apiActions.length / ACTIVITY_PAGE_SIZE));
   const safeActivityPage = Math.min(Math.max(0, activityPage), activityPages - 1);
   const activityStart = safeActivityPage * ACTIVITY_PAGE_SIZE;
-  const recent = activity.slice(activityStart, activityStart + ACTIVITY_PAGE_SIZE);
+  const recent = reversedActions.slice(activityStart, activityStart + ACTIVITY_PAGE_SIZE);
 
   useEffect(() => {
     if (activityPage > activityPages - 1) setActivityPage(Math.max(0, activityPages - 1));
@@ -627,9 +589,9 @@ export const BANS: React.FC = () => {
   const activityPager = (
     <Pagination>
       <PageInfo>
-        {activity.length === 0
+        {apiActions.length === 0
           ? 'Page 0 of 0'
-          : `Page ${safeActivityPage + 1} of ${activityPages} · ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, activity.length)} of ${activity.length}`}
+          : `Page ${safeActivityPage + 1} of ${activityPages} · ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, apiActions.length)} of ${apiActions.length}`}
       </PageInfo>
       <PageBtns>
         <Btn type="button" data-variant="ghost" disabled={safeActivityPage === 0} onClick={() => setActivityPage(0)}>⏮</Btn>
@@ -661,8 +623,8 @@ export const BANS: React.FC = () => {
         <JumpLabel>Jump to</JumpLabel>
         <TabBtn type="button" onClick={() => scrollTo(overviewRef)}>Overview</TabBtn>
         <TabBtn type="button" onClick={() => scrollTo(domainsRef)}>Domains</TabBtn>
-        <TabBtn type="button" onClick={() => scrollTo(activityRef)}>Activity</TabBtn>
         <TabBtn type="button" onClick={() => scrollTo(timelineRef)}>Timeline</TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(activityRef)}>Activity</TabBtn>
       </JumpNav>
 
       {error && <ErrorBox>{error}</ErrorBox>}
@@ -808,12 +770,12 @@ export const BANS: React.FC = () => {
         <PanelHeader>
           <PanelTitle>Recent registry activity</PanelTitle>
           <PanelMeta>
-            {activity.length > 0
-              ? `Showing ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, activity.length)} of ${activity.length} loaded calls`
+            {apiActions.length > 0
+              ? `Showing ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, apiActions.length)} of ${apiActions.length} loaded calls`
               : '—'}
           </PanelMeta>
         </PanelHeader>
-        {activity.length > 0 && activityPager}
+        {apiActions.length > 0 && activityPager}
         <div>
           {recent.length === 0 ? (
             <Empty>No recent activity loaded.</Empty>
@@ -824,7 +786,10 @@ export const BANS: React.FC = () => {
               const firstKey = argKeys[0];
               return (
                 <ActivityRow key={`${a.height}-${idx}`}>
-                  <HCell>h <BlockHeight height={a.height} tip={tipHeight} resolveUrl={blockUrl} /></HCell>
+                  <HCell>
+                    h <BlockHeight height={a.height} tip={tipHeight} resolveUrl={blockUrl} />
+                    <Eta>{new Date(a.block_ts).toLocaleDateString()}</Eta>
+                  </HCell>
                   <div><Pill data-tone={methodTone(cls)}>{a.method || '—'}</Pill></div>
                   <Target>
                     {a.name ? (
@@ -855,7 +820,7 @@ export const BANS: React.FC = () => {
             })
           )}
         </div>
-        {activity.length > 0 && activityPager}
+        {apiActions.length > 0 && activityPager}
       </Panel>
     </Page>
   );
