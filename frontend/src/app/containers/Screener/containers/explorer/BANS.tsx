@@ -21,6 +21,9 @@ import {
   theme,
 } from './shared';
 import { BlockHeight } from '../../../../shared/components/BlockHeight';
+import { ActionTimeline } from './ActionTimeline';
+import { api } from '../../api/client';
+import type { ApiBansAction } from '../../api/types';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -450,6 +453,7 @@ export const BANS: React.FC = () => {
   const [deployedAt, setDeployedAt] = useState<number | null>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
+  const [apiActions, setApiActions] = useState<ApiBansAction[]>([]);
   const [status, setStatus] = useState<{ kind: 'idle' | 'live' | 'error'; text: string }>({ kind: 'idle', text: 'Loading…' });
   const [error, setError] = useState<string | null>(null);
 
@@ -474,6 +478,7 @@ export const BANS: React.FC = () => {
   const overviewRef = useRef<HTMLDivElement>(null);
   const domainsRef = useRef<HTMLDivElement>(null);
   const activityRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const scrollTo = useCallback((ref: React.RefObject<HTMLElement>) => {
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
@@ -521,6 +526,22 @@ export const BANS: React.FC = () => {
     const id = setInterval(() => { void load(); }, POLL_MS);
     return () => clearInterval(id);
   }, [load]);
+
+  // Full BANS action history from our indexed API (drives the timeline chart;
+  // the activity list moves here in a later change).
+  const loadActions = useCallback(async () => {
+    try {
+      const res = await api.bansActions();
+      setApiActions(res.actions);
+    } catch {
+      /* keep last-good; the explorer-backed list still renders */
+    }
+  }, []);
+  useEffect(() => {
+    void loadActions();
+    const id = setInterval(() => { void loadActions(); }, POLL_MS);
+    return () => clearInterval(id);
+  }, [loadActions]);
 
   // ---- KPIs ----
   const kpi = useMemo(() => {
@@ -641,6 +662,7 @@ export const BANS: React.FC = () => {
         <TabBtn type="button" onClick={() => scrollTo(overviewRef)}>Overview</TabBtn>
         <TabBtn type="button" onClick={() => scrollTo(domainsRef)}>Domains</TabBtn>
         <TabBtn type="button" onClick={() => scrollTo(activityRef)}>Activity</TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(timelineRef)}>Timeline</TabBtn>
       </JumpNav>
 
       {error && <ErrorBox>{error}</ErrorBox>}
@@ -770,6 +792,16 @@ export const BANS: React.FC = () => {
           </DataTable>
         </ScrollX>
         {domainsPager}
+      </Panel>
+
+      <Panel ref={timelineRef}>
+        <PanelHeader>
+          <PanelTitle>Activity timeline</PanelTitle>
+          <PanelMeta>{apiActions.length > 0 ? `${apiActions.length} actions` : '—'}</PanelMeta>
+        </PanelHeader>
+        <div style={{ padding: '16px' }}>
+          <ActionTimeline actions={apiActions} />
+        </div>
       </Panel>
 
       <Panel ref={activityRef}>
