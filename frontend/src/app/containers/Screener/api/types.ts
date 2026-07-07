@@ -613,3 +613,17 @@ export interface ApiMiningBlock {
 export interface ApiMiningBlocks {
   blocks: ApiMiningBlock[];
 }
+
+// GET /api/bans/actions — full BANS registry action history.
+export interface ApiBansAction {
+  height: number;
+  block_ts: string;
+  method: string;
+  name: string | null;
+  args: Record<string, unknown> | null;
+}
+
+export interface ApiBansActions {
+  actions: ApiBansAction[];
+  meta: { total: number; first_height: number | null; last_height: number | null };
+}

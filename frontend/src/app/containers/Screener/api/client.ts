@@ -9,6 +9,7 @@ import type {
   ApiMiningPools,
   ApiMiningBlocks,
   ApiNetwork,
+  ApiBansActions,
   ApiPair,
   ApiPairsList,
   ApiOhlcv,
@@ -83,6 +84,7 @@ export const api = {
   stats: (): Promise<ApiStats> => get<ApiStats>('/stats'),
   miningPools: (): Promise<ApiMiningPools> => get<ApiMiningPools>('/mining/pools'),
   network: (): Promise<ApiNetwork> => get<ApiNetwork>('/network'),
+  bansActions: (): Promise<ApiBansActions> => get<ApiBansActions>('/bans/actions'),
   miningBlocks: (limit = 50, offset = 0): Promise<ApiMiningBlocks> => get<ApiMiningBlocks>(`/mining/blocks?limit=${limit}&offset=${offset}`),
 
   pairs: (params: PairsQuery = {}): Promise<ApiPairsList> => get<ApiPairsList>(`/pairs${qs(params as Record<string, string | number | boolean | undefined>)}`),
