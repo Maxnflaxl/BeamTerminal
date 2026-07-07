@@ -140,6 +140,16 @@ async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<v
     await q('DELETE FROM lp_events             WHERE height > $1', [commonHeight]);
     await q('DELETE FROM pool_state_snapshots  WHERE height > $1', [commonHeight]);
     await q('DELETE FROM block_timestamps      WHERE height > $1', [commonHeight]);
+    // Watched-contract call history is height-keyed and reorg-cleaned like the
+    // hot tables. Purge past the ancestor and clamp each contract's cursor so
+    // the next tick re-ingests [ancestor+1, head] idempotently.
+    await q('DELETE FROM contract_call_events  WHERE height > $1', [commonHeight]);
+    await q(
+      `UPDATE contract_activity_cursor
+          SET last_indexed_height = LEAST(last_indexed_height, $1)
+        WHERE last_indexed_height > $1`,
+      [commonHeight],
+    );
     // Don't touch `pools` rows — pools are largely cumulative; a pool that
     // existed at commonHeight still exists. If we mistakenly marked one as
     // `destroyed_at_height > commonHeight`, undo it.
