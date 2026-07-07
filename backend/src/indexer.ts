@@ -17,6 +17,7 @@ import { ingestRange as ingestBlockMetricsRange, maxIndexedHeight as maxBlockMet
 import { syncAssetSwapOffers } from './services/assetSwapOffers.js';
 import { syncAtomicSwapOffers, snapshotAtomicSwapTotals } from './services/atomicSwaps.js';
 import { syncDappStore } from './services/dappStore.js';
+import { ingestWatchedContracts } from './services/contractActivity.js';
 import { syncIpfsPins } from './services/ipfsPin.js';
 import { refreshMiningPools } from './mining/refresh.js';
 
@@ -489,6 +490,13 @@ async function tick(): Promise<void> {
   // node goes offline. Self-paced, drains the backlog in MAX_PINS_PER_TICK
   // chunks. Cheap when there's no backlog.
   maybeKickIpfsPinSync();
+
+  // Watched-contract call-history ingest (BANS, …). Inline (not fire-and-forget)
+  // because contract_call_events is reorg-cleaned — a background run could race
+  // the reorg DELETE. Bounded per tick so a large first backfill can't stall DEX
+  // ingest. Runs after detectAndHealReorg() (called earlier this tick).
+  await ingestWatchedContracts(status.height);
+
   const headTs = await getBlockTs(status.height);
   // Fetch head block to get the kernel hash for cursor persistence.
   const headBlock = await getBlock({ height: status.height });
