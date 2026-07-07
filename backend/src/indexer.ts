@@ -19,6 +19,7 @@ import { syncAtomicSwapOffers, snapshotAtomicSwapTotals } from './services/atomi
 import { syncDappStore } from './services/dappStore.js';
 import { ingestWatchedContracts } from './services/contractActivity.js';
 import { projectDaoVote } from './services/daoGovernance.js';
+import { refreshDaoStats } from './services/daoStats.js';
 import { syncIpfsPins } from './services/ipfsPin.js';
 import { refreshMiningPools } from './mining/refresh.js';
 
@@ -75,6 +76,9 @@ let ipfsPinInflight = false;
 // fallback covers startup and a stalled head.
 let miningPoolsInflight = false;
 let daoVoteInflight = false;
+let lastDaoStatsRefresh = 0;
+let daoStatsRefreshInflight = false;
+const DAO_STATS_REFRESH_MS = 5 * 60_000;
 let lastMiningRefreshHeight = 0;
 let lastMiningRefreshAt = 0;
 const MINING_STALENESS_MS = 5 * 60 * 1000;
@@ -304,6 +308,21 @@ function maybeKickDaoVoteProjection(): void {
     .finally(() => { daoVoteInflight = false; });
 }
 
+// Recompute the cached DAO treasury/revenue aggregates every few minutes so the
+// API serves them instantly instead of re-scanning ~130k vault calls per request.
+function maybeKickDaoStatsRefresh(): void {
+  if (daoStatsRefreshInflight) return;
+  if (!config.DAO_VAULT_CID) return;
+  if (Date.now() - lastDaoStatsRefresh < DAO_STATS_REFRESH_MS) return;
+  daoStatsRefreshInflight = true;
+  refreshDaoStats()
+    .then(() => { lastDaoStatsRefresh = Date.now(); })
+    .catch((err) => {
+      logger.warn({ err: err instanceof Error ? err.message : err }, 'dao_stats refresh failed; will retry next tick');
+    })
+    .finally(() => { daoStatsRefreshInflight = false; });
+}
+
 async function maybeSyncAssetsCatalog(): Promise<void> {
   const now = Date.now();
   if (now - lastAssetsSync < ASSETS_RESYNC_MS) return;
@@ -516,6 +535,7 @@ async function tick(): Promise<void> {
   // ingest. Runs after detectAndHealReorg() (called earlier this tick).
   await ingestWatchedContracts(status.height);
   maybeKickDaoVoteProjection();
+  maybeKickDaoStatsRefresh();
 
   const headTs = await getBlockTs(status.height);
   // Fetch head block to get the kernel hash for cursor persistence.

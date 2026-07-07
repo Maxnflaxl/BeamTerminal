@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { loadDaoTreasury } from '../repos/daoTreasury.js';
+import { loadDaoTreasury, loadDaoTreasuryAsset } from '../repos/daoTreasury.js';
 import { loadDaoRevenue } from '../repos/daoRevenue.js';
 import { loadDaoGovernance, loadDaoProposal } from '../repos/daoGovernance.js';
 import { loadDaoOverview } from '../repos/daoOverview.js';
@@ -17,6 +17,18 @@ export async function daoRoutes(app: FastifyInstance): Promise<void> {
   app.get('/dao/treasury', async (_req, reply) => {
     void reply.header('cache-control', 'public, max-age=60');
     return loadDaoTreasury();
+  });
+
+  app.get('/dao/treasury/asset/:aid', async (req, reply) => {
+    const aid = Number((req.params as { aid: string }).aid);
+    if (!Number.isInteger(aid) || aid < 0) {
+      void reply.code(400);
+      return { error: { code: 'BAD_REQUEST', message: 'invalid asset id' } };
+    }
+    const query = req.query as { limit?: string };
+    const limit = Math.min(500, Math.max(1, Number(query.limit ?? 100) || 100));
+    void reply.header('cache-control', 'public, max-age=60');
+    return loadDaoTreasuryAsset(aid, limit);
   });
 
   app.get('/dao/revenue', async (_req, reply) => {

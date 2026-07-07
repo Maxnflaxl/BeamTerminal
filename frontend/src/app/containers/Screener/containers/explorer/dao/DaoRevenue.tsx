@@ -3,7 +3,7 @@ import { styled } from '@linaria/react';
 import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, DataTable, ScrollX, Pill, ErrorBox, theme } from '../shared';
 import { api } from '../../../api/client';
 import type { ApiDaoRevenue } from '../../../api/types';
-import { Sparkline, fmtUsd } from './daoShared';
+import { TimeChart, fmtUsd } from './daoShared';
 
 const TIER_LABEL = ['0.05%', '0.30%', '1.00%'];
 const tierTone = (tier: number): 'accent' | 'warn' | 'danger' => (tier === 0 ? 'accent' : tier === 1 ? 'warn' : 'danger');
@@ -62,8 +62,8 @@ export const DaoRevenue: React.FC = () => {
     };
   }, []);
 
-  const daily = (d?.series ?? []).map((s) => Object.values(s.by_asset).reduce((a, b) => a + b, 0));
-  const d30 = daily.slice(-30).reduce((a, b) => a + b, 0);
+  const dailySeries = (d?.series ?? []).map((s) => ({ label: s.day, value: Object.values(s.by_asset).reduce((a, b) => a + b, 0) }));
+  const d30 = dailySeries.slice(-30).reduce((a, b) => a + b.value, 0);
 
   return (
     <Page>
@@ -92,9 +92,9 @@ export const DaoRevenue: React.FC = () => {
       </StatGrid>
 
       <Panel>
-        <PanelHead>Revenue over time</PanelHead>
+        <PanelHead>Revenue over time (USD/day)</PanelHead>
         <div style={{ padding: '14px 16px' }}>
-          <Sparkline data={daily} />
+          <TimeChart data={dailySeries} fmtY={fmtUsd} />
         </div>
       </Panel>
 

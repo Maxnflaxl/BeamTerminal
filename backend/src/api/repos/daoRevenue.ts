@@ -1,6 +1,7 @@
 import { config } from '../../config.js';
 import { q } from '../../db.js';
 import { getLatestUsdPrices, valueUsd } from '../../services/pricing.js';
+import { readDaoStat, writeDaoStat } from './daoStatsCache.js';
 
 // DAO revenue = fees skimmed into DaoVault. The vault's Deposit inflows give the
 // total (across every fee source) and the per-asset/time breakdown; per-pool and
@@ -16,7 +17,7 @@ export interface DaoRevenue {
   top_pools: { pool_id: number; pair: string; tier: number; usd: number }[];
 }
 
-export async function loadDaoRevenue(): Promise<DaoRevenue> {
+export async function computeDaoRevenue(): Promise<DaoRevenue> {
   const vaultCid = config.DAO_VAULT_CID;
   const prices = await getLatestUsdPrices();
   const symbolOf = (aid: number): string => prices.get(aid)?.symbol ?? `aid:${aid}`;
@@ -82,4 +83,13 @@ export async function loadDaoRevenue(): Promise<DaoRevenue> {
   ];
 
   return { total_usd, series, by_source, by_tier, top_pools };
+}
+
+/** Cached read; on a miss, computes live once and warms the cache. */
+export async function loadDaoRevenue(): Promise<DaoRevenue> {
+  const cached = await readDaoStat<DaoRevenue>('revenue');
+  if (cached) return cached;
+  const fresh = await computeDaoRevenue();
+  await writeDaoStat('revenue', fresh);
+  return fresh;
 }

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
 import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, DataTable, ScrollX, Btn, ErrorBox, theme } from '../shared';
+import AssetIcon from '@app/shared/components/AssetsIcon';
 import { api } from '../../../api/client';
-import type { ApiDaoTreasury } from '../../../api/types';
-import { Sparkline, fmtUsd, fmtCompact, grothToBeamx } from './daoShared';
+import type { ApiDaoTreasury, ApiDaoAssetHistory, ApiAssetListEntry } from '../../../api/types';
+import { TimeChart, fmtUsd, fmtCompact } from './daoShared';
 
 const PALETTE = [theme.color.accent, theme.color.purple, theme.color.info, theme.color.warn, theme.color.danger, '#7a8cff', '#5ad1b0', '#c0a0ff'];
 
@@ -25,18 +26,35 @@ const PanelHead = styled.div`
   text-transform: uppercase;
   letter-spacing: 0.05em;
 `;
+const AssetCell = styled.div`
+  display: flex;
+  align-items: center;
+  & b { color: ${theme.color.text}; font-weight: 600; }
+  & small { color: ${theme.color.muted}; margin-left: 8px; font-size: 11px; }
+`;
+const ClickRow = styled.tr`
+  cursor: pointer;
+  &:hover { background: ${theme.color.rowHover}; }
+`;
 const FlowRow = styled.div`
   display: grid;
-  grid-template-columns: 120px 110px 1fr;
+  grid-template-columns: 96px 96px 1fr;
   gap: 12px;
   padding: 9px 16px;
   border-bottom: 1px solid ${theme.color.borderDim};
   font-size: 12px;
+  align-items: center;
   &:last-child { border-bottom: 0; }
+`;
+const FundTag = styled.span`
+  display: inline-flex;
+  align-items: center;
+  margin-right: 12px;
+  font-variant-numeric: tabular-nums;
 `;
 const Overlay = styled.div`
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: rgba(2, 12, 24, 0.8);
   display: flex;
   align-items: center;
@@ -45,7 +63,10 @@ const Overlay = styled.div`
 `;
 const Modal = styled.div`
   width: 90%;
-  max-width: 460px;
+  max-width: 480px;
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
   background: ${theme.color.surface};
   border: 1px solid ${theme.color.border};
   border-radius: ${theme.radius.lg};
@@ -69,69 +90,76 @@ const Closer = styled.button`
 `;
 const DonutBody = styled.div`
   display: flex;
-  gap: 18px;
+  gap: 20px;
   align-items: center;
-  padding: 18px;
+  padding: 20px;
   flex-wrap: wrap;
 `;
+// Real donut: conic ring + an inner circle punched out with the modal bg.
+// Uses top/left/right/bottom (not `inset`, unsupported on the wallet's Chrome 83).
 const Donut = styled.div`
-  width: 130px;
-  height: 130px;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
-  flex-shrink: 0;
   position: relative;
-  &::after {
-    content: '';
-    position: absolute;
-    inset: 34px;
-    border-radius: 50%;
-    background: ${theme.color.surface};
-  }
+  flex-shrink: 0;
 `;
-const Center = styled.div`
+const DonutHole = styled.div`
   position: absolute;
-  inset: 0;
+  top: 30px; left: 30px; right: 30px; bottom: 30px;
+  border-radius: 50%;
+  background: ${theme.color.surface};
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  & b { color: ${theme.color.text}; font-size: 15px; }
-  & span { color: ${theme.color.muted}; font-size: 10px; text-transform: uppercase; }
+  & b { color: ${theme.color.text}; font-size: 17px; }
+  & span { color: ${theme.color.muted}; font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
 `;
 const DLegend = styled.div`
   flex: 1;
-  min-width: 160px;
+  min-width: 190px;
   font-size: 12px;
 `;
 const DLegendRow = styled.div`
   display: flex;
   justify-content: space-between;
-  padding: 3px 0;
+  align-items: center;
+  padding: 4px 0;
   border-bottom: 1px solid ${theme.color.borderDim};
-  & i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+  cursor: pointer;
+  &:hover { color: ${theme.color.accent}; }
+  & .l { display: flex; align-items: center; }
+  & .r { color: ${theme.color.muted}; font-variant-numeric: tabular-nums; }
+`;
+const HistSummary = styled.div`
+  padding: 12px 16px;
+  border-bottom: 1px solid ${theme.color.borderDim};
+  font-size: 12px;
+  display: flex;
+  gap: 18px;
 `;
 
 export const DaoTreasury: React.FC = () => {
   const [d, setD] = useState<ApiDaoTreasury | null>(null);
+  const [meta, setMeta] = useState<Map<number, ApiAssetListEntry>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [donut, setDonut] = useState(false);
+  const [hist, setHist] = useState<{ aid: number; data: ApiDaoAssetHistory | null } | null>(null);
 
   useEffect(() => {
     let alive = true;
     const load = (): void => {
       api
         .daoTreasury()
-        .then((x) => {
-          if (alive) {
-            setD(x);
-            setError(null);
-          }
-        })
-        .catch((e: unknown) => {
-          if (alive) setError(e instanceof Error ? e.message : String(e));
-        });
+        .then((x) => alive && (setD(x), setError(null)))
+        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
     };
     load();
+    api
+      .assets()
+      .then((x) => alive && setMeta(new Map(x.assets.map((a) => [a.aid, a]))))
+      .catch(() => {});
     const id = setInterval(load, 60_000);
     return () => {
       alive = false;
@@ -139,15 +167,33 @@ export const DaoTreasury: React.FC = () => {
     };
   }, []);
 
+  const symOf = (aid: number): string => meta.get(aid)?.short_name ?? `aid ${aid}`;
+  const nameOf = (aid: number): string | null => meta.get(aid)?.name ?? null;
+  const colorOf = (aid: number, i: number): string => {
+    const c = meta.get(aid)?.color;
+    return c ? (c.startsWith('#') ? c : `#${c}`) : PALETTE[i % PALETTE.length];
+  };
+  const fmtAmt = (groth: string, aid: number): string => {
+    const dec = meta.get(aid)?.decimals ?? 8;
+    return fmtCompact(Number(groth) / Math.pow(10, dec));
+  };
+
+  const openAsset = (aid: number): void => {
+    setHist({ aid, data: null });
+    api
+      .daoTreasuryAsset(aid)
+      .then((data) => setHist((cur) => (cur && cur.aid === aid ? { aid, data } : cur)))
+      .catch(() => {});
+  };
+
   const holdings = d?.holdings ?? [];
   const priced = holdings.filter((h) => h.value_usd != null);
-  // conic-gradient stops from cumulative pct
   let acc = 0;
   const stops = priced
     .map((h, i) => {
       const from = acc;
       acc += h.pct;
-      return `${PALETTE[i % PALETTE.length]} ${from}% ${acc}%`;
+      return `${colorOf(h.aid, i)} ${from}% ${acc}%`;
     })
     .join(', ');
 
@@ -173,23 +219,23 @@ export const DaoTreasury: React.FC = () => {
         </StatCard>
         <StatCard>
           <Label>Largest holding</Label>
-          <Value>{holdings[0]?.symbol ?? '—'}</Value>
+          <Value>{holdings[0] ? symOf(holdings[0].aid) : '—'}</Value>
         </StatCard>
       </StatGrid>
 
       <Panel>
-        <PanelHead>Treasury value over time</PanelHead>
+        <PanelHead>Treasury value over time (USD)</PanelHead>
         <div style={{ padding: '14px 16px' }}>
-          <Sparkline data={(d?.value_series ?? []).map((s) => s.usd)} />
+          <TimeChart data={(d?.value_series ?? []).map((s) => ({ label: s.day, value: s.usd }))} fmtY={fmtUsd} />
         </div>
       </Panel>
 
       <Panel>
         <PanelHead>
-          <span>Holdings</span>
+          <span>Holdings · click an asset for its deposit history</span>
           {priced.length > 0 && (
             <Btn type="button" data-variant="ghost" onClick={() => setDonut(true)}>
-              ◔ Chart
+              ◑ Donut
             </Btn>
           )}
         </PanelHead>
@@ -198,21 +244,29 @@ export const DaoTreasury: React.FC = () => {
             <thead>
               <tr>
                 <th>Asset</th>
+                <th className="right">Amount</th>
                 <th className="right">Value</th>
                 <th className="right">%</th>
               </tr>
             </thead>
             <tbody>
               {holdings.map((h) => (
-                <tr key={h.aid}>
-                  <td style={{ color: theme.color.accent }}>{h.symbol}</td>
+                <ClickRow key={h.aid} onClick={() => openAsset(h.aid)}>
+                  <td>
+                    <AssetCell>
+                      <AssetIcon asset_id={h.aid} color={meta.get(h.aid)?.color} size={20} />
+                      <b>{symOf(h.aid)}</b>
+                      {nameOf(h.aid) && <small>{nameOf(h.aid)}</small>}
+                    </AssetCell>
+                  </td>
+                  <td className="right">{fmtAmt(h.amount, h.aid)}</td>
                   <td className="right">{h.value_usd != null ? fmtUsd(h.value_usd) : '—'}</td>
-                  <td className="right">{h.pct.toFixed(1)}%</td>
-                </tr>
+                  <td className="right">{h.pct.toFixed(2)}%</td>
+                </ClickRow>
               ))}
               {holdings.length === 0 && (
                 <tr>
-                  <td colSpan={3} style={{ textAlign: 'center', padding: 22, color: theme.color.muted }}>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: 22, color: theme.color.muted }}>
                     No holdings loaded.
                   </td>
                 </tr>
@@ -225,26 +279,25 @@ export const DaoTreasury: React.FC = () => {
       <Panel>
         <PanelHead>Vault flows · deposits &amp; withdrawals</PanelHead>
         <div>
-          {(d?.flows ?? []).map((f, i) => {
-            const entries = Object.entries(f.funds);
-            return (
-              <FlowRow key={`${f.height}-${i}`}>
-                <span style={{ color: theme.color.muted }}>h {f.height}</span>
-                <span>{f.method}</span>
-                <span>
-                  {entries.map(([aid, amt]) => {
-                    const n = Number(amt);
-                    return (
-                      <span key={aid} style={{ color: n >= 0 ? theme.color.accent : theme.color.danger, marginRight: 10 }}>
-                        {n >= 0 ? '+' : '−'}
-                        {fmtCompact(Math.abs(grothToBeamx(amt)))} aid:{aid}
-                      </span>
-                    );
-                  })}
-                </span>
-              </FlowRow>
-            );
-          })}
+          {(d?.flows ?? []).map((f, i) => (
+            <FlowRow key={`${f.height}-${i}`}>
+              <span style={{ color: theme.color.muted }}>h {f.height}</span>
+              <span>{f.method}</span>
+              <span>
+                {Object.entries(f.funds).map(([aid, amt]) => {
+                  const n = Number(amt);
+                  const id = Number(aid);
+                  return (
+                    <FundTag key={aid} style={{ color: n >= 0 ? theme.color.accent : theme.color.danger }}>
+                      <AssetIcon asset_id={id} color={meta.get(id)?.color} size={14} />
+                      {n >= 0 ? '+' : '−'}
+                      {fmtAmt(String(Math.abs(n)), id)} {symOf(id)}
+                    </FundTag>
+                  );
+                })}
+              </span>
+            </FlowRow>
+          ))}
           {(d?.flows.length ?? 0) === 0 && (
             <div style={{ textAlign: 'center', padding: 22, color: theme.color.muted, fontSize: 12 }}>No recent flows.</div>
           )}
@@ -262,25 +315,88 @@ export const DaoTreasury: React.FC = () => {
             </ModalHead>
             <DonutBody>
               <Donut style={{ background: `conic-gradient(${stops || `${theme.color.surface2} 0% 100%`})` }}>
-                <Center>
+                <DonutHole>
                   <b>{fmtUsd(d?.total_usd ?? null)}</b>
                   <span>total</span>
-                </Center>
+                </DonutHole>
               </Donut>
               <DLegend>
-                {priced.map((h, i) => (
-                  <DLegendRow key={h.aid}>
-                    <span>
-                      <i style={{ background: PALETTE[i % PALETTE.length] }} />
-                      {h.symbol}
+                {priced.map((h) => (
+                  <DLegendRow key={h.aid} onClick={() => (setDonut(false), openAsset(h.aid))}>
+                    <span className="l">
+                      <AssetIcon asset_id={h.aid} color={meta.get(h.aid)?.color} size={16} />
+                      {symOf(h.aid)}
                     </span>
-                    <span>
-                      {h.pct.toFixed(1)}% · {fmtUsd(h.value_usd)}
+                    <span className="r">
+                      {h.pct.toFixed(2)}% · {fmtAmt(h.amount, h.aid)} · {fmtUsd(h.value_usd)}
                     </span>
                   </DLegendRow>
                 ))}
               </DLegend>
             </DonutBody>
+          </Modal>
+        </Overlay>
+      )}
+
+      {hist && (
+        <Overlay onClick={() => setHist(null)}>
+          <Modal onClick={(e) => e.stopPropagation()}>
+            <ModalHead>
+              <span style={{ display: 'flex', alignItems: 'center' }}>
+                <AssetIcon asset_id={hist.aid} color={meta.get(hist.aid)?.color} size={18} />
+                {symOf(hist.aid)} · deposit history
+              </span>
+              <Closer type="button" onClick={() => setHist(null)}>
+                ✕
+              </Closer>
+            </ModalHead>
+            {!hist.data ? (
+              <div style={{ padding: 22, color: theme.color.muted, fontSize: 12 }}>Loading…</div>
+            ) : (
+              <>
+                <HistSummary>
+                  <span style={{ color: theme.color.accent }}>
+                    Deposits +{fmtAmt(hist.data.deposits_groth, hist.aid)}
+                  </span>
+                  <span style={{ color: theme.color.danger }}>
+                    Withdrawals {fmtAmt(hist.data.withdrawals_groth, hist.aid)}
+                  </span>
+                </HistSummary>
+                <ScrollX style={{ overflowY: 'auto' }}>
+                  <DataTable>
+                    <thead>
+                      <tr>
+                        <th>Height</th>
+                        <th>Via</th>
+                        <th className="right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hist.data.rows.map((r, i) => {
+                        const n = Number(r.amount);
+                        return (
+                          <tr key={`${r.height}-${i}`}>
+                            <td style={{ color: theme.color.muted }}>{r.height}</td>
+                            <td>{r.method}</td>
+                            <td className="right" style={{ color: n >= 0 ? theme.color.accent : theme.color.danger }}>
+                              {n >= 0 ? '+' : '−'}
+                              {fmtAmt(String(Math.abs(n)), hist.aid)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {hist.data.rows.length === 0 && (
+                        <tr>
+                          <td colSpan={3} style={{ textAlign: 'center', padding: 20, color: theme.color.muted }}>
+                            No movements.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </DataTable>
+                </ScrollX>
+              </>
+            )}
           </Modal>
         </Overlay>
       )}

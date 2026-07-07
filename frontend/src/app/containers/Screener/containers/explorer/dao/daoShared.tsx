@@ -70,6 +70,68 @@ export const Sparkline: React.FC<{ data: ReadonlyArray<number>; height?: number;
   );
 };
 
+// Area chart with labelled X (date) and Y (value) axes + gridlines. viewBox
+// scales to the container width; height is auto so text stays proportional.
+export const TimeChart: React.FC<{
+  data: ReadonlyArray<{ label: string; value: number }>;
+  height?: number;
+  color?: string;
+  fmtY?: (n: number) => string;
+}> = ({ data, height = 170, color = theme.color.accent, fmtY }) => {
+  const fy = fmtY ?? ((n: number) => fmtCompact(n));
+  if (data.length < 2) {
+    return (
+      <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: theme.color.muted, fontSize: 12 }}>
+        Not enough data yet
+      </div>
+    );
+  }
+  const w = 820;
+  const h = height;
+  const padL = 56;
+  const padB = 22;
+  const padT = 10;
+  const padR = 12;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const values = data.map((d) => d.value);
+  const max = Math.max(...values);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const xAt = (i: number): number => padL + (i / (data.length - 1)) * plotW;
+  const yAt = (v: number): number => padT + plotH - ((v - min) / range) * plotH;
+  const line = data.map((d, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${yAt(d.value).toFixed(1)}`).join(' ');
+  const area = `${line} L${xAt(data.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)} L${padL},${(padT + plotH).toFixed(1)} Z`;
+  const yTicks = [min, min + range / 2, max];
+  const xIdx = [0, Math.floor((data.length - 1) / 2), data.length - 1];
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" style={{ display: 'block', height: 'auto' }}>
+      {yTicks.map((v, i) => (
+        <g key={`y${i}`}>
+          <line x1={padL} y1={yAt(v)} x2={w - padR} y2={yAt(v)} stroke={theme.color.borderDim} strokeWidth={0.5} />
+          <text x={padL - 7} y={yAt(v) + 3} textAnchor="end" fontSize={10} fill={theme.color.muted}>
+            {fy(v)}
+          </text>
+        </g>
+      ))}
+      {xIdx.map((idx, i) => (
+        <text
+          key={`x${i}`}
+          x={xAt(idx)}
+          y={h - 6}
+          textAnchor={i === 0 ? 'start' : i === xIdx.length - 1 ? 'end' : 'middle'}
+          fontSize={10}
+          fill={theme.color.muted}
+        >
+          {data[idx].label.slice(0, 7)}
+        </text>
+      ))}
+      <path d={area} fill={color} opacity={0.14} />
+      <path d={line} fill="none" stroke={color} strokeWidth={1.5} />
+    </svg>
+  );
+};
+
 export type PillTone = 'accent' | 'danger' | 'warn' | 'neutral';
 
 export function outcomeTone(status: string, outcome: string | null): PillTone {

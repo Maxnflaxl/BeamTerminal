@@ -5,7 +5,7 @@ import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, P
 import { ROUTES } from '@app/shared/constants';
 import { api } from '../../../api/client';
 import type { ApiDaoGovernance, ApiDaoProposalSummary } from '../../../api/types';
-import { TallyBar, Sparkline, fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeLabel } from './daoShared';
+import { TallyBar, TimeChart, fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeLabel } from './daoShared';
 
 const POLL_MS = 60_000;
 
@@ -80,10 +80,18 @@ const LegendItem = styled.span`
   }
 `;
 const DetailsLink = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
-  color: ${theme.color.accent};
-  text-decoration: none;
-  &:hover { text-decoration: underline; }
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid ${theme.color.border};
+  background: ${theme.color.surface2};
+  transition: background 0.15s, border-color 0.15s;
+  &, &:link, &:visited, &:hover, &:active { color: ${theme.color.accent}; text-decoration: none; }
+  &:hover { background: ${theme.color.rowHover}; border-color: ${theme.color.accent}; }
 `;
 
 const ProposalCardView: React.FC<{ p: ApiDaoProposalSummary }> = ({ p }) => (
@@ -180,9 +188,12 @@ export const DaoGovernance: React.FC = () => {
       </StatGrid>
 
       <Panel>
-        <PanelHead>Voting power staked over time</PanelHead>
+        <PanelHead>Voting power staked over time (BEAMX)</PanelHead>
         <div style={{ padding: '14px 16px' }}>
-          <Sparkline data={(data?.voting_power_series ?? []).map((s) => s.staked)} />
+          <TimeChart
+            data={(data?.voting_power_series ?? []).map((s) => ({ label: s.day, value: s.staked }))}
+            fmtY={fmtCompact}
+          />
         </div>
       </Panel>
 

@@ -652,6 +652,13 @@ export interface ApiDaoTreasury {
   flows: ApiDaoFlow[];
 }
 
+export interface ApiDaoAssetHistory {
+  aid: number;
+  deposits_groth: string;
+  withdrawals_groth: string;
+  rows: { height: number; ts: string; method: string; amount: string }[];
+}
+
 export interface ApiDaoRevenue {
   total_usd: number;
   series: { day: string; by_asset: Record<string, number> }[];

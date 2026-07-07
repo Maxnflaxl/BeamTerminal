@@ -5,6 +5,8 @@ import { Page, Pill, ErrorBox, DataTable, ScrollX, Btn, Muted, theme } from '../
 import { ROUTES } from '@app/shared/constants';
 import { api } from '../../../api/client';
 import type { ApiDaoProposalDetail } from '../../../api/types';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeLabel } from './daoShared';
 
 const LIMIT = 25;
@@ -51,12 +53,26 @@ const Desc = styled.div`
   background: ${theme.color.surface};
   border: 1px solid ${theme.color.borderDim};
   border-radius: ${theme.radius.md};
-  padding: 12px 14px;
+  padding: 14px 16px;
   margin-bottom: 20px;
-  white-space: pre-wrap;
   word-break: break-word;
-  max-height: 280px;
+  line-height: 1.55;
+  max-height: 340px;
   overflow-y: auto;
+  & > *:first-child { margin-top: 0; }
+  & > *:last-child { margin-bottom: 0; }
+  & h1, & h2, & h3, & h4 { color: ${theme.color.text}; margin: 14px 0 6px; font-size: 15px; font-weight: 700; }
+  & p { margin: 0 0 8px; }
+  & a { color: ${theme.color.accent}; }
+  & ul, & ol { margin: 0 0 8px; padding-left: 20px; }
+  & li { margin: 2px 0; }
+  & code { background: ${theme.color.surface2}; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  & pre { background: ${theme.color.surface2}; padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  & blockquote { margin: 0 0 8px; padding-left: 12px; border-left: 3px solid ${theme.color.borderDim}; color: ${theme.color.muted}; }
+  & hr { border: 0; border-top: 1px solid ${theme.color.borderDim}; margin: 12px 0; }
+  & img { max-width: 100%; border-radius: 6px; }
+  & table { border-collapse: collapse; }
+  & th, & td { border: 1px solid ${theme.color.borderDim}; padding: 4px 8px; }
 `;
 const Panel = styled.div`
   background: ${theme.color.surface};
@@ -160,7 +176,11 @@ export const DaoProposal: React.FC = () => {
               </ForumLink>
             </div>
           )}
-          {p.description && <Desc>{p.description}</Desc>}
+          {p.description && (
+            <Desc>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{p.description}</ReactMarkdown>
+            </Desc>
+          )}
 
           <Panel>
             <PanelHead>
