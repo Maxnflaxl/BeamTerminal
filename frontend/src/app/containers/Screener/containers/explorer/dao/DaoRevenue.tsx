@@ -3,10 +3,19 @@ import { styled } from '@linaria/react';
 import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, DataTable, ScrollX, Pill, ErrorBox, theme } from '../shared';
 import { api } from '../../../api/client';
 import type { ApiDaoRevenue } from '../../../api/types';
+import { PALLETE_ASSETS } from '@app/shared/constants';
 import { TimeChart, fmtUsd } from './daoShared';
 
 const TIER_LABEL = ['0.05%', '0.30%', '1.00%'];
 const tierTone = (tier: number): 'accent' | 'warn' | 'danger' => (tier === 0 ? 'accent' : tier === 1 ? 'warn' : 'danger');
+
+const SOURCE_COLOR: Record<string, string> = {
+  DEX: PALLETE_ASSETS[0],
+  Nephrite: PALLETE_ASSETS[3],
+  BANS: PALLETE_ASSETS[4],
+  BAM: PALLETE_ASSETS[2],
+};
+const srcColor = (s: string, i: number): string => SOURCE_COLOR[s] ?? PALLETE_ASSETS[i % PALLETE_ASSETS.length];
 
 const Panel = styled.div`
   background: ${theme.color.surface};
@@ -29,9 +38,9 @@ const HBar = styled.div`
   align-items: center;
   margin: 6px 0;
   font-size: 12px;
-  & .lbl { width: 80px; color: ${theme.color.text}; }
+  & .lbl { width: 92px; color: ${theme.color.text}; white-space: nowrap; }
   & .track { flex: 1; height: 10px; background: ${theme.color.surface2}; border-radius: 4px; overflow: hidden; margin: 0 10px; }
-  & .fill { height: 100%; background: ${theme.color.accent}; }
+  & .fill { display: block; height: 100%; border-radius: 4px; }
   & .val { width: 90px; text-align: right; color: ${theme.color.muted}; }
 `;
 
@@ -101,11 +110,11 @@ export const DaoRevenue: React.FC = () => {
       <Panel>
         <PanelHead>By source</PanelHead>
         <PanelBody>
-          {(d?.by_source ?? []).map((s) => (
+          {(d?.by_source ?? []).map((s, i) => (
             <HBar key={s.source}>
               <span className="lbl">{s.source}</span>
               <span className="track">
-                <span className="fill" style={{ width: `${Math.max(1, s.pct)}%` }} />
+                <span className="fill" style={{ width: `${Math.max(2, s.pct)}%`, background: srcColor(s.source, i) }} />
               </span>
               <span className="val">
                 {s.pct.toFixed(0)}% · {fmtUsd(s.usd)}

@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
 import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, DataTable, ScrollX, Btn, ErrorBox, theme } from '../shared';
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { PALLETE_ASSETS } from '@app/shared/constants';
 import { api } from '../../../api/client';
 import type { ApiDaoTreasury, ApiDaoAssetHistory, ApiAssetListEntry } from '../../../api/types';
 import { TimeChart, fmtUsd, fmtCompact } from './daoShared';
 
-const PALETTE = [theme.color.accent, theme.color.purple, theme.color.info, theme.color.warn, theme.color.danger, '#7a8cff', '#5ad1b0', '#c0a0ff'];
+const PALETTE = PALLETE_ASSETS;
 
 const Panel = styled.div`
   background: ${theme.color.surface};
@@ -95,27 +96,6 @@ const DonutBody = styled.div`
   padding: 20px;
   flex-wrap: wrap;
 `;
-// Real donut: conic ring + an inner circle punched out with the modal bg.
-// Uses top/left/right/bottom (not `inset`, unsupported on the wallet's Chrome 83).
-const Donut = styled.div`
-  width: 150px;
-  height: 150px;
-  border-radius: 50%;
-  position: relative;
-  flex-shrink: 0;
-`;
-const DonutHole = styled.div`
-  position: absolute;
-  top: 30px; left: 30px; right: 30px; bottom: 30px;
-  border-radius: 50%;
-  background: ${theme.color.surface};
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  & b { color: ${theme.color.text}; font-size: 17px; }
-  & span { color: ${theme.color.muted}; font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
-`;
 const DLegend = styled.div`
   flex: 1;
   min-width: 190px;
@@ -188,14 +168,15 @@ export const DaoTreasury: React.FC = () => {
 
   const holdings = d?.holdings ?? [];
   const priced = holdings.filter((h) => h.value_usd != null);
-  let acc = 0;
-  const stops = priced
-    .map((h, i) => {
-      const from = acc;
-      acc += h.pct;
-      return `${colorOf(h.aid, i)} ${from}% ${acc}%`;
-    })
-    .join(', ');
+  const DONUT_R = 58;
+  const CIRC = 2 * Math.PI * DONUT_R;
+  let donutOff = 0;
+  const donutSegs = priced.map((h, i) => {
+    const dash = (h.pct / 100) * CIRC;
+    const seg = { aid: h.aid, color: colorOf(h.aid, i), dash, off: donutOff };
+    donutOff += dash;
+    return seg;
+  });
 
   return (
     <Page>
@@ -314,12 +295,33 @@ export const DaoTreasury: React.FC = () => {
               </Closer>
             </ModalHead>
             <DonutBody>
-              <Donut style={{ background: `conic-gradient(${stops || `${theme.color.surface2} 0% 100%`})` }}>
-                <DonutHole>
-                  <b>{fmtUsd(d?.total_usd ?? null)}</b>
-                  <span>total</span>
-                </DonutHole>
-              </Donut>
+              <svg viewBox="0 0 150 150" width="150" height="150" style={{ flexShrink: 0 }}>
+                <g transform="rotate(-90 75 75)">
+                  {donutSegs.length === 0 ? (
+                    <circle cx="75" cy="75" r={DONUT_R} fill="none" stroke={theme.color.surface2} strokeWidth="26" />
+                  ) : (
+                    donutSegs.map((s) => (
+                      <circle
+                        key={s.aid}
+                        cx="75"
+                        cy="75"
+                        r={DONUT_R}
+                        fill="none"
+                        stroke={s.color}
+                        strokeWidth="26"
+                        strokeDasharray={`${s.dash.toFixed(2)} ${(CIRC - s.dash).toFixed(2)}`}
+                        strokeDashoffset={(-s.off).toFixed(2)}
+                      />
+                    ))
+                  )}
+                </g>
+                <text x="75" y="72" textAnchor="middle" fontSize="15" fontWeight="700" fill={theme.color.text}>
+                  {fmtUsd(d?.total_usd ?? null)}
+                </text>
+                <text x="75" y="87" textAnchor="middle" fontSize="8" fill={theme.color.muted}>
+                  TOTAL
+                </text>
+              </svg>
               <DLegend>
                 {priced.map((h) => (
                   <DLegendRow key={h.aid} onClick={() => (setDonut(false), openAsset(h.aid))}>

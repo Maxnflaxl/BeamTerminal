@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { styled } from '@linaria/react';
+import { css } from '@linaria/core';
 import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, Pill, ErrorBox, theme } from '../shared';
 import { ROUTES } from '@app/shared/constants';
 import { api } from '../../../api/client';
@@ -79,7 +80,7 @@ const LegendItem = styled.span`
     display: inline-block;
   }
 `;
-const DetailsLink = styled(Link)`
+const detailsCls = css`
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -89,9 +90,14 @@ const DetailsLink = styled(Link)`
   border-radius: 6px;
   border: 1px solid ${theme.color.border};
   background: ${theme.color.surface2};
+  color: ${theme.color.accent};
+  text-decoration: none;
   transition: background 0.15s, border-color 0.15s;
-  &, &:link, &:visited, &:hover, &:active { color: ${theme.color.accent}; text-decoration: none; }
-  &:hover { background: ${theme.color.rowHover}; border-color: ${theme.color.accent}; }
+  &:hover {
+    background: ${theme.color.rowHover};
+    border-color: ${theme.color.accent};
+    color: ${theme.color.accent};
+  }
 `;
 
 const ProposalCardView: React.FC<{ p: ApiDaoProposalSummary }> = ({ p }) => (
@@ -115,7 +121,9 @@ const ProposalCardView: React.FC<{ p: ApiDaoProposalSummary }> = ({ p }) => (
           </LegendItem>
         ))}
       </Legend>
-      <DetailsLink to={ROUTES.NAV.DAO_PROPOSAL.replace(':id', String(p.id))}>Details →</DetailsLink>
+      <Link to={ROUTES.NAV.DAO_PROPOSAL.replace(':id', String(p.id))} className={detailsCls}>
+        Details →
+      </Link>
     </BottomRow>
   </Card>
 );

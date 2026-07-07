@@ -1,25 +1,63 @@
 import { config } from '../../config.js';
 import { q } from '../../db.js';
+import { getContract } from '../../explorer.js';
 import { getLatestUsdPrices, valueUsd } from '../../services/pricing.js';
 import { readDaoStat, writeDaoStat } from './daoStatsCache.js';
 
-// DaoVault treasury view, derived entirely from contract_call_events (the
-// vault's Deposit/Withdraw calls carry signed per-asset funds). Balances are
-// the running sum of those signed funds; USD valuation reuses services/pricing.
+// DaoVault treasury. Balances come from the vault's Locked Funds state (the
+// authoritative on-chain holdings). Inflows come from the *nested* Deposit
+// calls — the actual fee-skims into the vault — NOT the primary
+// Trade/Trove/Redeem parent txs (those are the DEX/Nephrite/... contract txs
+// that merely triggered the skim). Each skim's parent method identifies its
+// source (DEX / Nephrite / Names / Asset Minter).
+
+function cellNum(c: unknown): number | null {
+  if (typeof c === 'number') return c;
+  if (c && typeof c === 'object' && 'value' in c) {
+    const n = Number(String((c as { value: unknown }).value).replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = Number(c);
+  return Number.isFinite(n) ? n : null;
+}
+
+function amountGroth(c: unknown): string {
+  const raw = c && typeof c === 'object' && 'value' in c ? (c as { value: unknown }).value : c;
+  return String(raw).replace(/,/g, '').split('.')[0] || '0';
+}
+
+/** Fee source, from the parent method of a nested skim Deposit. */
+export function sourceLabel(parentMethod: string): string {
+  switch (parentMethod) {
+    case 'Trade':
+      return 'DEX';
+    case 'Trove Modify':
+    case 'Trove Open':
+    case 'Redeem':
+      return 'Nephrite';
+    case 'Register':
+    case 'Extend period':
+      return 'BANS';
+    case 'Create token':
+      return 'BAM';
+    default:
+      return parentMethod;
+  }
+}
 
 export interface DaoHolding {
   aid: number;
   symbol: string;
   amount: string; // groths
   value_usd: number | null;
-  pct: number; // share of the priced total
+  pct: number;
 }
 
 export interface DaoFlow {
   height: number;
   ts: string;
-  method: string;
-  funds: Record<string, string>; // signed aid -> groths
+  method: string; // source (DEX / Nephrite / ...)
+  funds: Record<string, string>;
 }
 
 export interface DaoTreasury {
@@ -29,50 +67,49 @@ export interface DaoTreasury {
   flows: DaoFlow[];
 }
 
+interface HoldingRaw {
+  aid: number;
+  symbol: string;
+  amount: string;
+  value_usd: number | null;
+}
+
 export async function computeDaoTreasury(): Promise<DaoTreasury> {
   const cid = config.DAO_VAULT_CID;
   if (!cid) return { total_usd: 0, holdings: [], value_series: [], flows: [] };
 
   const prices = await getLatestUsdPrices();
 
-  // Current balance per asset = cumulative signed funds across all vault calls.
-  const { rows: balRows } = await q<{ aid: string; amount: string }>(
-    `SELECT (kv.key)::bigint AS aid, SUM((kv.value)::numeric)::text AS amount
-       FROM contract_call_events e, jsonb_each_text(e.funds) kv
-      WHERE e.cid = $1 AND e.funds IS NOT NULL
-      GROUP BY 1
-      HAVING SUM((kv.value)::numeric) > 0`,
-    [cid],
-  );
-
-  const holdingsRaw = balRows.map((r) => {
-    const aid = Number(r.aid);
-    const price = prices.get(aid);
-    return {
-      aid,
-      symbol: price?.symbol ?? `aid:${aid}`,
-      amount: r.amount,
-      value_usd: valueUsd(price, r.amount),
-    };
-  });
+  // Authoritative balances = the vault's Locked Funds state.
+  const resp = await getContract({ id: cid, nMaxTxs: 0 });
+  const lockedTbl = resp['Locked Funds'] as { value?: unknown[] } | undefined;
+  const lockedRows = Array.isArray(lockedTbl?.value) ? lockedTbl!.value!.slice(1) : [];
+  const holdingsRaw = lockedRows
+    .map((row): HoldingRaw | null => {
+      if (!Array.isArray(row)) return null;
+      const aid = cellNum(row[0]);
+      const amount = amountGroth(row[1]);
+      if (aid == null || amount === '0') return null;
+      const price = prices.get(aid);
+      return { aid, symbol: price?.symbol ?? `aid:${aid}`, amount, value_usd: valueUsd(price, amount) };
+    })
+    .filter((x): x is HoldingRaw => x != null);
   const total = holdingsRaw.reduce((s, h) => s + (h.value_usd ?? 0), 0);
   const holdings: DaoHolding[] = holdingsRaw
     .map((h) => ({ ...h, pct: total > 0 && h.value_usd != null ? (h.value_usd / total) * 100 : 0 }))
     .sort((a, b) => (b.value_usd ?? 0) - (a.value_usd ?? 0));
 
-  // Value over time: cumulative daily balance per asset, valued at current
-  // cross-rates. Shows the balance trajectory in today's dollars; point-in-time
-  // repricing is a follow-up.
+  // Accumulated fee inflows over time (nested skim Deposits), valued at current rates.
   const { rows: dayRows } = await q<{ day: string; aid: string; delta: string }>(
-    `SELECT to_char(date_trunc('day', block_ts), 'YYYY-MM-DD') AS day,
+    `SELECT to_char(date_trunc('day', c.block_ts), 'YYYY-MM-DD') AS day,
             (kv.key)::bigint AS aid, SUM((kv.value)::numeric)::text AS delta
-       FROM contract_call_events e, jsonb_each_text(e.funds) kv
-      WHERE e.cid = $1 AND e.funds IS NOT NULL
+       FROM contract_call_events c, jsonb_each_text(c.funds) kv
+      WHERE c.cid = $1 AND c.method = 'Deposit' AND c.parent_ord IS NOT NULL
       GROUP BY 1, 2
       ORDER BY 1`,
     [cid],
   );
-  const running = new Map<number, number>(); // aid -> whole-unit balance
+  const running = new Map<number, number>();
   const seriesMap = new Map<string, number>();
   for (const r of dayRows) {
     const aid = Number(r.aid);
@@ -87,26 +124,27 @@ export async function computeDaoTreasury(): Promise<DaoTreasury> {
   }
   const value_series = [...seriesMap.entries()].map(([day, usd]) => ({ day, usd }));
 
-  // Recent deposits/withdrawals, newest first (primary calls only).
-  const { rows: flowRows } = await q<{ height: string; block_ts: Date; method: string; funds: Record<string, string> }>(
-    `SELECT height, block_ts, method, funds
-       FROM contract_call_events
-      WHERE cid = $1 AND funds IS NOT NULL AND parent_ord IS NULL
-      ORDER BY height DESC, ord DESC
+  // Recent fee-skims, newest first, tagged with their source (parent method).
+  const { rows: flowRows } = await q<{ height: string; block_ts: Date; via: string; funds: Record<string, string> }>(
+    `SELECT c.height, c.block_ts, p.method AS via, c.funds
+       FROM contract_call_events c
+       JOIN contract_call_events p ON p.cid = c.cid AND p.height = c.height AND p.ord = c.parent_ord
+      WHERE c.cid = $1 AND c.method = 'Deposit' AND c.parent_ord IS NOT NULL
+      ORDER BY c.height DESC, c.ord DESC
       LIMIT 50`,
     [cid],
   );
   const flows: DaoFlow[] = flowRows.map((r) => ({
     height: Number(r.height),
     ts: r.block_ts.toISOString(),
-    method: r.method,
+    method: sourceLabel(r.via),
     funds: r.funds,
   }));
 
   return { total_usd: total, holdings, value_series, flows };
 }
 
-/** Cached read; on a miss, computes live (13-16s) once and warms the cache. */
+/** Cached read; on a miss, computes live once and warms the cache. */
 export async function loadDaoTreasury(): Promise<DaoTreasury> {
   const cached = await readDaoStat<DaoTreasury>('treasury');
   if (cached) return cached;
@@ -122,31 +160,31 @@ export interface DaoAssetHistory {
   rows: { height: number; ts: string; method: string; amount: string }[];
 }
 
-/** Deposit/withdrawal history for a single asset in the vault (newest first). */
+/** Fee-skim history for a single asset in the vault (newest first), by source. */
 export async function loadDaoTreasuryAsset(aid: number, limit: number): Promise<DaoAssetHistory> {
   const cid = config.DAO_VAULT_CID;
   const empty: DaoAssetHistory = { aid, deposits_groth: '0', withdrawals_groth: '0', rows: [] };
   if (!cid) return empty;
   const key = String(aid);
-  const { rows } = await q<{ height: string; block_ts: Date; method: string; amount: string }>(
-    `SELECT height, block_ts, method, (funds->>$2) AS amount
-       FROM contract_call_events
-      WHERE cid = $1 AND funds ? $2
-      ORDER BY height DESC, ord DESC
+  const { rows } = await q<{ height: string; block_ts: Date; via: string; amount: string }>(
+    `SELECT c.height, c.block_ts, p.method AS via, (c.funds->>$2) AS amount
+       FROM contract_call_events c
+       JOIN contract_call_events p ON p.cid = c.cid AND p.height = c.height AND p.ord = c.parent_ord
+      WHERE c.cid = $1 AND c.method = 'Deposit' AND c.parent_ord IS NOT NULL AND c.funds ? $2
+      ORDER BY c.height DESC, c.ord DESC
       LIMIT $3`,
     [cid, key, limit],
   );
-  const { rows: sums } = await q<{ dep: string; wd: string }>(
-    `SELECT COALESCE(SUM((funds->>$2)::numeric) FILTER (WHERE (funds->>$2)::numeric > 0), 0)::text AS dep,
-            COALESCE(SUM((funds->>$2)::numeric) FILTER (WHERE (funds->>$2)::numeric < 0), 0)::text AS wd
+  const { rows: sums } = await q<{ dep: string }>(
+    `SELECT COALESCE(SUM((funds->>$2)::numeric), 0)::text AS dep
        FROM contract_call_events
-      WHERE cid = $1 AND funds ? $2`,
+      WHERE cid = $1 AND method = 'Deposit' AND parent_ord IS NOT NULL AND funds ? $2`,
     [cid, key],
   );
   return {
     aid,
     deposits_groth: sums[0]?.dep ?? '0',
-    withdrawals_groth: sums[0]?.wd ?? '0',
-    rows: rows.map((r) => ({ height: Number(r.height), ts: r.block_ts.toISOString(), method: r.method, amount: r.amount })),
+    withdrawals_groth: '0',
+    rows: rows.map((r) => ({ height: Number(r.height), ts: r.block_ts.toISOString(), method: sourceLabel(r.via), amount: r.amount })),
   };
 }

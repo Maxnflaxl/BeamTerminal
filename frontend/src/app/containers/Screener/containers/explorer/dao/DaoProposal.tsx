@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { styled } from '@linaria/react';
+import { css } from '@linaria/core';
 import { Page, Pill, ErrorBox, DataTable, ScrollX, Btn, Muted, theme } from '../shared';
 import { ROUTES } from '@app/shared/constants';
 import { api } from '../../../api/client';
@@ -11,13 +12,25 @@ import { fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeL
 
 const LIMIT = 25;
 
-const BackLink = styled(Link)`
-  display: inline-block;
-  font-size: 12px;
+const backCls = css`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 14px;
+  margin-bottom: 16px;
+  border-radius: 6px;
+  border: 1px solid ${theme.color.border};
+  background: ${theme.color.surface2};
   color: ${theme.color.accent};
   text-decoration: none;
-  margin-bottom: 14px;
-  &:hover { text-decoration: underline; }
+  transition: background 0.15s, border-color 0.15s;
+  &:hover {
+    background: ${theme.color.rowHover};
+    border-color: ${theme.color.accent};
+    color: ${theme.color.accent};
+  }
 `;
 const TitleRow = styled.div`
   display: flex;
@@ -155,7 +168,7 @@ export const DaoProposal: React.FC = () => {
 
   return (
     <Page>
-      <BackLink to={ROUTES.NAV.EXPLORER_DAO_GOVERNANCE}>← Governance</BackLink>
+      <Link to={ROUTES.NAV.EXPLORER_DAO_GOVERNANCE} className={backCls}>← Governance</Link>
       {error && <ErrorBox>Failed to load proposal: {error}</ErrorBox>}
       {!p && !error && <Muted>Loading…</Muted>}
       {p && (
@@ -251,7 +264,6 @@ export const DaoProposal: React.FC = () => {
               </Pager>
             )}
           </Panel>
-          <Note>Votes are pseudonymous — each voter is a BEAMX voting pubkey.</Note>
         </>
       )}
     </Page>
