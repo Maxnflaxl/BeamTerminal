@@ -400,7 +400,6 @@ export const BANS: React.FC = () => {
   const [deployedAt, setDeployedAt] = useState<number | null>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
   const [apiActions, setApiActions] = useState<ApiBansAction[]>([]);
-  const [status, setStatus] = useState<{ kind: 'idle' | 'live' | 'error'; text: string }>({ kind: 'idle', text: 'Loading…' });
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
@@ -437,7 +436,6 @@ export const BANS: React.FC = () => {
 
   const load = useCallback(async () => {
     setError(null);
-    setStatus({ kind: 'idle', text: 'Fetching…' });
     try {
       const url = `${apiBaseRef.current.replace(/\/$/, '')}/contract?id=${CID}&exp_am=1&nMaxTxs=${CONTRACT_NMAXTXS}`;
       const res = await fetch(url);
@@ -456,10 +454,7 @@ export const BANS: React.FC = () => {
           if (Number.isFinite(n)) setDeployedAt(n);
         }
       }
-
-      setStatus({ kind: 'live', text: `Live · ${new Date().toLocaleTimeString()}` });
     } catch (err) {
-      setStatus({ kind: 'error', text: 'Error' });
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Failed to load contract data: ${msg}`);
     }
@@ -592,7 +587,7 @@ export const BANS: React.FC = () => {
         <LogoArea>
           <div>
             <H1>BANS Explorer</H1>
-            <Subtitle>Beam Anonymous Name System · Domain Registry</Subtitle>
+            <Subtitle>Beam Anonymous Name Service · Domain Registry</Subtitle>
           </div>
         </LogoArea>
       </ExplorerHeader>
