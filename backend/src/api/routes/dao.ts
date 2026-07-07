@@ -1,0 +1,49 @@
+import type { FastifyInstance } from 'fastify';
+import { loadDaoTreasury } from '../repos/daoTreasury.js';
+import { loadDaoRevenue } from '../repos/daoRevenue.js';
+import { loadDaoGovernance, loadDaoProposal } from '../repos/daoGovernance.js';
+import { loadDaoOverview } from '../repos/daoOverview.js';
+
+// ---------------------------------------------------------------------------
+// /api/dao/* — DAO explorer surface (DaoVault treasury/revenue, DaoVote
+// governance). Reads Postgres only, like every other /api route.
+// ---------------------------------------------------------------------------
+export async function daoRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/dao/overview', async (_req, reply) => {
+    void reply.header('cache-control', 'public, max-age=60');
+    return loadDaoOverview();
+  });
+
+  app.get('/dao/treasury', async (_req, reply) => {
+    void reply.header('cache-control', 'public, max-age=60');
+    return loadDaoTreasury();
+  });
+
+  app.get('/dao/revenue', async (_req, reply) => {
+    void reply.header('cache-control', 'public, max-age=300');
+    return loadDaoRevenue();
+  });
+
+  app.get('/dao/governance', async (_req, reply) => {
+    void reply.header('cache-control', 'public, max-age=60');
+    return loadDaoGovernance();
+  });
+
+  app.get('/dao/governance/proposals/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id < 0) {
+      void reply.code(400);
+      return { error: { code: 'BAD_REQUEST', message: 'invalid proposal id' } };
+    }
+    const query = req.query as { offset?: string; limit?: string };
+    const offset = Math.max(0, Number(query.offset ?? 0) || 0);
+    const limit = Math.min(200, Math.max(1, Number(query.limit ?? 25) || 25));
+    void reply.header('cache-control', 'public, max-age=60');
+    const result = await loadDaoProposal(id, offset, limit);
+    if (!result.proposal) {
+      void reply.code(404);
+      return { error: { code: 'NOT_FOUND', message: 'proposal not found' } };
+    }
+    return result;
+  });
+}

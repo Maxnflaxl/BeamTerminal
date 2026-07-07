@@ -18,6 +18,7 @@ import { syncAssetSwapOffers } from './services/assetSwapOffers.js';
 import { syncAtomicSwapOffers, snapshotAtomicSwapTotals } from './services/atomicSwaps.js';
 import { syncDappStore } from './services/dappStore.js';
 import { ingestWatchedContracts } from './services/contractActivity.js';
+import { projectDaoVote } from './services/daoGovernance.js';
 import { syncIpfsPins } from './services/ipfsPin.js';
 import { refreshMiningPools } from './mining/refresh.js';
 
@@ -73,6 +74,7 @@ let ipfsPinInflight = false;
 // slow/failed pool API never stalls the tick. Bootstrap + 5-min staleness
 // fallback covers startup and a stalled head.
 let miningPoolsInflight = false;
+let daoVoteInflight = false;
 let lastMiningRefreshHeight = 0;
 let lastMiningRefreshAt = 0;
 const MINING_STALENESS_MS = 5 * 60 * 1000;
@@ -283,6 +285,23 @@ function maybeKickIpfsPinSync(): void {
       );
     })
     .finally(() => { ipfsPinInflight = false; });
+}
+
+// DaoVote governance projection: snapshot decoded state (tallies/turnout) + map
+// AddProposal calls to proposal text. Gated; dao_* tables are idempotent
+// snapshots, so a background run can't race the reorg cleanup of contract_call_events.
+function maybeKickDaoVoteProjection(): void {
+  if (daoVoteInflight) return;
+  if (!config.DAO_VOTE_CID) return;
+  daoVoteInflight = true;
+  projectDaoVote()
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'dao-vote projection failed; will retry next tick',
+      );
+    })
+    .finally(() => { daoVoteInflight = false; });
 }
 
 async function maybeSyncAssetsCatalog(): Promise<void> {
@@ -496,6 +515,7 @@ async function tick(): Promise<void> {
   // the reorg DELETE. Bounded per tick so a large first backfill can't stall DEX
   // ingest. Runs after detectAndHealReorg() (called earlier this tick).
   await ingestWatchedContracts(status.height);
+  maybeKickDaoVoteProjection();
 
   const headTs = await getBlockTs(status.height);
   // Fetch head block to get the kernel hash for cursor persistence.

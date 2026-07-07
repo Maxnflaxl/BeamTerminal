@@ -23,6 +23,12 @@ export function watchedContracts(): WatchedContract[] {
   if (config.BANS_CID) {
     out.push({ cid: config.BANS_CID, label: 'bans', deployHeight: config.BANS_DEPLOY_HEIGHT });
   }
+  if (config.DAO_VAULT_CID) {
+    out.push({ cid: config.DAO_VAULT_CID, label: 'dao-vault', deployHeight: config.DAO_VAULT_DEPLOY_HEIGHT });
+  }
+  if (config.DAO_VOTE_CID) {
+    out.push({ cid: config.DAO_VOTE_CID, label: 'dao-vote', deployHeight: config.DAO_VOTE_DEPLOY_HEIGHT });
+  }
   return out;
 }
 

@@ -46,6 +46,25 @@ const Env = z.object({
   // DEX_DEPLOY_HEIGHT. The BANS contract deployed at height 1,890,525 (its Create
   // call); the backfill walks forward from there.
   BANS_DEPLOY_HEIGHT: z.coerce.number().int().positive().default(1_890_525),
+  // DAO Vault (fee sink / treasury) and DAO Vote (governance) contracts. Indexed
+  // into contract_call_events by the watched-contract scrape. Treasury + Revenue
+  // read the vault's Deposit/Withdraw calls (no parser change needed); Governance
+  // additionally needs the extended explorer parser to decode DaoVote calls/state.
+  // Empty string disables the respective subsystem.
+  DAO_VAULT_CID: z
+    .string()
+    .regex(CID_HEX, 'DAO_VAULT_CID must be 64 lowercase hex chars')
+    .or(z.literal(''))
+    .optional()
+    .default('0066b12078623df132b691001b25d7eb94b207b42c018020c9e58152e21ecd25'),
+  DAO_VAULT_DEPLOY_HEIGHT: z.coerce.number().int().positive().default(1_890_514),
+  DAO_VOTE_CID: z
+    .string()
+    .regex(CID_HEX, 'DAO_VOTE_CID must be 64 lowercase hex chars')
+    .or(z.literal(''))
+    .optional()
+    .default('64c8bbbd7c411bd7f9f9a0fd4ca678c581350b5b5ce0b0c055033c7e8f69e555'),
+  DAO_VOTE_DEPLOY_HEIGHT: z.coerce.number().int().positive().default(1_833_898),
   // "Black Hole" burn contract — a deposit-only shader (Env::FundsLock, no
   // withdraw), so per-asset balances are monotonically increasing. Backs the
   // /charts/blackhole DeFi chart, read live from the explorer (no indexing).
