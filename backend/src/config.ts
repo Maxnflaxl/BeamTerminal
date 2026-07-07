@@ -33,6 +33,19 @@ const Env = z.object({
     .regex(CID_HEX, 'DAPP_STORE_CID must be 64 lowercase hex chars')
     .optional()
     .default('e2d24b686e8d31a0fe97eade9cd23281e7059b74b5757bdb96c820ef9e2af41c'),
+  // BANS (Beam Anonymous Name Service) registry contract. Indexed into
+  // contract_call_events by the watched-contract scrape. Empty string disables
+  // the scrape and makes /api/bans/* return empty.
+  BANS_CID: z
+    .string()
+    .regex(CID_HEX, 'BANS_CID must be 64 lowercase hex chars')
+    .or(z.literal(''))
+    .optional()
+    .default('af4550f1f8a6051ffeffea06e0cb978f8076fdfc2101d2273d4e62c86540bc5e'),
+  // Backfill anchor for the BANS scrape (first height to walk from). Mirrors
+  // DEX_DEPLOY_HEIGHT. The BANS contract deployed at height 1,890,525 (its Create
+  // call); the backfill walks forward from there.
+  BANS_DEPLOY_HEIGHT: z.coerce.number().int().positive().default(1_890_525),
   // "Black Hole" burn contract — a deposit-only shader (Env::FundsLock, no
   // withdraw), so per-asset balances are monotonically increasing. Backs the
   // /charts/blackhole DeFi chart, read live from the explorer (no indexing).
