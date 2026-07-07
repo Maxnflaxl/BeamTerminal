@@ -182,7 +182,7 @@ export const DaoProposal: React.FC = () => {
             {p.quorum_pct != null ? ` · quorum ${p.quorum_pct}%` : ''}
             {p.turnout_pct != null ? ` · turnout ${p.turnout_pct.toFixed(1)}%` : ''}
           </Meta>
-          {p.forum_link && (
+          {p.forum_link && /^https?:\/\//i.test(p.forum_link) && (
             <div>
               <ForumLink href={p.forum_link} target="_blank" rel="noreferrer">
                 Open forum discussion ↗

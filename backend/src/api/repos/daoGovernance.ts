@@ -16,6 +16,14 @@ export interface ProposalMeta {
   quorum_pct: number | null;
 }
 
+// forum_link/ref_link come from attacker-controlled proposal JSON — only accept
+// http(s) so the frontend can't render a javascript:/data: href (XSS).
+function safeUrl(raw: unknown): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  return /^https?:\/\//i.test(s) ? s : null;
+}
+
 export function decodeProposalText(textB64: string | null): ProposalMeta {
   const empty: ProposalMeta = { title: null, description: null, forum_link: null, quorum_pct: null };
   if (!textB64) return empty;
@@ -31,7 +39,7 @@ export function decodeProposalText(textB64: string | null): ProposalMeta {
     return {
       title: parsed.title != null ? String(parsed.title) : null,
       description: parsed.description != null ? String(parsed.description) : null,
-      forum_link: parsed.forum_link != null ? String(parsed.forum_link) : null,
+      forum_link: safeUrl(parsed.forum_link),
       quorum_pct: Number.isFinite(pct) ? pct : null,
     };
   } catch {

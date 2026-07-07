@@ -127,3 +127,16 @@ export function toGrothsStr(amount: string, decimals: number): string {
   const digits = `${intPart}${frac}`.replace(/^0+(?=\d)/, '');
   return digits === '' ? '0' : digits;
 }
+
+/** Integer-groths string → exact decimal string (string math, so no float
+ *  rounding or scientific notation on tiny amounts), trailing zeros trimmed.
+ *  Inverse of `toGrothsStr`. */
+export function fromGrothsStr(groths: string, decimals: number): string {
+  const s = (groths ?? '').trim();
+  const neg = s.startsWith('-');
+  const digits = s.replace(/[^0-9]/g, '').padStart(decimals + 1, '0');
+  const cut = digits.length - decimals;
+  const intPart = digits.slice(0, cut).replace(/^0+(?=\d)/, '');
+  const frac = decimals > 0 ? digits.slice(cut).replace(/0+$/, '') : '';
+  return `${neg ? '-' : ''}${intPart}${frac ? `.${frac}` : ''}`;
+}

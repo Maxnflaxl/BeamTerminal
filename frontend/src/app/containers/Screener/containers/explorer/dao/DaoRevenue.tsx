@@ -41,7 +41,7 @@ const HBar = styled.div`
   & .lbl { width: 92px; color: ${theme.color.text}; white-space: nowrap; }
   & .track { flex: 1; height: 10px; background: ${theme.color.surface2}; border-radius: 4px; overflow: hidden; margin: 0 10px; }
   & .fill { display: block; height: 100%; border-radius: 4px; }
-  & .val { width: 90px; text-align: right; color: ${theme.color.muted}; }
+  & .val { width: 116px; text-align: right; color: ${theme.color.muted}; white-space: nowrap; }
 `;
 
 export const DaoRevenue: React.FC = () => {
@@ -79,7 +79,7 @@ export const DaoRevenue: React.FC = () => {
       <ExplorerHeader>
         <div>
           <H1>Revenue</H1>
-          <Subtitle>Protocol fees skimmed into the DAO</Subtitle>
+          <Subtitle>Revenue from BeamX DAO DeFi dapps</Subtitle>
         </div>
       </ExplorerHeader>
 
@@ -117,7 +117,7 @@ export const DaoRevenue: React.FC = () => {
                 <span className="fill" style={{ width: `${Math.max(2, s.pct)}%`, background: srcColor(s.source, i) }} />
               </span>
               <span className="val">
-                {s.pct.toFixed(0)}% · {fmtUsd(s.usd)}
+                {s.pct.toFixed(2)}% · {fmtUsd(s.usd)}
               </span>
             </HBar>
           ))}

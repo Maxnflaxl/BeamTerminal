@@ -3,6 +3,7 @@ import { styled } from '@linaria/react';
 import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, DataTable, ScrollX, Btn, ErrorBox, theme } from '../shared';
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import { PALLETE_ASSETS } from '@app/shared/constants';
+import { fromGrothsStr } from '../../../components/format';
 import { api } from '../../../api/client';
 import type { ApiDaoTreasury, ApiDaoAssetHistory, ApiAssetListEntry } from '../../../api/types';
 import { TimeChart, fmtUsd, fmtCompact } from './daoShared';
@@ -380,9 +381,9 @@ export const DaoTreasury: React.FC = () => {
                           <tr key={`${r.height}-${i}`}>
                             <td style={{ color: theme.color.muted }}>{r.height}</td>
                             <td>{r.method}</td>
-                            <td className="right" style={{ color: n >= 0 ? theme.color.accent : theme.color.danger }}>
-                              {n >= 0 ? '+' : '−'}
-                              {fmtAmt(String(Math.abs(n)), hist.aid)}
+                            <td className="right" style={{ color: n >= 0 ? theme.color.accent : theme.color.danger, fontVariantNumeric: 'tabular-nums' }}>
+                              {n >= 0 ? '+' : ''}
+                              {fromGrothsStr(r.amount, meta.get(hist.aid)?.decimals ?? 8)}
                             </td>
                           </tr>
                         );

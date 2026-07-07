@@ -96,7 +96,7 @@ export const DaoOverview: React.FC = () => {
         <Link to={ROUTES.NAV.EXPLORER_DAO_REVENUE} className={hubCls}>
           <CardLabel>Revenue (all-time)</CardLabel>
           <CardValue>{fmtUsd(d?.revenue.all_time_usd ?? null)}</CardValue>
-          <CardSub>protocol fees skimmed into the DAO</CardSub>
+          <CardSub>revenue from DAO DeFi dapps</CardSub>
           <ViewLink>View revenue →</ViewLink>
         </Link>
         <Link to={ROUTES.NAV.EXPLORER_DAO_GOVERNANCE} className={hubCls}>
