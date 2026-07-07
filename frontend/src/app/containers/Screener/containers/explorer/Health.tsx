@@ -7,7 +7,7 @@ import type {
   IChartApi, ISeriesApi, LineData, UTCTimestamp,
 } from 'lightweight-charts';
 import {
-  Page, ExplorerHeader, H1, Subtitle, Label, Dot,
+  Page, ExplorerHeader, H1, Subtitle, Label,
   StatGrid, StatCard, ErrorBox, theme,
   fmtHashrateParts,
 } from './shared';
@@ -86,25 +86,9 @@ function getHeight(b: BlockData): number {
 // Page-specific styled (unique presentation only — colors via theme.color.*)
 // ---------------------------------------------------------------------------
 
-const HeaderRight = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  & > * + * { margin-top: 8px; }
-`;
-
 const TitleBlock = styled.div`
   display: flex;
   flex-direction: column;
-`;
-
-const StatusRow = styled.div`
-  display: flex;
-  align-items: center;
-  & > * + * { margin-left: 7px; }
-  font-size: 11px;
-  color: ${theme.color.muted};
-  letter-spacing: 0.05em;
 `;
 
 const PriceBar = styled.div`
@@ -678,8 +662,6 @@ export const Health: React.FC = () => {
   const blockTimeKpi = avgBlockTime > 0 ? `${avgBlockTime.toFixed(1)}s` : '···';
   const blockTimeAmber = avgBlockTime > 0 && (avgBlockTime < 45 || avgBlockTime > 90);
 
-  const dotKind: 'live' | 'error' | 'idle' = state.connState;
-
   return (
     <Page>
       <ExplorerHeader>
@@ -687,12 +669,6 @@ export const Health: React.FC = () => {
           <H1>BEAM Network</H1>
           <Subtitle>Health Dashboard</Subtitle>
         </TitleBlock>
-        <HeaderRight>
-          <StatusRow>
-            <Dot data-kind={dotKind} />
-            <span>{state.statusMsg}</span>
-          </StatusRow>
-        </HeaderRight>
       </ExplorerHeader>
 
       {state.error && <ErrorBox>{state.error}</ErrorBox>}
