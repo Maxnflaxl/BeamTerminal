@@ -4,11 +4,13 @@ import { styled } from '@linaria/react';
 import { css } from '@linaria/core';
 import { ROUTES } from '@app/shared/constants';
 
+// Tertiary nav for the DAO section, nested under ExplorerLayout. Mirrors the
+// explorer sub-nav one level down. Emission / Farming append here later.
 const SubNav = styled.nav`
   width: 100%;
   display: flex;
   justify-content: center;
-  margin: 4px 0 16px;
+  margin: 0 0 16px;
 `;
 
 const SubNavInner = styled.div`
@@ -48,23 +50,18 @@ const subLink = css`
 `;
 
 const items = [
-  { to: ROUTES.NAV.EXPLORER_CHARTS,    label: 'Charts' },
-  { to: ROUTES.NAV.EXPLORER_BEAM,      label: 'Block Explorer' },
-  { to: ROUTES.NAV.EXPLORER_COUNTDOWN, label: 'Halving' },
-  { to: ROUTES.NAV.EXPLORER_SUPPLY,    label: 'Supply' },
-  { to: ROUTES.NAV.EXPLORER_HEALTH,    label: 'Health' },
-  { to: ROUTES.NAV.EXPLORER_BANS,      label: 'BANS' },
-  { to: ROUTES.NAV.EXPLORER_DAO,       label: 'DAO' },
-  { to: ROUTES.NAV.EXPLORER_BRIDGE,    label: 'Bridge' },
-  { to: ROUTES.NAV.EXPLORER_MINING,   label: 'Mining' },
+  { to: ROUTES.NAV.EXPLORER_DAO,            label: 'Overview',   end: true },
+  { to: ROUTES.NAV.EXPLORER_DAO_TREASURY,   label: 'Treasury',   end: false },
+  { to: ROUTES.NAV.EXPLORER_DAO_REVENUE,    label: 'Revenue',    end: false },
+  { to: ROUTES.NAV.EXPLORER_DAO_GOVERNANCE, label: 'Governance', end: false },
 ];
 
-export const ExplorerLayout: React.FC = () => (
+export const DaoLayout: React.FC = () => (
   <>
     <SubNav>
       <SubNavInner>
         {items.map((item) => (
-          <NavLink key={item.to} to={item.to} className={subLink}>{item.label}</NavLink>
+          <NavLink key={item.to} to={item.to} end={item.end} className={subLink}>{item.label}</NavLink>
         ))}
       </SubNavInner>
     </SubNav>
@@ -72,4 +69,4 @@ export const ExplorerLayout: React.FC = () => (
   </>
 );
 
-export default ExplorerLayout;
+export default DaoLayout;

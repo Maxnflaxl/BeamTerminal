@@ -627,3 +627,87 @@ export interface ApiBansActions {
   actions: ApiBansAction[];
   meta: { total: number; first_height: number | null; last_height: number | null };
 }
+
+// --- DAO explorer -----------------------------------------------------------
+
+export interface ApiDaoHolding {
+  aid: number;
+  symbol: string;
+  amount: string;
+  value_usd: number | null;
+  pct: number;
+}
+
+export interface ApiDaoFlow {
+  height: number;
+  ts: string;
+  method: string;
+  funds: Record<string, string>;
+}
+
+export interface ApiDaoTreasury {
+  total_usd: number;
+  holdings: ApiDaoHolding[];
+  value_series: { day: string; usd: number }[];
+  flows: ApiDaoFlow[];
+}
+
+export interface ApiDaoRevenue {
+  total_usd: number;
+  series: { day: string; by_asset: Record<string, number> }[];
+  by_source: { source: string; usd: number; pct: number }[];
+  by_tier: { tier: number; usd: number }[];
+  top_pools: { pool_id: number; pair: string; tier: number; usd: number }[];
+}
+
+export interface ApiDaoTally {
+  variant: number;
+  label: string;
+  stake: string;
+  pct: number;
+}
+
+export type DaoOutcome = 'passed' | 'failed' | 'pending' | null;
+
+export interface ApiDaoProposalSummary {
+  id: number;
+  epoch: number;
+  title: string | null;
+  status: 'live' | 'closed';
+  outcome: DaoOutcome;
+  variant_count: number;
+  quorum_pct: number | null;
+  yes_needed: string | null;
+  turnout_pct: number | null;
+  voted_groth: string;
+  tallies: ApiDaoTally[];
+}
+
+export interface ApiDaoGovernance {
+  current_epoch: number | null;
+  total_staked: string | null;
+  kpis: { active_proposals: number; turnout_pct: number | null; voting_power: string | null; voters: number };
+  voting_power_series: { day: string; staked: number }[];
+  epochs: number[];
+  proposals: ApiDaoProposalSummary[];
+}
+
+export interface ApiDaoVote {
+  voter: string;
+  variant: number;
+  label: string;
+  weight: string | null;
+  height: number;
+}
+
+export interface ApiDaoProposalDetail {
+  proposal: (ApiDaoProposalSummary & { description: string | null; forum_link: string | null }) | null;
+  votes: { total: number; rows: ApiDaoVote[] };
+}
+
+export interface ApiDaoOverview {
+  treasury: { value_usd: number; assets: number };
+  revenue: { all_time_usd: number };
+  governance: { current_epoch: number | null; active_proposals: number; turnout_pct: number | null };
+  recent: Array<Record<string, unknown>>;
+}

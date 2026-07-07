@@ -33,6 +33,7 @@ import {
   Footer,
   AssetColorsProvider,
 } from '@app/containers/Screener';
+import { DaoLayout, DaoOverview, DaoTreasury, DaoRevenue, DaoGovernance, DaoProposal } from '@app/containers/Screener';
 import { ROUTES } from '@app/shared/constants';
 import { Loader, TopNav } from '@app/shared/components';
 import ErrorBoundary from '@app/shared/components/ErrorBoundary';
@@ -69,6 +70,17 @@ const routes = [
       { path: 'supply',    element: <Supply /> },
       { path: 'bridge',    element: <BridgeTracker /> },
       { path: 'mining',   element: <Mining /> },
+      {
+        path: 'dao',
+        element: <DaoLayout />,
+        children: [
+          { index: true, element: <DaoOverview /> },
+          { path: 'treasury', element: <DaoTreasury /> },
+          { path: 'revenue', element: <DaoRevenue /> },
+          { path: 'governance', element: <DaoGovernance /> },
+          { path: 'governance/proposal/:id', element: <DaoProposal /> },
+        ],
+      },
     ],
   },
 ];
