@@ -6,7 +6,6 @@ import {
   ExplorerHeader,
   H1,
   Subtitle,
-  Dot,
   StatGrid,
   StatCard,
   Label,
@@ -155,21 +154,6 @@ const LogoArea = styled.div`
   display: flex;
   align-items: center;
   & > * + * { margin-left: 12px; }
-`;
-
-const HeaderRight = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  & > * + * { margin-top: 8px; }
-`;
-
-const StatusLine = styled.div`
-  display: flex;
-  align-items: center;
-  & > * + * { margin-left: 6px; }
-  font-size: 11px;
-  color: ${theme.color.muted};
 `;
 
 const JumpNav = styled.nav`
@@ -611,19 +595,13 @@ export const BANS: React.FC = () => {
             <Subtitle>Beam Anonymous Name System · Domain Registry</Subtitle>
           </div>
         </LogoArea>
-        <HeaderRight>
-          <StatusLine>
-            <Dot data-kind={status.kind} />
-            <span>{status.text}</span>
-          </StatusLine>
-        </HeaderRight>
       </ExplorerHeader>
 
       <JumpNav>
         <JumpLabel>Jump to</JumpLabel>
         <TabBtn type="button" onClick={() => scrollTo(overviewRef)}>Overview</TabBtn>
-        <TabBtn type="button" onClick={() => scrollTo(domainsRef)}>Domains</TabBtn>
         <TabBtn type="button" onClick={() => scrollTo(timelineRef)}>Timeline</TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(domainsRef)}>Domains</TabBtn>
         <TabBtn type="button" onClick={() => scrollTo(activityRef)}>Activity</TabBtn>
       </JumpNav>
 
@@ -666,6 +644,16 @@ export const BANS: React.FC = () => {
           <Label style={{ marginTop: 6, marginBottom: 0 }}>Listed with price</Label>
         </StatCard>
       </StatGrid>
+
+      <Panel ref={timelineRef}>
+        <PanelHeader>
+          <PanelTitle>Activity timeline</PanelTitle>
+          <PanelMeta>{apiActions.length > 0 ? `${apiActions.length} actions` : '—'}</PanelMeta>
+        </PanelHeader>
+        <div style={{ padding: '16px' }}>
+          <ActionTimeline actions={apiActions} />
+        </div>
+      </Panel>
 
       <Panel ref={domainsRef}>
         <PanelHeader>
@@ -754,16 +742,6 @@ export const BANS: React.FC = () => {
           </DataTable>
         </ScrollX>
         {domainsPager}
-      </Panel>
-
-      <Panel ref={timelineRef}>
-        <PanelHeader>
-          <PanelTitle>Activity timeline</PanelTitle>
-          <PanelMeta>{apiActions.length > 0 ? `${apiActions.length} actions` : '—'}</PanelMeta>
-        </PanelHeader>
-        <div style={{ padding: '16px' }}>
-          <ActionTimeline actions={apiActions} />
-        </div>
       </Panel>
 
       <Panel ref={activityRef}>
