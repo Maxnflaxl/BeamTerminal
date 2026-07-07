@@ -375,6 +375,12 @@ const ChangeGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0;
+  /* Inset the cell grid to the same 16px as every other sidebar section so the
+     stat cells + their dividers line up with the price row above instead of
+     running full-bleed to the panel edges. The bottom border stays full-width
+     (it sits on the border-box, outside the padding), matching the section
+     dividers elsewhere. */
+  padding: 0 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   .cell {
     text-align: center;
