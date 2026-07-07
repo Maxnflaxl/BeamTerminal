@@ -604,6 +604,21 @@ Available series (the full set is defined in `backend/src/api/routes/charts.ts`)
 
 In default mode, `Cache-Control` is the per-series `max-age` listed above; range mode is scoped under **Query params** above.
 
+## `GET /api/bans/actions`
+
+Full BANS registry action history (oldest→newest), from `contract_call_events`.
+
+```json
+{
+  "actions": [
+    { "height": 1896200, "block_ts": "2021-05-01T12:00:00.000Z", "method": "Register", "name": "syntaxjak", "args": { "Periods": 3, "name": "syntaxjak" } }
+  ],
+  "meta": { "total": 999, "first_height": 1896200, "last_height": 3922383 }
+}
+```
+
+`Cache-Control: public, max-age=60`. Returns empty `actions` when `BANS_CID` is unset.
+
 ## Quote endpoint — intentionally not present
 
 The swap panel asks the AMM shader for quotes directly (`pool_trade` with `bPredictOnly=1`) via the user's wallet. We **don't** mirror that on the server because:
