@@ -144,6 +144,7 @@ async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<v
     // hot tables. Purge past the ancestor and clamp each contract's cursor so
     // the next tick re-ingests [ancestor+1, head] idempotently.
     await q('DELETE FROM contract_call_events  WHERE height > $1', [commonHeight]);
+    await q('DELETE FROM dao_votes             WHERE height > $1', [commonHeight]);
     await q(
       `UPDATE contract_activity_cursor
           SET last_indexed_height = LEAST(last_indexed_height, $1)
