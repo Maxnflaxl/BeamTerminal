@@ -75,7 +75,6 @@ let ipfsPinInflight = false;
 // slow/failed pool API never stalls the tick. Bootstrap + 5-min staleness
 // fallback covers startup and a stalled head.
 let miningPoolsInflight = false;
-let daoVoteInflight = false;
 let lastDaoStatsRefresh = 0;
 let daoStatsRefreshInflight = false;
 const DAO_STATS_REFRESH_MS = 5 * 60_000;
@@ -291,21 +290,22 @@ function maybeKickIpfsPinSync(): void {
     .finally(() => { ipfsPinInflight = false; });
 }
 
-// DaoVote governance projection: snapshot decoded state (tallies/turnout) + map
-// AddProposal calls to proposal text. Gated; dao_* tables are idempotent
-// snapshots, so a background run can't race the reorg cleanup of contract_call_events.
-function maybeKickDaoVoteProjection(): void {
-  if (daoVoteInflight) return;
+// DaoVote governance projection: snapshot decoded state (tallies/turnout), map
+// AddProposal calls to proposal text, and ingest individual votes. Awaited
+// INLINE (not fire-and-forget) because it writes dao_votes, which is
+// reorg-cleaned (reorg.ts) — a detached run could land INSERTs after the next
+// tick's reorg DELETE, orphaning vote rows. Ticks are sequential, so awaiting
+// here guarantees it completes before the next tick's detectAndHealReorg().
+async function runDaoVoteProjection(): Promise<void> {
   if (!config.DAO_VOTE_CID) return;
-  daoVoteInflight = true;
-  projectDaoVote()
-    .catch((err) => {
-      logger.warn(
-        { err: err instanceof Error ? err.message : err },
-        'dao-vote projection failed; will retry next tick',
-      );
-    })
-    .finally(() => { daoVoteInflight = false; });
+  try {
+    await projectDaoVote();
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : err },
+      'dao-vote projection failed; will retry next tick',
+    );
+  }
 }
 
 // Recompute the cached DAO treasury/revenue aggregates every few minutes so the
@@ -534,7 +534,7 @@ async function tick(): Promise<void> {
   // the reorg DELETE. Bounded per tick so a large first backfill can't stall DEX
   // ingest. Runs after detectAndHealReorg() (called earlier this tick).
   await ingestWatchedContracts(status.height);
-  maybeKickDaoVoteProjection();
+  await runDaoVoteProjection();
   maybeKickDaoStatsRefresh();
 
   const headTs = await getBlockTs(status.height);

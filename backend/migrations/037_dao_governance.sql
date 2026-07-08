@@ -1,7 +1,8 @@
 -- Governance projection from DaoVote, decoded by the extended explorer parser.
--- Proposals + individual votes come from contract_call_events (decoded calls);
--- tallies + turnout are snapshotted from the decoded contract state each tick
--- (current epoch overwritten, past epochs immutable).
+-- Proposals + tallies + turnout + individual votes are snapshotted from the
+-- decoded contract state each tick (current epoch overwritten, past epochs
+-- immutable); proposal text is enriched from AddProposal calls in
+-- contract_call_events.
 
 CREATE TABLE IF NOT EXISTS dao_proposals (
   proposal_id   BIGINT PRIMARY KEY,
