@@ -1,13 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
-import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, DataTable, ScrollX, Pill, ErrorBox, theme } from '../shared';
+import {
+  Page,
+  ExplorerHeader,
+  H1,
+  Subtitle,
+  StatGrid,
+  StatCard,
+  Label,
+  Value,
+  DataTable,
+  ScrollX,
+  Pill,
+  ErrorBox,
+  theme,
+} from '../shared';
 import { api } from '../../../api/client';
 import type { ApiDaoRevenue } from '../../../api/types';
 import { PALLETE_ASSETS } from '@app/shared/constants';
+import { tierColor } from '../../../components/KindBadge';
 import { TimeChart, fmtUsd } from './daoShared';
 
 const TIER_LABEL = ['0.05%', '0.30%', '1.00%'];
-const tierTone = (tier: number): 'accent' | 'warn' | 'danger' => (tier === 0 ? 'accent' : tier === 1 ? 'warn' : 'danger');
 
 const SOURCE_COLOR: Record<string, string> = {
   DEX: PALLETE_ASSETS[0],
@@ -32,16 +46,38 @@ const PanelHead = styled.div`
   text-transform: uppercase;
   letter-spacing: 0.05em;
 `;
-const PanelBody = styled.div` padding: 14px 16px; `;
+const PanelBody = styled.div`
+  padding: 14px 16px;
+`;
 const HBar = styled.div`
   display: flex;
   align-items: center;
   margin: 6px 0;
   font-size: 12px;
-  & .lbl { width: 92px; color: ${theme.color.text}; white-space: nowrap; }
-  & .track { flex: 1; height: 10px; background: ${theme.color.surface2}; border-radius: 4px; overflow: hidden; margin: 0 10px; }
-  & .fill { display: block; height: 100%; border-radius: 4px; }
-  & .val { width: 116px; text-align: right; color: ${theme.color.muted}; white-space: nowrap; }
+  & .lbl {
+    width: 92px;
+    color: ${theme.color.text};
+    white-space: nowrap;
+  }
+  & .track {
+    flex: 1;
+    height: 10px;
+    background: ${theme.color.surface2};
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 0 10px;
+  }
+  & .fill {
+    display: block;
+    height: 100%;
+    border-radius: 4px;
+  }
+  & .val {
+    width: 116px;
+    text-align: right;
+    color: ${theme.color.muted};
+    white-space: nowrap;
+  }
 `;
 
 export const DaoRevenue: React.FC = () => {
@@ -71,7 +107,10 @@ export const DaoRevenue: React.FC = () => {
     };
   }, []);
 
-  const dailySeries = (d?.series ?? []).map((s) => ({ label: s.day, value: Object.values(s.by_asset).reduce((a, b) => a + b, 0) }));
+  const dailySeries = (d?.series ?? []).map((s) => ({
+    label: s.day,
+    value: Object.values(s.by_asset).reduce((a, b) => a + b, 0),
+  }));
   const d30 = dailySeries.slice(-30).reduce((a, b) => a + b.value, 0);
 
   return (
@@ -141,7 +180,9 @@ export const DaoRevenue: React.FC = () => {
                 <tr key={p.pool_id}>
                   <td>{p.pair}</td>
                   <td>
-                    <Pill data-tone={tierTone(p.tier)}>{TIER_LABEL[p.tier] ?? `t${p.tier}`}</Pill>
+                    <Pill style={{ background: `${tierColor(p.tier)}22`, color: tierColor(p.tier) }}>
+                      {TIER_LABEL[p.tier] ?? `t${p.tier}`}
+                    </Pill>
                   </td>
                   <td className="right">{fmtUsd(p.usd)}</td>
                 </tr>

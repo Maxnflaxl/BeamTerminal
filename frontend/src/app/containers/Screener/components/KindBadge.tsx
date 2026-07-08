@@ -7,6 +7,10 @@ const colorByKind: Record<number, string> = {
   2: '#f4ce4a', // High — yellow
 };
 
+/** Canonical fee-tier colour by pool `kind` (0 → 0.05%, 1 → 0.30%, 2 → 1.00%).
+ *  Single source of truth so every fee-tier badge/pill across the app matches. */
+export const tierColor = (kind: number): string => colorByKind[kind] ?? '#8196a4';
+
 // AMM fee tiers (see Amm::FeeSettings in beam/bvm/Shaders/amm/contract.h)
 const labelByKind: Record<number, string> = {
   0: '0.05%',
@@ -29,13 +33,15 @@ const Pill = styled.span<{ color: string }>`
 `;
 
 export const KindBadge: React.FC<{ kind: number }> = ({ kind }) => (
-  <Pill color={colorByKind[kind] ?? '#8196a4'}>{labelByKind[kind] ?? '?'}</Pill>
+  <Pill color={tierColor(kind)}>{labelByKind[kind] ?? '?'}</Pill>
 );
 
 const Dots = styled.span`
   display: inline-flex;
   align-items: center;
-  & > * + * { margin-left: 3px; }
+  & > * + * {
+    margin-left: 3px;
+  }
 `;
 
 const Dot = styled.span<{ color: string }>`
@@ -55,7 +61,7 @@ export const TiersBadge: React.FC<{ kinds: number[] }> = ({ kinds }) => {
   return (
     <Dots title={title}>
       {sorted.map((k) => (
-        <Dot key={k} color={colorByKind[k] ?? '#8196a4'} />
+        <Dot key={k} color={tierColor(k)} />
       ))}
     </Dots>
   );
