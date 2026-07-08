@@ -110,25 +110,19 @@ export async function projectDaoProposalTexts(): Promise<void> {
 /** Ingest individual votes (with exact stake-weight) from the decoded
  *  "User votes" log table of already-fetched contract state. Each UserVote
  *  event carries the voter's stake and their per-proposal choices for one
- *  epoch; choices[i] -> the epoch's i-th proposal (id order). Idempotent
- *  (PK proposal_id, voter_pk, height). */
+ *  epoch. `Proposal0` is the id of the last proposal of the PREVIOUS epoch, so
+ *  the event's choices[i] maps to global proposal id `Proposal0 + 1 + i` — an
+ *  epoch's proposals are the contiguous range [Proposal0+1 .. Proposal0+N].
+ *  Idempotent (PK proposal_id, voter_pk, height). */
 export async function projectDaoVotes(state: Record<string, unknown>): Promise<void> {
   const rows = stateTableRows(state, 'User votes').filter(Array.isArray) as unknown[][];
   if (rows.length === 0) return;
 
-  // epoch -> ordered proposal ids, and proposal id -> epoch.
-  const { rows: propRows } = await q<{ proposal_id: string; epoch: number }>(
-    'SELECT proposal_id, epoch FROM dao_proposals ORDER BY epoch, proposal_id',
-  );
-  const epochProps = new Map<number, number[]>();
-  const epochOfProposal0 = new Map<number, number>();
-  for (const r of propRows) {
-    const pid = Number(r.proposal_id);
-    const arr = epochProps.get(r.epoch) ?? [];
-    if (arr.length === 0) epochOfProposal0.set(pid, r.epoch); // first id of the epoch
-    arr.push(pid);
-    epochProps.set(r.epoch, arr);
-  }
+  // Votes reference proposals by global id; only ingest ones we've snapshotted.
+  // A choice for a proposal not yet in dao_proposals — or a trailing padding
+  // choice past the epoch's real proposals — is skipped and picked up later.
+  const { rows: propRows } = await q<{ proposal_id: string }>('SELECT proposal_id FROM dao_proposals');
+  const knownProposalIds = new Set(propRows.map((r) => Number(r.proposal_id)));
 
   const heights = [...new Set(rows.map((row) => cellNum(row[0])).filter((h): h is number => h != null))];
   const tsMap = await getBlockTsMap(heights);
@@ -145,34 +139,31 @@ export async function projectDaoVotes(state: Record<string, unknown>): Promise<v
     const proposal0 = cellNum(row[2]);
     const stake = amountGroth(row[3]);
     if (height == null || !voter || proposal0 == null) continue;
-
-    const epoch = epochOfProposal0.get(proposal0);
-    if (epoch == null) continue;              // proposals for this epoch not snapshotted yet — next tick
-    const ordered = epochProps.get(epoch) ?? [];
     const ts = tsMap.get(height);
     if (ts == null) continue;                 // block ts not resolvable yet — next tick
 
     const bytes = choiceBytes(row[4]);
-    for (let i = 0; i < bytes.length && i < ordered.length; i++) {
+    for (let i = 0; i < bytes.length; i++) {
       if (bytes[i] === 0xff) continue;        // s_NoVote
+      const proposalId = proposal0 + 1 + i;   // epoch proposals are [Proposal0+1 .. Proposal0+N]
+      if (!knownProposalIds.has(proposalId)) continue; // not snapshotted yet / padding past the epoch
       await q(
         `INSERT INTO dao_votes (proposal_id, voter_pk, variant, weight_groth, height, block_ts)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (proposal_id, voter_pk, height)
          DO UPDATE SET variant = EXCLUDED.variant, weight_groth = EXCLUDED.weight_groth, block_ts = EXCLUDED.block_ts`,
-        [ordered[i]!, voter, bytes[i]!, stake, height, ts],
+        [proposalId, voter, bytes[i]!, stake, height, ts],
       );
       upserted++;
     }
   }
 
-  // The epoch/Proposal0 mapping above isn't yet verified against live data —
-  // if it's ever off, every vote row vanishes via the silent `continue`s
-  // above with zero observability. Surface that case specifically.
+  // If the Proposal0 -> id mapping ever drifts, every vote silently vanishes via
+  // the `continue`s above. Surface that specifically (rows present, none landed).
   if (rows.length > 0 && upserted === 0) {
     logger.warn(
       { rows: rows.length },
-      'dao-vote: User votes rows present but none mapped to a proposal (epoch/Proposal0 mapping?)',
+      'dao-vote: User votes rows present but none mapped to a proposal (Proposal0 mapping?)',
     );
   }
 }
