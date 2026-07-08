@@ -122,7 +122,9 @@ const TopBar = styled.div`
   display: flex;
   align-items: center;
   & > * + * { margin-left: 12px; }
-  padding: 12px 16px;
+  /* 14px (not 12) so this row's height matches the sidebar's price section,
+     aligning the first divider across the chart column and the sidebar. */
+  padding: 14px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 `;
 
@@ -149,7 +151,6 @@ const Toolbar = styled.div`
   align-items: center;
   & > * + * { margin-left: 4px; }
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-wrap: wrap;
   button {
     padding: 4px 10px;
@@ -242,7 +243,7 @@ const Sidebar = styled.div`
 
 const SidebarSection = styled.div`
   padding: 14px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   h4 {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.4);
@@ -272,7 +273,7 @@ const ChangeGrid = styled.div`
      (it sits on the border-box, outside the padding), matching the section
      dividers elsewhere. */
   padding: 0 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   .cell {
     text-align: center;
     padding: 10px 4px;
@@ -363,7 +364,6 @@ const TierBar = styled.div`
   align-items: center;
   & > * + * { margin-left: 6px; }
   padding: 8px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-wrap: wrap;
   .lbl {
     color: rgba(255, 255, 255, 0.4);
