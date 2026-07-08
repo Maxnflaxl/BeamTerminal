@@ -1,9 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { styled } from '@linaria/react';
+import type { AreaData, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
 import { theme } from '../shared';
+import {
+  createBeamChart,
+  ChartWrap,
+  ChartInner,
+  ChartLegend,
+  clearChildren,
+  makeSpan,
+} from '../../../components/chartTheme';
 
-// Shared bits for the DAO pages: BEAMX/USD formatters, a stacked tally bar, and
-// a dependency-free SVG sparkline (keeps these pages off lightweight-charts).
+// Shared bits for the DAO pages: BEAMX/USD formatters, a stacked tally bar, a
+// dependency-free SVG sparkline, and the DAO time-series chart (a thin wrapper
+// over the terminal's shared lightweight-charts theme, so every DAO page reads
+// its dates/values with the same crosshair + axes as the rest of the explorer).
 
 export function grothToBeamx(groth: string | number | null | undefined): number {
   return groth == null ? 0 : Number(groth) / 1e8;
@@ -70,65 +81,141 @@ export const Sparkline: React.FC<{ data: ReadonlyArray<number>; height?: number;
   );
 };
 
-// Area chart with labelled X (date) and Y (value) axes + gridlines. viewBox
-// scales to the container width; height is auto so text stays proportional.
+// "YYYY-MM-DD" (or "YYYY-MM") → unix-seconds at UTC midnight. lightweight-charts
+// wants a numeric UTCTimestamp; using a real timestamp (not an ordinal index)
+// gives an honest, auto-formatted date axis and an exact-match crosshair lookup.
+function dayToTs(label: string): number {
+  const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?/.exec(label);
+  if (!m) return NaN;
+  return Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, m[3] ? Number(m[3]) : 1) / 1000);
+}
+
+const ChartEmpty = styled.div`
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: ${theme.color.muted};
+  font-size: 12px;
+`;
+const TimeChartLegend = styled(ChartLegend)`
+  display: flex;
+  align-items: baseline;
+  & > * + * {
+    margin-left: 8px;
+  }
+  & .val {
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  & .day {
+    color: rgba(255, 255, 255, 0.45);
+  }
+`;
+
+// Single-series area chart of a dated value series (treasury value, revenue,
+// voting power…). Same call signature as the old SVG version — `data` is
+// `{label:"YYYY-MM-DD", value}` — so every existing caller upgrades for free.
 export const TimeChart: React.FC<{
   data: ReadonlyArray<{ label: string; value: number }>;
   height?: number;
   color?: string;
   fmtY?: (n: number) => string;
-}> = ({ data, height = 170, color = theme.color.accent, fmtY }) => {
-  const fy = fmtY ?? ((n: number) => fmtCompact(n));
-  if (data.length < 2) {
-    return (
-      <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: theme.color.muted, fontSize: 12 }}>
-        Not enough data yet
-      </div>
-    );
-  }
-  const w = 820;
-  const h = height;
-  const padL = 56;
-  const padB = 22;
-  const padT = 10;
-  const padR = 12;
-  const plotW = w - padL - padR;
-  const plotH = h - padT - padB;
-  const values = data.map((d) => d.value);
-  const max = Math.max(...values);
-  const min = Math.min(...values, 0);
-  const range = max - min || 1;
-  const xAt = (i: number): number => padL + (i / (data.length - 1)) * plotW;
-  const yAt = (v: number): number => padT + plotH - ((v - min) / range) * plotH;
-  const line = data.map((d, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${yAt(d.value).toFixed(1)}`).join(' ');
-  const area = `${line} L${xAt(data.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)} L${padL},${(padT + plotH).toFixed(1)} Z`;
-  const yTicks = [min, min + range / 2, max];
-  const xIdx = [0, Math.floor((data.length - 1) / 2), data.length - 1];
+}> = ({ data, height = 220, color = theme.color.accent, fmtY }) => {
+  const innerRef = useRef<HTMLDivElement>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+  const byTs = useRef<Map<number, { label: string; value: number }>>(new Map());
+  const fyRef = useRef<(n: number) => string>(fmtY ?? ((n: number) => fmtCompact(n)));
+  fyRef.current = fmtY ?? ((n: number) => fmtCompact(n));
+
+  // Build the chart once; feed data in the second effect so updates don't tear
+  // down the canvas (which would drop the user's pan/zoom on every 60s poll).
+  useEffect(() => {
+    const el = innerRef.current;
+    if (!el) return undefined;
+    const chart = createBeamChart(el, { rightPriceScale: { scaleMargins: { top: 0.16, bottom: 0.08 } } });
+    chartRef.current = chart;
+    const series = chart.addAreaSeries({
+      lineColor: color,
+      lineWidth: 2,
+      topColor: 'rgba(0, 246, 210, 0.28)',
+      bottomColor: 'rgba(0, 246, 210, 0.0)',
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerRadius: 4,
+      priceFormat: { type: 'custom', formatter: (v: number) => fyRef.current(v), minMove: 0.000001 },
+    });
+    seriesRef.current = series;
+
+    const lg = legendRef.current;
+    let val: HTMLSpanElement | null = null;
+    let day: HTMLSpanElement | null = null;
+    if (lg) {
+      clearChildren(lg);
+      val = makeSpan('val', '');
+      day = makeSpan('day', '');
+      lg.appendChild(val);
+      lg.appendChild(day);
+    }
+    const paint = (p: { label: string; value: number } | undefined): void => {
+      if (val) val.textContent = p ? fyRef.current(p.value) : '';
+      if (day) day.textContent = p ? p.label : '';
+    };
+    const latest = (): { label: string; value: number } | undefined => {
+      const arr = [...byTs.current.values()];
+      return arr[arr.length - 1];
+    };
+    paint(latest());
+    chart.subscribeCrosshairMove((param) => {
+      const p = param && param.time ? byTs.current.get(param.time as number) : undefined;
+      paint(p ?? latest());
+    });
+
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [color]);
+
+  useEffect(() => {
+    const s = seriesRef.current;
+    if (!s) return;
+    const map = new Map<number, { label: string; value: number }>();
+    for (const d of data) {
+      if (!Number.isFinite(d.value)) continue;
+      const ts = dayToTs(d.label);
+      if (!Number.isFinite(ts)) continue;
+      map.set(ts, { label: d.label, value: d.value }); // last value wins on a duplicate day
+    }
+    const sorted = [...map.entries()].sort((a, b) => a[0] - b[0]);
+    byTs.current = new Map(sorted);
+    const chartData: AreaData[] = sorted.map(([ts, p]) => ({ time: ts as UTCTimestamp, value: p.value }));
+    s.setData(chartData);
+    if (chartData.length > 0) chartRef.current?.timeScale().fitContent();
+    // Keep the idle (no-crosshair) legend showing the latest point after a poll.
+    const lg = legendRef.current;
+    const last = sorted.length ? sorted[sorted.length - 1][1] : undefined;
+    if (lg && lg.children[0] && lg.children[1]) {
+      (lg.children[0] as HTMLElement).textContent = last ? fyRef.current(last.value) : '';
+      (lg.children[1] as HTMLElement).textContent = last ? last.label : '';
+    }
+  }, [data]);
+
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width="100%" style={{ display: 'block', height: 'auto' }}>
-      {yTicks.map((v, i) => (
-        <g key={`y${i}`}>
-          <line x1={padL} y1={yAt(v)} x2={w - padR} y2={yAt(v)} stroke={theme.color.borderDim} strokeWidth={0.5} />
-          <text x={padL - 7} y={yAt(v) + 3} textAnchor="end" fontSize={10} fill={theme.color.muted}>
-            {fy(v)}
-          </text>
-        </g>
-      ))}
-      {xIdx.map((idx, i) => (
-        <text
-          key={`x${i}`}
-          x={xAt(idx)}
-          y={h - 6}
-          textAnchor={i === 0 ? 'start' : i === xIdx.length - 1 ? 'end' : 'middle'}
-          fontSize={10}
-          fill={theme.color.muted}
-        >
-          {data[idx].label.slice(0, 7)}
-        </text>
-      ))}
-      <path d={area} fill={color} opacity={0.14} />
-      <path d={line} fill="none" stroke={color} strokeWidth={1.5} />
-    </svg>
+    <ChartWrap h={`${height}px`}>
+      <ChartInner ref={innerRef} />
+      {data.length < 2 && <ChartEmpty>Not enough data yet</ChartEmpty>}
+      <TimeChartLegend ref={legendRef} />
+    </ChartWrap>
   );
 };
 
@@ -153,7 +240,10 @@ export function outcomeLabel(status: string, outcome: string | null): string {
 // links are attacker-controlled); anything else renders as plain text.
 const ExtOverlay = styled.div`
   position: fixed;
-  top: 0; right: 0; bottom: 0; left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(2, 12, 24, 0.82);
   display: flex;
   align-items: center;
@@ -176,7 +266,11 @@ const ExtHead = styled.div`
 `;
 const ExtBody = styled.div`
   padding: 16px;
-  & > p { margin: 0 0 12px; color: ${theme.color.muted}; font-size: 13px; }
+  & > p {
+    margin: 0 0 12px;
+    color: ${theme.color.muted};
+    font-size: 13px;
+  }
 `;
 const ExtUrl = styled.div`
   background: ${theme.color.surface2};
@@ -202,7 +296,10 @@ const ExtCancel = styled.button`
   border: 1px solid ${theme.color.border};
   color: ${theme.color.muted};
   cursor: pointer;
-  &:hover { color: ${theme.color.text}; border-color: ${theme.color.muted}; }
+  &:hover {
+    color: ${theme.color.text};
+    border-color: ${theme.color.muted};
+  }
 `;
 const ExtOpen = styled.a`
   padding: 8px 16px;
@@ -212,7 +309,13 @@ const ExtOpen = styled.a`
   background: ${theme.color.accent};
   border: 1px solid ${theme.color.accent};
   cursor: pointer;
-  &, &:link, &:visited, &:hover { color: #04121e; text-decoration: none; }
+  &,
+  &:link,
+  &:visited,
+  &:hover {
+    color: #04121e;
+    text-decoration: none;
+  }
 `;
 
 export const ExternalLink: React.FC<{ href?: string; className?: string; children: React.ReactNode }> = ({

@@ -1,14 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
-import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, DataTable, ScrollX, Btn, ErrorBox, theme } from '../shared';
-import AssetIcon from '@app/shared/components/AssetsIcon';
-import { PALLETE_ASSETS } from '@app/shared/constants';
+import {
+  Page,
+  ExplorerHeader,
+  H1,
+  Subtitle,
+  StatGrid,
+  StatCard,
+  Label,
+  Value,
+  DataTable,
+  ScrollX,
+  Btn,
+  ErrorBox,
+  theme,
+  Donut,
+} from '../shared';
+import type { DonutSlice } from '../shared';
+import AssetIcon, { useAssetColorResolver } from '@app/shared/components/AssetsIcon';
+import { BlockHeight } from '@app/shared/components';
 import { fromGrothsStr } from '../../../components/format';
 import { api } from '../../../api/client';
 import type { ApiDaoTreasury, ApiDaoAssetHistory, ApiAssetListEntry } from '../../../api/types';
 import { TimeChart, fmtUsd, fmtCompact } from './daoShared';
 
-const PALETTE = PALLETE_ASSETS;
+const FLOWS_PER_PAGE = 12;
+const DONUT_MAX_SLICES = 8;
 
 const Panel = styled.div`
   background: ${theme.color.surface};
@@ -31,22 +48,33 @@ const PanelHead = styled.div`
 const AssetCell = styled.div`
   display: flex;
   align-items: center;
-  & b { color: ${theme.color.text}; font-weight: 600; }
-  & small { color: ${theme.color.muted}; margin-left: 8px; font-size: 11px; }
+  & b {
+    color: ${theme.color.text};
+    font-weight: 600;
+  }
+  & small {
+    color: ${theme.color.muted};
+    margin-left: 8px;
+    font-size: 11px;
+  }
 `;
 const ClickRow = styled.tr`
   cursor: pointer;
-  &:hover { background: ${theme.color.rowHover}; }
+  &:hover {
+    background: ${theme.color.rowHover};
+  }
 `;
 const FlowRow = styled.div`
   display: grid;
-  grid-template-columns: 96px 96px 1fr;
+  grid-template-columns: 110px 96px 1fr;
   gap: 12px;
   padding: 9px 16px;
   border-bottom: 1px solid ${theme.color.borderDim};
   font-size: 12px;
   align-items: center;
-  &:last-child { border-bottom: 0; }
+  &:last-child {
+    border-bottom: 0;
+  }
 `;
 const FundTag = styled.span`
   display: inline-flex;
@@ -54,9 +82,30 @@ const FundTag = styled.span`
   margin-right: 12px;
   font-variant-numeric: tabular-nums;
 `;
+const Pagination = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid ${theme.color.borderDim};
+  font-size: 12px;
+`;
+const PageInfo = styled.div`
+  color: ${theme.color.muted};
+  font-variant-numeric: tabular-nums;
+`;
+const PageBtns = styled.div`
+  display: flex;
+  & > * + * {
+    margin-left: 6px;
+  }
+`;
 const Overlay = styled.div`
   position: fixed;
-  top: 0; right: 0; bottom: 0; left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(2, 12, 24, 0.8);
   display: flex;
   align-items: center;
@@ -64,9 +113,9 @@ const Overlay = styled.div`
   z-index: 50;
 `;
 const Modal = styled.div`
-  width: 90%;
-  max-width: 480px;
-  max-height: 84vh;
+  width: 92%;
+  max-width: 760px;
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
   background: ${theme.color.bg};
@@ -83,35 +132,88 @@ const ModalHead = styled.div`
   font-weight: 700;
   color: ${theme.color.text};
 `;
+const ModalTitle = styled.span`
+  display: flex;
+  align-items: baseline;
+  & small {
+    margin-left: 10px;
+    font-weight: 400;
+    font-size: 12px;
+    color: ${theme.color.muted};
+  }
+`;
 const Closer = styled.button`
   background: none;
   border: 0;
   color: ${theme.color.muted};
   font-size: 18px;
   cursor: pointer;
+  &:hover {
+    color: ${theme.color.text};
+  }
 `;
+// Horizontal composition: the donut sits left/top, the legend fills the rest as
+// a responsive multi-column grid so a long holdings list reads wide, not as one
+// tall single-file stack. The body scrolls as a whole on short viewports.
+// (Flex `gap` is unsupported on the wallet's Chromium 83 — space with margins.)
 const DonutBody = styled.div`
   display: flex;
-  gap: 20px;
-  align-items: center;
-  padding: 20px;
   flex-wrap: wrap;
+  align-items: flex-start;
+  padding: 20px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 `;
+const DonutAside = styled.div`
+  flex-shrink: 0;
+  width: 200px;
+  margin: 0 26px 16px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+`;
+const DonutNote = styled.div`
+  margin-top: 8px;
+  font-size: 11px;
+  color: ${theme.color.muted};
+  text-align: center;
+`;
+// Multi-column (not grid) so the list reads column-major — down the first
+// column, then the second — instead of row-major (1,2 / 3,4). `break-inside`
+// keeps a row from splitting across the column boundary.
 const DLegend = styled.div`
-  flex: 1;
-  min-width: 190px;
+  flex: 1 1 300px;
+  min-width: 240px;
+  column-width: 230px;
+  column-gap: 24px;
   font-size: 12px;
 `;
 const DLegendRow = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
+  padding: 5px 0;
   border-bottom: 1px solid ${theme.color.borderDim};
   cursor: pointer;
-  &:hover { color: ${theme.color.accent}; }
-  & .l { display: flex; align-items: center; }
-  & .r { color: ${theme.color.muted}; font-variant-numeric: tabular-nums; }
+  break-inside: avoid;
+  &:hover {
+    color: ${theme.color.accent};
+  }
+  & .l {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  & .l b {
+    font-weight: 600;
+  }
+  & .r {
+    color: ${theme.color.muted};
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    margin-left: 10px;
+  }
 `;
 const HistSummary = styled.div`
   padding: 12px 16px;
@@ -127,6 +229,10 @@ export const DaoTreasury: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [donut, setDonut] = useState(false);
   const [hist, setHist] = useState<{ aid: number; data: ApiDaoAssetHistory | null } | null>(null);
+  const [flowPage, setFlowPage] = useState(0);
+  const [donutHoverKey, setDonutHoverKey] = useState<string | null>(null);
+
+  const assetColor = useAssetColorResolver();
 
   useEffect(() => {
     let alive = true;
@@ -150,10 +256,9 @@ export const DaoTreasury: React.FC = () => {
 
   const symOf = (aid: number): string => meta.get(aid)?.short_name ?? `aid ${aid}`;
   const nameOf = (aid: number): string | null => meta.get(aid)?.name ?? null;
-  const colorOf = (aid: number, i: number): string => {
-    const c = meta.get(aid)?.color;
-    return c ? (c.startsWith('#') ? c : `#${c}`) : PALETTE[i % PALETTE.length];
-  };
+  // Colour donut slices / legend swatches exactly the way AssetIcon paints the
+  // glyph, so a slice always matches its icon (same OPT_COLOR → palette chain).
+  const colorOf = (aid: number): string => assetColor(aid, meta.get(aid)?.color);
   const fmtAmt = (groth: string, aid: number): string => {
     const dec = meta.get(aid)?.decimals ?? 8;
     return fmtCompact(Number(groth) / Math.pow(10, dec));
@@ -169,15 +274,47 @@ export const DaoTreasury: React.FC = () => {
 
   const holdings = d?.holdings ?? [];
   const priced = holdings.filter((h) => h.value_usd != null);
-  const DONUT_R = 58;
-  const CIRC = 2 * Math.PI * DONUT_R;
-  let donutOff = 0;
-  const donutSegs = priced.map((h, i) => {
-    const dash = (h.pct / 100) * CIRC;
-    const seg = { aid: h.aid, color: colorOf(h.aid, i), dash, off: donutOff };
-    donutOff += dash;
-    return seg;
-  });
+
+  // Donut: rank by share, keep the top slices legible, and roll the long tail
+  // into a single neutral "Other" wedge rather than rendering ~20 invisible
+  // slivers. Each kept slice carries its asset's brand colour.
+  const rankedPriced = [...priced].sort((a, b) => b.pct - a.pct);
+  const donutTop = rankedPriced.slice(0, DONUT_MAX_SLICES);
+  const donutRest = rankedPriced.slice(DONUT_MAX_SLICES);
+  const restPct = donutRest.reduce((s, h) => s + h.pct, 0);
+  const restUsd = donutRest.reduce((s, h) => s + (h.value_usd ?? 0), 0);
+
+  // Donut slices: each top holding in its asset's brand colour + a neutral
+  // "Other" wedge for the long tail. `detail` shows the USD value on hover.
+  const donutTopKeys = new Set(donutTop.map((h) => String(h.aid)));
+  const donutSlices: DonutSlice[] = [
+    ...donutTop.map((h) => ({
+      key: String(h.aid),
+      label: symOf(h.aid),
+      color: colorOf(h.aid),
+      value: h.pct,
+      detail: `${h.pct.toFixed(2)}% · ${fmtUsd(h.value_usd)}`,
+    })),
+    ...(restPct > 0.0001
+      ? [
+          {
+            key: 'other',
+            label: 'Other',
+            color: theme.color.muted2,
+            value: restPct,
+            detail: `${donutRest.length} assets · ${restPct.toFixed(2)}% · ${fmtUsd(restUsd)}`,
+          },
+        ]
+      : []),
+  ];
+  // A tail asset hovered in the legend lights up the "Other" wedge it's part of.
+  const sliceKeyForAid = (aid: number): string => (donutTopKeys.has(String(aid)) ? String(aid) : 'other');
+
+  const flows = d?.flows ?? [];
+  const flowPages = Math.max(1, Math.ceil(flows.length / FLOWS_PER_PAGE));
+  const safeFlowPage = Math.min(flowPage, flowPages - 1);
+  const flowStart = safeFlowPage * FLOWS_PER_PAGE;
+  const pageFlows = flows.slice(flowStart, flowStart + FLOWS_PER_PAGE);
 
   return (
     <Page>
@@ -261,74 +398,120 @@ export const DaoTreasury: React.FC = () => {
       <Panel>
         <PanelHead>Vault flows · deposits &amp; withdrawals</PanelHead>
         <div>
-          {(d?.flows ?? []).map((f, i) => (
-            <FlowRow key={`${f.height}-${i}`}>
-              <span style={{ color: theme.color.muted }}>h {f.height}</span>
+          {pageFlows.map((f, i) => (
+            <FlowRow key={`${f.height}-${flowStart + i}`}>
+              <span style={{ color: theme.color.muted }}>
+                h <BlockHeight height={f.height} />
+              </span>
               <span>{f.method}</span>
               <span>
                 {Object.entries(f.funds).map(([aid, amt]) => {
-                  const n = Number(amt);
                   const id = Number(aid);
+                  const dec = meta.get(id)?.decimals ?? 8;
+                  const neg = amt.trim().startsWith('-');
                   return (
-                    <FundTag key={aid} style={{ color: n >= 0 ? theme.color.accent : theme.color.danger }}>
+                    <FundTag key={aid} style={{ color: neg ? theme.color.danger : theme.color.accent }}>
                       <AssetIcon asset_id={id} color={meta.get(id)?.color} size={14} />
-                      {n >= 0 ? '+' : '−'}
-                      {fmtAmt(String(Math.abs(n)), id)} {symOf(id)}
+                      {neg ? '' : '+'}
+                      {fromGrothsStr(amt, dec)} {symOf(id)}
                     </FundTag>
                   );
                 })}
               </span>
             </FlowRow>
           ))}
-          {(d?.flows.length ?? 0) === 0 && (
-            <div style={{ textAlign: 'center', padding: 22, color: theme.color.muted, fontSize: 12 }}>No recent flows.</div>
+          {flows.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 22, color: theme.color.muted, fontSize: 12 }}>
+              No recent flows.
+            </div>
           )}
         </div>
+        {flows.length > FLOWS_PER_PAGE && (
+          <Pagination>
+            <PageInfo>
+              {flowStart + 1}–{Math.min(flowStart + FLOWS_PER_PAGE, flows.length)} of {flows.length}
+            </PageInfo>
+            <PageBtns>
+              <Btn type="button" data-variant="ghost" disabled={safeFlowPage === 0} onClick={() => setFlowPage(0)}>
+                ⏮
+              </Btn>
+              <Btn
+                type="button"
+                data-variant="ghost"
+                disabled={safeFlowPage === 0}
+                onClick={() => setFlowPage((p) => Math.max(0, p - 1))}
+              >
+                ‹ Prev
+              </Btn>
+              <Btn
+                type="button"
+                data-variant="ghost"
+                disabled={safeFlowPage >= flowPages - 1}
+                onClick={() => setFlowPage((p) => Math.min(flowPages - 1, p + 1))}
+              >
+                Next ›
+              </Btn>
+              <Btn
+                type="button"
+                data-variant="ghost"
+                disabled={safeFlowPage >= flowPages - 1}
+                onClick={() => setFlowPage(flowPages - 1)}
+              >
+                ⏭
+              </Btn>
+            </PageBtns>
+          </Pagination>
+        )}
       </Panel>
 
       {donut && (
         <Overlay onClick={() => setDonut(false)}>
           <Modal onClick={(e) => e.stopPropagation()}>
             <ModalHead>
-              <span>Holdings composition</span>
+              <ModalTitle>
+                Holdings composition
+                <small>{priced.length} priced assets</small>
+              </ModalTitle>
               <Closer type="button" onClick={() => setDonut(false)}>
                 ✕
               </Closer>
             </ModalHead>
             <DonutBody>
-              <svg viewBox="0 0 150 150" width="150" height="150" style={{ flexShrink: 0 }}>
-                <g transform="rotate(-90 75 75)">
-                  {donutSegs.length === 0 ? (
-                    <circle cx="75" cy="75" r={DONUT_R} fill="none" stroke={theme.color.surface2} strokeWidth="26" />
-                  ) : (
-                    donutSegs.map((s) => (
-                      <circle
-                        key={s.aid}
-                        cx="75"
-                        cy="75"
-                        r={DONUT_R}
-                        fill="none"
-                        stroke={s.color}
-                        strokeWidth="26"
-                        strokeDasharray={`${s.dash.toFixed(2)} ${(CIRC - s.dash).toFixed(2)}`}
-                        strokeDashoffset={(-s.off).toFixed(2)}
-                      />
-                    ))
-                  )}
-                </g>
-                <text x="75" y="72" textAnchor="middle" fontSize="15" fontWeight="700" fill={theme.color.text}>
-                  {fmtUsd(d?.total_usd ?? null)}
-                </text>
-                <text x="75" y="87" textAnchor="middle" fontSize="8" fill={theme.color.muted}>
-                  TOTAL
-                </text>
-              </svg>
+              <DonutAside>
+                <Donut
+                  slices={donutSlices}
+                  size={200}
+                  gap={2}
+                  thickness={30}
+                  idlePrimary={fmtUsd(d?.total_usd ?? null)}
+                  idleSecondary="TOTAL"
+                  activeKey={donutHoverKey}
+                  onActiveChange={setDonutHoverKey}
+                  onSliceClick={(key) => {
+                    if (key !== 'other') {
+                      setDonut(false);
+                      openAsset(Number(key));
+                    }
+                  }}
+                />
+                {restPct > 0.0001 && (
+                  <DonutNote>
+                    <span style={{ color: theme.color.muted2 }}>■</span> Other = {donutRest.length} assets ·{' '}
+                    {restPct.toFixed(2)}%
+                  </DonutNote>
+                )}
+              </DonutAside>
               <DLegend>
-                {priced.map((h) => (
-                  <DLegendRow key={h.aid} onClick={() => (setDonut(false), openAsset(h.aid))}>
+                {rankedPriced.map((h) => (
+                  <DLegendRow
+                    key={h.aid}
+                    onClick={() => (setDonut(false), openAsset(h.aid))}
+                    onMouseEnter={() => setDonutHoverKey(sliceKeyForAid(h.aid))}
+                    onMouseLeave={() => setDonutHoverKey(null)}
+                  >
                     <span className="l">
                       <AssetIcon asset_id={h.aid} color={meta.get(h.aid)?.color} size={16} />
-                      {symOf(h.aid)}
+                      <b>{symOf(h.aid)}</b>
                     </span>
                     <span className="r">
                       {h.pct.toFixed(2)}% · {fmtAmt(h.amount, h.aid)} · {fmtUsd(h.value_usd)}
@@ -379,9 +562,17 @@ export const DaoTreasury: React.FC = () => {
                         const n = Number(r.amount);
                         return (
                           <tr key={`${r.height}-${i}`}>
-                            <td style={{ color: theme.color.muted }}>{r.height}</td>
+                            <td style={{ color: theme.color.muted }}>
+                              <BlockHeight height={r.height} />
+                            </td>
                             <td>{r.method}</td>
-                            <td className="right" style={{ color: n >= 0 ? theme.color.accent : theme.color.danger, fontVariantNumeric: 'tabular-nums' }}>
+                            <td
+                              className="right"
+                              style={{
+                                color: n >= 0 ? theme.color.accent : theme.color.danger,
+                                fontVariantNumeric: 'tabular-nums',
+                              }}
+                            >
                               {n >= 0 ? '+' : ''}
                               {fromGrothsStr(r.amount, meta.get(hist.aid)?.decimals ?? 8)}
                             </td>

@@ -11,7 +11,7 @@ import type { ApiChartPoint } from '../../api/client';
 import { Sparkline } from '../../components/Sparkline';
 import {
   Page, Card, H2, H3,
-  DataTable, TabBtn, Dot, Btn, Muted, theme, fmtHashrate,
+  DataTable, TabBtn, Dot, Btn, Muted, theme, fmtHashrate, Donut,
 } from './shared';
 import { MiningCalculator } from './MiningCalculator';
 
@@ -49,40 +49,6 @@ const COLORS = ['#00f6d2', '#4f9dff', '#ffb454', '#ff6b9d', '#a78bfa', '#34d399'
 // --- Donut -------------------------------------------------------------------
 
 interface Slice { label: string; value: number; color: string }
-
-const Donut: React.FC<{ slices: Slice[]; size?: number }> = ({ slices, size = 180 }) => {
-  const total = slices.reduce((s, x) => s + x.value, 0) || 1;
-  const r = size / 2;
-  const stroke = size * 0.18;
-  const radius = r - stroke / 2;
-  const circ = 2 * Math.PI * radius;
-  let offset = 0;
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <g transform={`rotate(-90 ${r} ${r})`}>
-        {slices.map((s, i) => {
-          const frac = s.value / total;
-          const len = frac * circ;
-          // Extend each slice's arc by a hair so the next slice (painted on top)
-          // covers the seam. Without this, float accumulation in `offset` can
-          // leave a sub-pixel gap that anti-aliasing renders as a dark notch.
-          const lap = len > 0 ? 0.75 : 0;
-          const el = (
-            <circle
-              key={i}
-              cx={r} cy={r} r={radius}
-              fill="none" stroke={s.color} strokeWidth={stroke}
-              strokeDasharray={`${len + lap} ${Math.max(0, circ - len - lap)}`}
-              strokeDashoffset={-offset}
-            />
-          );
-          offset += len;
-          return el;
-        })}
-      </g>
-    </svg>
-  );
-};
 
 // --- styled helpers ----------------------------------------------------------
 
@@ -619,7 +585,12 @@ export const Mining: React.FC = () => {
             ? <Muted>No block attribution data available yet.</Muted>
             : (
               <DonutLayout>
-                <Donut slices={blockSlices} size={180} />
+                <Donut
+                  slices={blockSlices.map((s, i) => ({ key: String(i), label: s.label, color: s.color, value: s.value }))}
+                  size={180}
+                  idlePrimary={blockSliceTotal}
+                  idleSecondary="blocks"
+                />
                 <Legend>
                   {blockSlices.map((s, i) => (
                     <li key={i}>

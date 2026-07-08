@@ -1,15 +1,10 @@
 import React from 'react';
 import { useSelector } from 'react-redux';
 
-import {
-  BeamIcon as BeamIconSvg,
-  IconNPHAsset,
-} from '@app/shared/icons';
+import { BeamIcon as BeamIconSvg, IconNPHAsset } from '@app/shared/icons';
 
 import { styled } from '@linaria/react';
-import {
-  BEAM_ID, BEAMX_ID, PALLETE_ASSETS, NPH_ID,
-} from '@app/shared/constants';
+import { BEAM_ID, BEAMX_ID, PALLETE_ASSETS, NPH_ID } from '@app/shared/constants';
 import { selectAssetsList } from '@app/containers/Pools/store/selectors';
 import { IAsset } from '@core/types';
 
@@ -71,11 +66,34 @@ const BeamXGlyph: React.FC = () => {
   }, []);
   return (
     <svg viewBox="0 0 18 18" width="100%" height="100%" fill="none" preserveAspectRatio="xMidYMid meet">
-      <path d="M17 9C17 13.4183 13.4183 17 9 17C4.58172 17 1 13.4183 1 9C1 4.58172 4.58172 1 9 1C13.4183 1 17 4.58172 17 9Z" fill="#000A16" stroke={`url(#${gradId})`} strokeWidth="2" />
-      <path transform="translate(-0.15 0.4)" d="M9.19053 3.71924L13.6439 11.1166H4.73535L9.19053 3.71924ZM9.1901 6.16284L6.93269 9.90024H11.4466L9.1901 6.16284Z" fill="#0B76FF" />
-      <path transform="translate(-0.15 0.4)" d="M9.18887 13.5713L4.73545 6.17389L13.644 6.17389L9.18887 13.5713ZM9.1893 11.1277L11.4467 7.39029L6.93278 7.39029L9.1893 11.1277Z" fill="#00E3C2" style={{ mixBlendMode: 'lighten' }} />
-      <path transform="translate(-0.15 0.4)" d="M6.78414 4.4487L14.2775 8.42554L6.43836 13.015L6.78414 4.4487ZM7.96456 6.52048L7.78413 10.8518L11.7562 8.52635L7.96456 6.52048Z" fill="#25C0FF" />
-      <path transform="translate(-0.15 0.4)" d="M11.5843 12.8462L4.09086 8.86939L11.93 4.27989L11.5843 12.8462ZM10.4038 10.7744L10.5843 6.44311L6.61222 8.76858L10.4038 10.7744Z" fill="#FF51FF" style={{ mixBlendMode: 'lighten' }} />
+      <path
+        d="M17 9C17 13.4183 13.4183 17 9 17C4.58172 17 1 13.4183 1 9C1 4.58172 4.58172 1 9 1C13.4183 1 17 4.58172 17 9Z"
+        fill="#000A16"
+        stroke={`url(#${gradId})`}
+        strokeWidth="2"
+      />
+      <path
+        transform="translate(-0.15 0.4)"
+        d="M9.19053 3.71924L13.6439 11.1166H4.73535L9.19053 3.71924ZM9.1901 6.16284L6.93269 9.90024H11.4466L9.1901 6.16284Z"
+        fill="#0B76FF"
+      />
+      <path
+        transform="translate(-0.15 0.4)"
+        d="M9.18887 13.5713L4.73545 6.17389L13.644 6.17389L9.18887 13.5713ZM9.1893 11.1277L11.4467 7.39029L6.93278 7.39029L9.1893 11.1277Z"
+        fill="#00E3C2"
+        style={{ mixBlendMode: 'lighten' }}
+      />
+      <path
+        transform="translate(-0.15 0.4)"
+        d="M6.78414 4.4487L14.2775 8.42554L6.43836 13.015L6.78414 4.4487ZM7.96456 6.52048L7.78413 10.8518L11.7562 8.52635L7.96456 6.52048Z"
+        fill="#25C0FF"
+      />
+      <path
+        transform="translate(-0.15 0.4)"
+        d="M11.5843 12.8462L4.09086 8.86939L11.93 4.27989L11.5843 12.8462ZM10.4038 10.7744L10.5843 6.44311L6.61222 8.76858L10.4038 10.7744Z"
+        fill="#FF51FF"
+        style={{ mixBlendMode: 'lighten' }}
+      />
       <defs>
         <linearGradient id={gradId} x1="9" y1="0" x2="9" y2="18" gradientUnits="userSpaceOnUse">
           <stop stopColor="#A17DFF" />
@@ -154,13 +172,39 @@ function paletteColor(asset_id: number): string {
   return PALLETE_ASSETS[asset_id] ?? PALLETE_ASSETS[asset_id % PALLETE_ASSETS.length];
 }
 
-const AssetIcon: React.FC<AssetIconProps> = ({
-  asset_id = 0, className, size = 22, color, logoUrl,
-}) => {
+// Resolve an asset's brand colour with the exact precedence AssetIcon paints
+// with: explicit `color` prop → on-chain OPT_COLOR (Redux metadata) → the
+// deterministic per-asset palette. Exported so callers (e.g. the treasury
+// donut) can colour swatches/segments to match the rendered icon exactly,
+// instead of re-deriving a fallback that drifts from the glyph.
+export function resolveAssetColor(
+  asset_id: number,
+  color: string | null | undefined,
+  asset: IAsset | undefined,
+): string {
+  return normalizeOptColor(color) ?? normalizeOptColor(asset?.parsedMetadata?.OPT_COLOR) ?? paletteColor(asset_id);
+}
+
+// Hook returning a resolver that colours any asset id the way AssetIcon does.
+// Reads the Redux assets list once, so it's safe to call inside a render loop
+// (where a per-item `useAssetColor` hook would violate the rules of hooks).
+export function useAssetColorResolver(): (asset_id: number, color?: string | null) => string {
+  const assets = useSelector(selectAssetsList()) as IAsset[];
+  return React.useCallback(
+    (asset_id: number, color?: string | null): string =>
+      resolveAssetColor(
+        asset_id,
+        color,
+        assets?.find((a) => (a.asset_id ?? a.aid) === asset_id),
+      ),
+    [assets],
+  );
+}
+
+const AssetIcon: React.FC<AssetIconProps> = ({ asset_id = 0, className, size = 22, color, logoUrl }) => {
   const assets = useSelector(selectAssetsList()) as IAsset[];
   const asset = assets?.find((a) => (a.asset_id ?? a.aid) === asset_id);
-  const metadataColor = normalizeOptColor(color) ?? normalizeOptColor(asset?.parsedMetadata?.OPT_COLOR);
-  const resolvedColor = metadataColor ?? paletteColor(asset_id);
+  const resolvedColor = resolveAssetColor(asset_id, color, asset);
 
   // Track which logo URL failed so a fresh URL re-attempts the image rather
   // than staying on the glyph fallback.
@@ -173,8 +217,10 @@ const AssetIcon: React.FC<AssetIconProps> = ({
     <ContainerStyled resolvedColor={resolvedColor} size={size} className={className}>
       {showLogo ? (
         <img src={logo as string} alt="" onError={() => setErroredUrl(logo)} />
+      ) : BrandedIcon ? (
+        <BrandedIcon />
       ) : (
-        BrandedIcon ? <BrandedIcon /> : <GenericAssetGlyph />
+        <GenericAssetGlyph />
       )}
     </ContainerStyled>
   );
