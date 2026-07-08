@@ -20,7 +20,6 @@ const navInner = css`
   flex-wrap: wrap;
   justify-content: space-between;
   padding: 0 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 
   @media (max-width: 600px) {
     padding: 0 12px;
