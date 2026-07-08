@@ -240,10 +240,22 @@ export async function loadDaoProposal(id: number, offset: number, limit: number)
   const live = p.current != null && p.epoch + 1 === p.current;
   const { outcome, yes_needed } = computeOutcome(tRows, meta.quorum_pct, totalStakedGroth, live);
 
-  const { rows: cntRows } = await q<{ n: string }>('SELECT count(*)::text AS n FROM dao_votes WHERE proposal_id = $1', [id]);
+  const { rows: cntRows } = await q<{ n: string }>(
+    `SELECT count(*)::text AS n FROM (
+       SELECT DISTINCT ON (voter_pk) voter_pk
+         FROM dao_votes WHERE proposal_id = $1
+         ORDER BY voter_pk, height DESC
+     ) d`,
+    [id],
+  );
   const { rows: vRows } = await q<{ voter_pk: string; variant: number; weight_groth: string | null; height: string }>(
-    `SELECT voter_pk, variant, weight_groth, height FROM dao_votes WHERE proposal_id = $1
-      ORDER BY weight_groth DESC NULLS LAST, height DESC LIMIT $2 OFFSET $3`,
+    `SELECT voter_pk, variant, weight_groth, height FROM (
+       SELECT DISTINCT ON (voter_pk) voter_pk, variant, weight_groth, height
+         FROM dao_votes WHERE proposal_id = $1
+         ORDER BY voter_pk, height DESC
+     ) latest
+     ORDER BY weight_groth DESC NULLS LAST, height DESC
+     LIMIT $2 OFFSET $3`,
     [id, limit, offset],
   );
 
