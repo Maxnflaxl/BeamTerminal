@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { styled } from '@linaria/react';
 import type { IChartApi, ISeriesApi, LineData, UTCTimestamp } from 'lightweight-charts';
+import { PriceScaleMode } from 'lightweight-charts';
 import type { ApiPoolLiquidityPoint } from '../api/types';
 import { fmtNum } from './format';
 import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend, clearChildren, makeSpan } from './chartTheme';
@@ -31,12 +32,14 @@ interface Props {
   visible: SeriesVisibility;
   /** Unix-seconds date to center the view on (null = leave as-is). */
   centerOn?: number | null;
+  /** Logarithmic Y axis when true, linear otherwise. */
+  logScale?: boolean;
 }
 
 /** Two-line history of pooled amounts (aid1 + aid2) over time. Modeled on the
  *  asset SupplyChart but with a second series and a dual-value legend. */
 export const PoolHistoryChart: React.FC<Props> = ({
-  series, decimals1, decimals2, sym1, sym2, visible, centerOn,
+  series, decimals1, decimals2, sym1, sym2, visible, centerOn, logScale,
 }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
@@ -142,6 +145,15 @@ export const PoolHistoryChart: React.FC<Props> = ({
       });
     } catch { /* out of range */ }
   }, [centerOn, series]);
+
+  // Linear / logarithmic Y axis. Own effect so toggling never rebuilds the chart.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale('right').applyOptions({
+      mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+    });
+  }, [logScale]);
 
   return (
     <ChartWrap h="320px">

@@ -215,6 +215,7 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
   const [tfIndex, setTfIndex] = useState(0);
   const [source, setSource] = useState<LiquiditySource>('total');
   const [centerOn, setCenterOn] = useState<number | null>(null);
+  const [logScale, setLogScale] = useState(false);
   const [lpPage, setLpPage] = useState(0);
 
   const tf = TIMEFRAMES[tfIndex]!;
@@ -387,6 +388,10 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
                 </button>
               ))}
             </div>
+            <div className="group">
+              <button type="button" className={!logScale ? 'active' : ''} onClick={() => setLogScale(false)}>Lin</button>
+              <button type="button" className={logScale ? 'active' : ''} onClick={() => setLogScale(true)}>Log</button>
+            </div>
             <input className="date" type="date" onChange={onDate} title="Center on date" />
           </Controls>
           <PoolHistoryChart
@@ -397,6 +402,7 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
             sym2={sym2}
             visible={visible}
             centerOn={centerOn}
+            logScale={logScale}
           />
 
           <TiersGrid>
