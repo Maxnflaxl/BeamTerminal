@@ -6,6 +6,7 @@ import {
   fmt$, fmtNum, fmtPct, fmtPrice, fmtDateFull,
 } from './format';
 import { PoolHistoryChart, type SeriesVisibility } from './PoolHistoryChart';
+import { CenterOnControl } from './CenterOnControl';
 import { Pager } from './Pager';
 import { LiquidityModal } from './LiquidityModal';
 import { CreatePoolModal } from './CreatePoolModal';
@@ -101,17 +102,6 @@ const Controls = styled.div`
     cursor: pointer;
     &:hover { color: white; }
     &.active { background: var(--color-green); color: var(--color-dark-blue); font-weight: 600; }
-  }
-  .date {
-    margin-left: auto;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    color: rgba(255,255,255,0.7);
-    padding: 4px 8px;
-    font-size: 12px;
-    font-family: inherit;
-    color-scheme: dark;
   }
 `;
 
@@ -246,13 +236,6 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
   const mcBeam = beamPerToken != null && supply2 != null ? beamPerToken * supply2 : null;
   const chg = fmtPct(p.price_change_24h);
   const volBeam = isBeamPair ? human(p.volume_24h_groth, p.decimals1) : null;
-
-  const onDate = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    const v = e.target.value; // YYYY-MM-DD
-    if (!v) { setCenterOn(null); return; }
-    const ms = Date.parse(`${v}T00:00:00Z`);
-    if (!Number.isNaN(ms)) setCenterOn(Math.floor(ms / 1000));
-  };
 
   // Existing tiers carry their LP id + reserves (Add/Withdraw). Missing ones get
   // a Create button — but ONLY in the combined-pair view, where `p.tiers` is the
@@ -392,7 +375,11 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
               <button type="button" className={!logScale ? 'active' : ''} onClick={() => setLogScale(false)}>Lin</button>
               <button type="button" className={logScale ? 'active' : ''} onClick={() => setLogScale(true)}>Log</button>
             </div>
-            <input className="date" type="date" onChange={onDate} title="Center on date" />
+            <CenterOnControl
+              onCenter={setCenterOn}
+              onClear={() => setCenterOn(null)}
+              onReset={() => setCenterOn(null)}
+            />
           </Controls>
           <PoolHistoryChart
             series={liq?.series ?? []}
