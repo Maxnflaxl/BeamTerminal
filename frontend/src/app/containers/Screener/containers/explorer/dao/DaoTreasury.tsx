@@ -69,7 +69,7 @@ const Modal = styled.div`
   max-height: 84vh;
   display: flex;
   flex-direction: column;
-  background: ${theme.color.surface};
+  background: ${theme.color.bg};
   border: 1px solid ${theme.color.border};
   border-radius: ${theme.radius.lg};
   overflow: hidden;

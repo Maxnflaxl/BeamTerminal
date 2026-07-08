@@ -163,7 +163,7 @@ const ExtOverlay = styled.div`
 const ExtModal = styled.div`
   width: 90%;
   max-width: 440px;
-  background: ${theme.color.surface};
+  background: ${theme.color.bg};
   border: 1px solid ${theme.color.border};
   border-radius: ${theme.radius.lg};
   overflow: hidden;
