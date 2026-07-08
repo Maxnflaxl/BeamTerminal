@@ -3,6 +3,7 @@ import { styled } from '@linaria/react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
 import { BlockHeight } from '@app/shared/components/BlockHeight';
+import { BackButton } from '@app/shared/components/BackButton';
 import { useAsset, useAssetDistribution, useAssetHistory, usePairs } from '../hooks';
 import { fmt$, fmtNum, pairUrlId } from '../components/format';
 import { KindBadge } from '../components/KindBadge';
@@ -21,17 +22,6 @@ const TopBar = styled.div`
   align-items: center;
   & > * + * { margin-left: 12px; }
   margin-bottom: 20px;
-`;
-
-const BackBtn = styled.button`
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 18px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  &:hover { background: rgba(255, 255, 255, 0.06); color: white; }
 `;
 
 const Card = styled.div`
@@ -292,8 +282,7 @@ export const AssetDetail: React.FC = () => {
   return (
     <Page>
       <TopBar>
-        <BackBtn onClick={() => navigate('/assets')}>←</BackBtn>
-        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Back to Assets</span>
+        <BackButton to="/assets" label="Back to Assets" />
       </TopBar>
 
       <Card>

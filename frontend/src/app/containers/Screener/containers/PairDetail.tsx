@@ -11,6 +11,7 @@ import type {
 } from '../api/types';
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import { ROUTES } from '@app/shared/constants';
+import { BackButton } from '@app/shared/components/BackButton';
 import { Chart } from '../components/Chart';
 import { IconsPair } from '../components/IconsPair';
 import { KindBadge, TiersBadge } from '../components/KindBadge';
@@ -122,20 +123,6 @@ const TopBar = styled.div`
   & > * + * { margin-left: 12px; }
   padding: 12px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-`;
-
-const BackBtn = styled.button`
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 18px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  &:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: white;
-  }
 `;
 
 const TopTitle = styled.div`
@@ -660,7 +647,7 @@ export const PairDetail: React.FC = () => {
       <Layout>
       <Left>
         <TopBar>
-          <BackBtn onClick={() => navigate(ROUTES.NAV.DEX)}>←</BackBtn>
+          <BackButton onClick={() => navigate(ROUTES.NAV.DEX)} label="Back" />
           <IconsPair aid1={p.aid1} aid2={p.aid2} size={32} />
           <div>
             <TopTitle>

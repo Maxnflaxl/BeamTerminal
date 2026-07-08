@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { css } from '@linaria/core';
 import { Page, Pill, ErrorBox, DataTable, ScrollX, Btn, Muted, theme } from '../shared';
 import { ROUTES } from '@app/shared/constants';
+import { BackButton } from '@app/shared/components/BackButton';
 import { api } from '../../../api/client';
 import type { ApiDaoProposalDetail } from '../../../api/types';
 import ReactMarkdown from 'react-markdown';
@@ -12,25 +13,8 @@ import { fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeL
 
 const LIMIT = 25;
 
-const backCls = css`
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 6px 14px;
+const backSpacing = css`
   margin-bottom: 16px;
-  border-radius: 6px;
-  border: 1px solid ${theme.color.border};
-  background: ${theme.color.surface2};
-  color: ${theme.color.accent};
-  text-decoration: none;
-  transition: background 0.15s, border-color 0.15s;
-  &:hover {
-    background: ${theme.color.rowHover};
-    border-color: ${theme.color.accent};
-    color: ${theme.color.accent};
-  }
 `;
 const TitleRow = styled.div`
   display: flex;
@@ -164,7 +148,7 @@ export const DaoProposal: React.FC = () => {
 
   return (
     <Page>
-      <Link to={ROUTES.NAV.EXPLORER_DAO_GOVERNANCE} className={backCls}>← Governance</Link>
+      <BackButton to={ROUTES.NAV.EXPLORER_DAO_GOVERNANCE} label="Governance" className={backSpacing} />
       {error && <ErrorBox>Failed to load proposal: {error}</ErrorBox>}
       {!p && !error && <Muted>Loading…</Muted>}
       {p && (
