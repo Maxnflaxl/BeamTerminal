@@ -8,6 +8,7 @@ A DEX terminal and analytics explorer for [BEAM](https://beam.mw) — live tradi
 - **Pair charts** — candlestick price history across six timeframes, from one minute to one day, alongside a liquidity-over-time chart and fee-tier-aware trade and liquidity activity feeds.
 - **Liquidity position analyzer** — follow a position across multiple add and remove operations, including partial withdrawals, with profit and loss shown in both USD and BEAM.
 - **Assets** — supply and issuance for every confidential asset, the on-chain owner, logos and brand colors, and a built-in registry that flags scam tokens impersonating the real ones.
+- **DAO explorer** — the BEAM DAO's on-chain activity: treasury holdings and value over time, protocol revenue broken down by source, pool, and fee tier, and full governance — proposals, tallies, quorum and turnout, and every individual vote with the voter's stake-weight.
 - **DApp Store** — the full publish history of every app, with verifiable publish and update dates taken from the chain, publisher profiles, social links, and one-click downloads.
 - **Atomic & asset swaps** — open atomic-swap offers, plus the wallet-only asset-to-asset offers that the public explorer can't serve.
 - **Public IPFS gateway** — streams DApp Store content from BEAM's private network, with active content neutralized at the edge and every app pinned automatically.
@@ -17,7 +18,7 @@ A DEX terminal and analytics explorer for [BEAM](https://beam.mw) — live tradi
 
 ## How it works
 
-BeamTerminal runs its own BEAM node and watches every new block. It decodes each DEX trade, liquidity event, asset change, and oracle update, and stores them in a time-series database — so the site can serve fast charts and feeds without querying the chain on every request. A read-only wallet service, holding no funds, backs the asset-swap order books and IPFS downloads. Everything is served over a REST API behind nginx; nothing is ever written back to the chain.
+BeamTerminal runs its own BEAM node and watches every new block. It decodes each DEX trade, liquidity event, asset change, oracle update, and DAO treasury and governance action, and stores them in a time-series database — so the site can serve fast charts and feeds without querying the chain on every request. A read-only wallet service, holding no funds, backs the asset-swap order books and IPFS downloads. Everything is served over a REST API behind nginx; nothing is ever written back to the chain.
 
 ---
 
@@ -25,7 +26,7 @@ BeamTerminal runs its own BEAM node and watches every new block. It decodes each
 
 Four long-lived processes on a single host, with nginx terminating TLS:
 
-1. **Explorer node** — a pinned BEAM binary that runs a full node and exposes an HTTP explorer API. It decodes contract calls into typed data for us; we never build it ourselves.
+1. **Explorer node** — a pinned BEAM binary that runs a full node and exposes an HTTP explorer API. It decodes contract calls, state, and logs into typed data via the rich-parser shader (the DEX, DAO treasury, and governance decoders).
 2. **Indexer** — a Node.js + TypeScript service that polls the explorer every 30 seconds: check for reorgs, read the new head, snapshot the oracle and pool reserves, ingest contract calls, and promote them to confirmed after 80 blocks. A single process with a single writer — the invariant that keeps reorg recovery simple.
 3. **API** — a read-only Fastify server over Postgres. It serves the UI-facing endpoints, the CoinGecko feed, the public IPFS gateway, and the in-wallet app-download proxy.
 4. **Wallet API** — a pinned, read-only BEAM wallet daemon (no funds) that joins BEAM's private IPFS swarm. It backs the asset-swap order books, the DApp Store projection, and IPFS content retrieval.
