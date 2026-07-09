@@ -112,7 +112,7 @@ Response:
       "price":           "29.34293421",
       "base_volume":     "10",
       "target_volume":   "293.4293421",
-      "trade_timestamp": 1747400940000,
+      "trade_timestamp": 1747400940,
       "type":            "buy"
     }
   ],
@@ -122,7 +122,7 @@ Response:
       "price":           "29.33102233",
       "base_volume":     "5",
       "target_volume":   "146.65511165",
-      "trade_timestamp": 1747400600000,
+      "trade_timestamp": 1747400600,
       "type":            "sell"
     }
   ]
@@ -137,7 +137,7 @@ Response:
 | `price` | `trades.price_native` (aid2 per aid1), decimal string. |
 | `base_volume` | `volume_aid1` in whole units (`/ 10^decimals1`), decimal string. |
 | `target_volume` | `volume_aid2` in whole units, decimal string. |
-| `trade_timestamp` | Unix **milliseconds** (per CG spec — note our internal API uses seconds). |
+| `trade_timestamp` | Unix **seconds** (per CG spec). |
 | `type` | `"buy"` if `aid_in == pools.aid2` — the user paid the target to acquire the base, matching the AMM contract's `m_Buy1` (= buy aid1); `"sell"` otherwise. |
 
 Filters:

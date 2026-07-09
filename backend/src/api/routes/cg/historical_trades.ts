@@ -9,7 +9,7 @@ import { BadRequest, NotFound } from '../../error.js';
  *   ticker_id = "<aid1>_<aid2>_<kind>"
  *
  * Returns confirmed trades only. Split into `buy` and `sell` arrays per the
- * spec. `trade_timestamp` is unix MILLISECONDS (not seconds).
+ * spec. `trade_timestamp` is unix SECONDS (per CG spec).
  *
  * Buy/sell convention (per CG): "buy" = the base (aid1) was bought. Per the AMM
  * contract's Trade primitive (m_Buy1 = buy aid1; FundsUnlock aid1, FundsLock aid2),
@@ -140,7 +140,7 @@ function formatTrade(r: TradeRow, isBuy: boolean) {
     price: toDecimal(price),
     base_volume: toDecimal(baseVol),
     target_volume: toDecimal(targetVol),
-    trade_timestamp: r.block_ts.getTime(), // ms per CG spec
+    trade_timestamp: Math.floor(r.block_ts.getTime() / 1000), // unix seconds per CG spec
     type: isBuy ? 'buy' : 'sell',
   };
 }
