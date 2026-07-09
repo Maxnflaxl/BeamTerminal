@@ -27,7 +27,10 @@ async function render(md, sectionId) {
   const toc = [];
   const seen = new Set();
   html = html.replace(/<h([23])[^>]*>([\s\S]*?)<\/h\1>/g, (_m, lvl, inner) => {
-    const text = inner.replace(/<[^>]+>/g, '').trim();
+    // inner is marked-rendered heading HTML; extract plain text for the slug + TOC label.
+    // Strip whole tags, then drop any stray angle brackets so a split/partial tag can't
+    // leave "<script" (or similar) behind when text is re-embedded as HTML below.
+    const text = inner.replace(/<[^>]+>/g, '').replace(/[<>]/g, '').trim();
     let id = `${sectionId}-${slug(text)}`;
     while (seen.has(id)) id += '-x';
     seen.add(id);
