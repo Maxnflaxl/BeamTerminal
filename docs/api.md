@@ -565,9 +565,9 @@ All optional. With none, the endpoint returns the full daily history — the ori
 | `from` | unix seconds | — | Start of a zoom window. Must be sent together with `to`. |
 | `to` | unix seconds | — | End of a zoom window. Must be greater than `from`. |
 
-**Default mode** — no `from`/`to`. Returns the full-history series at daily (`res=1d`) or hourly (`res=1h`) resolution. Hourly exists for every series **except** `beam-vol`, `dex-vol`, and `blackhole`; requesting `res=1h` on those silently serves `1d`. Both resolutions come from the in-process cache described above, so `Cache-Control` is the per-series `max-age` in the table below.
+**Default mode** — no `from`/`to`. Returns the full-history series at daily (`res=1d`) or hourly (`res=1h`) resolution. Hourly exists for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, and `pools-closed`; requesting `res=1h` on those silently serves `1d`. Both resolutions come from the in-process cache described above, so `Cache-Control` is the per-series `max-age` in the table below.
 
-**Range ("zoom") mode** — `from` **and** `to` both present. Returns only the points inside `[from, to)`, served from a separate tile-quantized, bounded cache, at `res=1m|1h|1d` (default `1d`). Supported for every series **except** `beam-vol`, `dex-vol`, and `blackhole`, which are daily-only and return an empty `series` here. Bad bounds (`to ≤ from`, or non-numeric) yield `400 {"error":"bad from/to"}`. `Cache-Control: public, max-age=86400` once the whole window has settled (`to` older than the ~80-minute / 80-block confirmation horizon), otherwise `max-age=60`.
+**Range ("zoom") mode** — `from` **and** `to` both present. Returns only the points inside `[from, to)`, served from a separate tile-quantized, bounded cache, at `res=1m|1h|1d` (default `1d`). Supported for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, and `pools-closed`, which are daily-only and return an empty `series` here. Bad bounds (`to ≤ from`, or non-numeric) yield `400 {"error":"bad from/to"}`. `Cache-Control: public, max-age=86400` once the whole window has settled (`to` older than the ~80-minute / 80-block confirmation horizon), otherwise `max-age=60`.
 
 Both modes return the same `{ "series": [ … ] }` shape and honor `ETag` / `If-None-Match` (304 when unchanged).
 
@@ -585,6 +585,8 @@ Available series (the full set is defined in `backend/src/api/routes/charts.ts`)
 | `dex-volume` | USD | 1800 s | Postgres: daily DEX volume in USD |
 | `beam-vol` | percent (annualized) | 1800 s | Postgres: 30-day rolling realized volatility of BEAM/USD |
 | `dex-vol` | percent (annualized) | 1800 s | Postgres: TVL-weighted per-pool 30-day rolling realized volatility |
+| `pools-created` | cumulative count | 1800 s | Postgres: cumulative pools created over time, from `pools.created_at_height` |
+| `pools-closed` | cumulative count | 1800 s | Postgres: cumulative pools destroyed over time, from `pools.destroyed_at_height` |
 | `transactions-daily` | count/day | 600 s | Explorer `/hdrs` |
 | `transactions-total` | cumulative count | 600 s | Explorer `/hdrs` |
 | `txos-total` | cumulative count | 600 s | Explorer `/hdrs` |

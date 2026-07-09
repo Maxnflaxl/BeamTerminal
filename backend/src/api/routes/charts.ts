@@ -324,6 +324,55 @@ const ASSETS_HOURLY_SQL = `
    ORDER BY hour
 `;
 
+// Cumulative count of pools ever created, per day. Mirrors ASSETS_SQL:
+// COALESCE(block_metrics, block_timestamps) maps the on-chain create height to a
+// day (both tables cover DEX-touched heights). No filtering — every pools row is
+// a pool that was created (imposters included; lifecycle count, not a live list).
+const POOLS_CREATED_SQL = `
+  WITH pool_days AS (
+    SELECT p.pool_id,
+           time_bucket(INTERVAL '1 day', COALESCE(bm.block_ts, bt.ts)) AS day
+      FROM pools p
+      LEFT JOIN block_metrics    bm ON bm.height = p.created_at_height
+      LEFT JOIN block_timestamps bt ON bt.height = p.created_at_height
+  ),
+  per_day AS (
+    SELECT day, COUNT(*) AS n
+      FROM pool_days
+     WHERE day IS NOT NULL
+     GROUP BY day
+  )
+  SELECT EXTRACT(epoch FROM day)::bigint AS ts,
+         SUM(n) OVER (ORDER BY day)::float8 AS value
+    FROM per_day
+   ORDER BY day
+`;
+
+// Cumulative count of pools destroyed, per day. Same shape as POOLS_CREATED_SQL
+// but keyed on destroyed_at_height and filtered to dead pools. The DEX contract
+// only allows PoolDestroy after all liquidity is withdrawn, so death is a real,
+// exact event (destroyed_at_height is never approximate).
+const POOLS_CLOSED_SQL = `
+  WITH pool_days AS (
+    SELECT p.pool_id,
+           time_bucket(INTERVAL '1 day', COALESCE(bm.block_ts, bt.ts)) AS day
+      FROM pools p
+      LEFT JOIN block_metrics    bm ON bm.height = p.destroyed_at_height
+      LEFT JOIN block_timestamps bt ON bt.height = p.destroyed_at_height
+     WHERE p.destroyed_at_height IS NOT NULL
+  ),
+  per_day AS (
+    SELECT day, COUNT(*) AS n
+      FROM pool_days
+     WHERE day IS NOT NULL
+     GROUP BY day
+  )
+  SELECT EXTRACT(epoch FROM day)::bigint AS ts,
+         SUM(n) OVER (ORDER BY day)::float8 AS value
+    FROM per_day
+   ORDER BY day
+`;
+
 // Per-day DEX volume in USD. Daily granularity throughout (we don't actually
 // need hourly precision for a multi-year chart). Materializes:
 //   - per-day BEAM/USD from oracle_snapshots,
@@ -770,6 +819,8 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'difficulty', sql: DIFFICULTY_SQL, hourlySql: DIFFICULTY_HOURLY_SQL, maxAgeSec: 600 },
   { name: 'block-time', sql: BLOCK_TIME_SQL, hourlySql: BLOCK_TIME_HOURLY_SQL, maxAgeSec: 600 },
   { name: 'tvl',        sql: TVL_SQL,        hourlySql: TVL_HOURLY_SQL,        maxAgeSec: 1800 },
+  { name: 'pools-created', sql: POOLS_CREATED_SQL, maxAgeSec: 1800 },
+  { name: 'pools-closed',  sql: POOLS_CLOSED_SQL,  maxAgeSec: 1800 },
   { name: 'beam-vol',   sql: BEAM_VOL_SQL,   maxAgeSec: 1800 },
   { name: 'dex-vol',    sql: DEX_VOL_SQL,    maxAgeSec: 1800 },
   { name: 'price',      sql: PRICE_SQL,      hourlySql: PRICE_HOURLY_SQL,      maxAgeSec: 600 },
