@@ -138,7 +138,7 @@ Response:
 | `base_volume` | `volume_aid1` in whole units (`/ 10^decimals1`), decimal string. |
 | `target_volume` | `volume_aid2` in whole units, decimal string. |
 | `trade_timestamp` | Unix **milliseconds** (per CG spec — note our internal API uses seconds). |
-| `type` | `"buy"` if `aid_in == pools.aid1` (user spent the base to receive the target), `"sell"` otherwise. |
+| `type` | `"buy"` if `aid_in == pools.aid2` — the user paid the target to acquire the base, matching the AMM contract's `m_Buy1` (= buy aid1); `"sell"` otherwise. |
 
 Filters:
 

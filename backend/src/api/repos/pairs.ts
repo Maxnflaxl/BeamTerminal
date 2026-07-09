@@ -156,8 +156,8 @@ export async function listPairs(opts: ListOpts): Promise<PairRowRaw[]> {
       SELECT
         SUM(volume_aid1)                       AS volume_24h_aid1,
         count(*)                               AS trades_24h,
-        count(*) FILTER (WHERE aid_in = p.aid1) AS buys_24h,
-        count(*) FILTER (WHERE aid_in = p.aid2) AS sells_24h
+        count(*) FILTER (WHERE aid_in = p.aid2) AS buys_24h,
+        count(*) FILTER (WHERE aid_in = p.aid1) AS sells_24h
       FROM trades t
       WHERE t.pool_id = p.pool_id
         AND t.block_ts > now() - INTERVAL '24 hours'

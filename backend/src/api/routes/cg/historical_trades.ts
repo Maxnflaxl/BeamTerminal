@@ -11,9 +11,10 @@ import { BadRequest, NotFound } from '../../error.js';
  * Returns confirmed trades only. Split into `buy` and `sell` arrays per the
  * spec. `trade_timestamp` is unix MILLISECONDS (not seconds).
  *
- * Buy/sell convention (per CG): "buy" = ask removed (user removed an ask,
- * i.e. bought the target with the base). For our AMM, that maps to a trade
- * where the user paid in the base (aid1) and received the target (aid2).
+ * Buy/sell convention (per CG): "buy" = the base (aid1) was bought. Per the AMM
+ * contract's Trade primitive (m_Buy1 = buy aid1; FundsUnlock aid1, FundsLock aid2),
+ * that's a swap where the user paid the target (aid2) and received the base (aid1)
+ * — so aid_in == aid2.
  */
 
 const Query = z.object({
@@ -116,7 +117,8 @@ export async function cgHistoricalTradesRoutes(app: FastifyInstance): Promise<vo
       const sell: ReturnType<typeof formatTrade>[] = [];
       const aid1Pool = Number(pool.aid1);
       for (const r of rows) {
-        const isBuy = Number(r.aid_in) === aid1Pool;
+        // buy = base (aid1) acquired ⇒ target (aid2) paid in, so aid_in != aid1.
+        const isBuy = Number(r.aid_in) !== aid1Pool;
         const item = formatTrade(r, isBuy);
         if (opts.type === 'buy' && !isBuy) continue;
         if (opts.type === 'sell' && isBuy) continue;

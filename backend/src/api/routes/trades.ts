@@ -186,7 +186,10 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
       const aid1 = Number(r.aid1);
       const aidIn = Number(r.aid_in);
       const priceNative = r.price_native ? Number(r.price_native) : null;
-      const side: 'buy' | 'sell' = aidIn === aid1 ? 'buy' : 'sell';
+      // buy = the base (aid1) was acquired, i.e. the target (aid2) was paid in.
+      // Per the AMM Trade primitive (m_Buy1 = buy aid1), aid_in == aid1 means the
+      // user paid the base → sell.
+      const side: 'buy' | 'sell' = aidIn === aid1 ? 'sell' : 'buy';
       const volumeAid1Human = r.volume_aid1
         ? Number(r.volume_aid1) / 10 ** r.decimals1
         : null;
