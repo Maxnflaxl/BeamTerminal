@@ -215,6 +215,16 @@ function useTiered(
   return res === '1h' ? hourly : daily;
 }
 
+// Prepend a synthetic 0 one day before the first datum so a cumulative-count
+// series visually starts from 0 (the DEX had 0 pools before the first create)
+// instead of opening at its first day's running total. No-op on an empty or
+// missing series.
+function withZeroBaseline(state: FetchState<ApiChartSeries>): FetchState<ApiChartSeries> {
+  const s = state.data?.series;
+  if (!s || s.length === 0) return state;
+  return { ...state, data: { series: [{ ts: s[0].ts - 86_400, value: 0 }, ...s] } };
+}
+
 type Category = 'blockchain' | 'lelantus' | 'defi';
 const CATEGORIES: ReadonlyArray<{ key: Category; label: string }> = [
   { key: 'blockchain', label: 'Blockchain' },
@@ -729,6 +739,8 @@ interface ChartCellProps {
   logScale?: boolean;
   chartKey?: string;
   hideAmml?: boolean;
+  /** Message shown when the series has no points (defaults to "No data"). */
+  emptyLabel?: string;
   onExpand: () => void;
 }
 
@@ -846,7 +858,7 @@ const ChartShell: React.FC<{
 };
 
 const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
-  { state, title, timeframe, scale, formatter, logScale, chartKey, onExpand, onToggleLog },
+  { state, title, timeframe, scale, formatter, logScale, chartKey, emptyLabel, onExpand, onToggleLog },
 ) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
@@ -854,10 +866,10 @@ const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
   );
   return (
     <ChartShell title={title} logScale={logScale} onExpand={onExpand} onToggleLog={onToggleLog}>
-      {filtered ? (
+      {filtered && filtered.length > 0 ? (
         <InnerChart chartKey={chartKey} series={filtered} title="" scale={scale} formatter={formatter} logScale={logScale} />
       ) : (
-        <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
+        <Loading>{state.error ?? (state.loading ? 'Loading…' : (emptyLabel ?? 'No data'))}</Loading>
       )}
     </ChartShell>
   );
@@ -899,6 +911,8 @@ interface ChartSpec {
   scale?: number;
   formatter: (v: number) => string;
   overlay?: { state: FetchState<ApiChartSeries>; label: string };
+  /** Message shown when the series is empty (defaults to "No data"). */
+  emptyLabel?: string;
 }
 
 export const NetworkCharts: React.FC = () => {
@@ -922,6 +936,11 @@ export const NetworkCharts: React.FC = () => {
   const dexVolume  = useTiered(() => api.charts.dexVolume(), () => api.charts.dexVolume({ res: '1h' }), res);
   const beamVol    = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
   const dexVol     = useOneShot<ApiChartSeries>(() => api.charts.dexVol());
+  const poolsCreatedRaw = useOneShot<ApiChartSeries>(() => api.charts.poolsCreated());
+  const poolsClosedRaw  = useOneShot<ApiChartSeries>(() => api.charts.poolsClosed());
+  // Start the cumulative pool-count charts at 0 rather than their first day's total.
+  const poolsCreated = useMemo(() => withZeroBaseline(poolsCreatedRaw), [poolsCreatedRaw]);
+  const poolsClosed  = useMemo(() => withZeroBaseline(poolsClosedRaw), [poolsClosedRaw]);
 
   // DEX volume (total) is an all-time cumulative — it can only come from the
   // daily tier (the hourly tier is a bounded trailing-24h window). Derive its
@@ -1024,6 +1043,8 @@ export const NetworkCharts: React.FC = () => {
     // DeFi — standalone
     { key: 'price',              title: 'BEAM/USD (oracle median)', state: price,            formatter: fmtUsd, category: 'defi' },
     { key: 'tvl',                title: 'DEX TVL',                state: tvl,                formatter: fmtUsd, category: 'defi' },
+    { key: 'poolsCreated',       title: 'DEX Pools created (total)', state: poolsCreated,   formatter: fmtInt, category: 'defi' },
+    { key: 'poolsClosed',        title: 'DEX Pools closed (total)',  state: poolsClosed,    formatter: fmtInt, category: 'defi', emptyLabel: 'No pools closed yet' },
     { key: 'beamVol',            title: 'BEAM Volatility Index (30d)', state: beamVol,       formatter: fmtVol, category: 'defi' },
     { key: 'dexVol',             title: 'DEX Volatility Index (30d)',  state: dexVol,        formatter: fmtVol, category: 'defi' },
     { key: 'blackhole',          title: 'Black Hole (assets burned)',  multiState: blackhole, formatter: fmtNative, category: 'defi' },
@@ -1115,6 +1136,7 @@ export const NetworkCharts: React.FC = () => {
               scale={c.scale}
               formatter={c.formatter}
               logScale={!!logPerKey[c.key]}
+              emptyLabel={c.emptyLabel}
               onExpand={() => setExpandedKey(c.key)}
               onToggleLog={() => toggleLog(c.key)}
             />
@@ -1211,6 +1233,7 @@ export const NetworkCharts: React.FC = () => {
                   formatter={expanded.formatter}
                   logScale={!!logPerKey[expanded.key]}
                   hideAmml={hideAmml}
+                  emptyLabel={expanded.emptyLabel}
                   overlay={expanded.overlay}
                 />
               )}
@@ -1224,7 +1247,7 @@ export const NetworkCharts: React.FC = () => {
 
 const ExpandedChart: React.FC<
   Omit<ChartCellProps, 'onExpand'> & { overlay?: { state: FetchState<ApiChartSeries>; label: string }; interval: ZoomRes | 'auto'; onViewSpan: (spanSec: number) => void }
-> = ({ chartKey, state, title, timeframe, interval, scale, formatter, logScale, hideAmml, overlay, onViewSpan }) => {
+> = ({ chartKey, state, title, timeframe, interval, scale, formatter, logScale, hideAmml, emptyLabel, overlay, onViewSpan }) => {
   const ladder = (chartKey && LADDERS[chartKey]) || ['1d'];
   const fetcher = chartKey ? RANGE_FETCHERS[chartKey] : undefined;
   // `assets` renders through ConfidentialAssetsChart (no range support here), so
@@ -1315,7 +1338,7 @@ const ExpandedChart: React.FC<
     error = state.error;
   }
 
-  if (!shown) return <Loading>{error ?? (loading ? 'Loading…' : 'No data')}</Loading>;
+  if (!shown || shown.length === 0) return <Loading>{error ?? (loading ? 'Loading…' : (emptyLabel ?? 'No data'))}</Loading>;
   return (
     <InnerChart
       chartKey={chartKey}

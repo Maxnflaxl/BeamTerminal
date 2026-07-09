@@ -46,4 +46,5 @@ export const LADDERS: Record<string, ZoomRes[]> = {
   shieldedOuts: FULL, shieldedOutsTotal: FULL, contractsTotal: FULL, feesDaily: FULL, feesTotal: FULL,
   callsDaily: FULL, callsTotal: FULL,
   beamVol: DAILY, dexVol: DAILY, dexVolumeCumulative: DAILY, blackhole: DAILY,
+  poolsCreated: DAILY, poolsClosed: DAILY,
 };

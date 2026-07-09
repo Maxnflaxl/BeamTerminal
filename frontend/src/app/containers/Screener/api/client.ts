@@ -177,6 +177,8 @@ export const api = {
     price:      (o: { res?: ChartRes; from?: number; to?: number } = {}) => get<ApiChartSeries>(`/charts/price${qs(o)}`),
     blockTime:  (o: { res?: ChartRes; from?: number; to?: number } = {}) => get<ApiChartSeries>(`/charts/block-time${qs(o)}`),
     tvl:        (o: { res?: ChartRes; from?: number; to?: number } = {}) => get<ApiChartSeries>(`/charts/tvl${qs(o)}`),
+    poolsCreated: (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/pools-created'),
+    poolsClosed:  (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/pools-closed'),
     beamVol:    (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/beam-vol'),
     dexVol:     (): Promise<ApiChartSeries> => get<ApiChartSeries>('/charts/dex-vol'),
     transactionsDaily:   (o: { res?: ChartRes; from?: number; to?: number } = {}) => get<ApiChartSeries>(`/charts/transactions-daily${qs(o)}`),
