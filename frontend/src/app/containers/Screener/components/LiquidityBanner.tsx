@@ -108,7 +108,7 @@ const Controls = styled.div`
 const TiersGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-gap: 12px;
   padding: 8px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   margin-top: 8px;

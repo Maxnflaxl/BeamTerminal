@@ -23,7 +23,7 @@ const Inner = styled.div`
   padding: 28px 16px 20px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 24px;
+  grid-gap: 24px;
 
   @media (max-width: 800px) {
     grid-template-columns: 1fr 1fr;

@@ -5,6 +5,7 @@ import { ROUTES } from '@app/shared/constants';
 import { usePairs, useStats } from '../hooks';
 import type { ApiPair, SortKey, SortOrder } from '../api/types';
 import { StatsBar } from '../components/StatsBar';
+import { ScreenerTable } from '../components/ScreenerTable';
 import { IconsPair } from '../components/IconsPair';
 import { TiersBadge } from '../components/KindBadge';
 import { Sparkline } from '../components/Sparkline';
@@ -171,7 +172,7 @@ const SortPill = styled.button<{ active?: boolean }>`
 const Card = styled.div`
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 10px;
+  grid-gap: 10px;
   padding: 12px;
   margin-bottom: 8px;
   background: rgba(255, 255, 255, 0.02);
@@ -211,7 +212,7 @@ const CardSub = styled.div`
 const CardStats = styled.div`
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 2px 12px;
+  grid-gap: 2px 12px;
   margin-top: 4px;
   font-family: 'SFProDisplay', monospace;
   font-size: 12px;
@@ -241,53 +242,14 @@ const CardSide = styled.div`
   & > * + * { margin-top: 6px; }
 `;
 
-const Table = styled.table`
-  width: 100%;
+// Sortable-header variant: every header is clickable and the active one turns green.
+const Table = styled(ScreenerTable)`
   min-width: 760px;
-  border-collapse: collapse;
-  font-size: 14px;
-
   th {
-    text-align: left;
-    padding: 10px 12px;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    white-space: nowrap;
     cursor: pointer;
     user-select: none;
-    &:hover {
-      color: rgba(255, 255, 255, 0.8);
-    }
-    &.sorted {
-      color: var(--color-green);
-    }
-  }
-  td {
-    padding: 10px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    vertical-align: middle;
-  }
-  tbody tr {
-    cursor: pointer;
-    transition: background 0.15s;
-    &:hover {
-      background: rgba(255, 255, 255, 0.03);
-    }
-  }
-  .mono {
-    font-family: 'SFProDisplay', monospace;
-  }
-  .positive {
-    color: var(--color-green);
-  }
-  .negative {
-    color: var(--color-red);
-  }
-  .neutral {
-    color: rgba(255, 255, 255, 0.5);
+    &:hover { color: rgba(255, 255, 255, 0.8); }
+    &.sorted { color: var(--color-green); }
   }
 `;
 

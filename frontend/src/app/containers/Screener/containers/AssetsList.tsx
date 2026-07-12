@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import { useAssets } from '../hooks';
 import { fmtNum } from '../components/format';
+import { ScreenerTable } from '../components/ScreenerTable';
 
 const Page = styled.div`
   width: 100%;
@@ -144,32 +145,10 @@ const ACardStat = styled.div`
   }
 `;
 
-const Table = styled.table`
-  width: 100%;
+// Top-aligned cells so multi-line descriptions sit at the row top.
+const Table = styled(ScreenerTable)`
   min-width: 720px;
-  border-collapse: collapse;
-  font-size: 14px;
-
-  th {
-    text-align: left;
-    padding: 10px 12px;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    white-space: nowrap;
-  }
-  td {
-    padding: 10px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    vertical-align: top;
-  }
-  tbody tr {
-    cursor: pointer;
-    transition: background 0.15s;
-    &:hover { background: rgba(255, 255, 255, 0.03); }
-  }
+  && td { vertical-align: top; }
 `;
 
 const Cell = styled.div`

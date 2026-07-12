@@ -7,6 +7,7 @@ import { BackButton } from '@app/shared/components/BackButton';
 import { useAsset, useAssetDistribution, useAssetHistory, usePairs } from '../hooks';
 import { fmt$, fmtNum, pairUrlId } from '../components/format';
 import { KindBadge } from '../components/KindBadge';
+import { ScreenerTable } from '../components/ScreenerTable';
 import { SupplyChart } from '../components/SupplyChart';
 
 const Page = styled.div`
@@ -154,27 +155,15 @@ const Tabs = styled.div`
   }
 `;
 
-const Table = styled.table`
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-  th {
-    text-align: left;
+// Tighter padding + dimmer headers than the list variant (detail-page tables).
+const Table = styled(ScreenerTable)`
+  && th {
     padding: 8px 12px;
-    font-size: 11px;
     color: rgba(255, 255, 255, 0.4);
-    text-transform: uppercase;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    letter-spacing: normal;
+    white-space: normal;
   }
-  td {
-    padding: 8px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  }
-  tbody tr {
-    cursor: pointer;
-    &:hover { background: rgba(255, 255, 255, 0.03); }
-  }
-  .mono { font-family: 'SFProDisplay', monospace; }
+  && td { padding: 8px 12px; }
 `;
 
 const Empty = styled.div`
