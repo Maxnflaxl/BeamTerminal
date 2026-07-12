@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import {
-  Page, Card, ExplorerHeader, H1, Muted, TabBtn,
+  Page, Card, ExplorerHeader, H1, H2, Subtitle, Muted, TabBtn,
   Pill, DataTable, ScrollX, ErrorBox, theme,
 } from './shared';
-import { BeamIcon as BeamIconSvg } from '@app/shared/icons';
-import { BEAM_ID } from '@app/shared/constants';
+import AssetsSwapGlyph from '@app/shared/icons/icon-assets-swap.svg';
+import AssetIcon from '@app/shared/components/AssetsIcon';
 import { api } from '../../api/client';
 import type {
   ApiAssetSwapOffer,
@@ -20,23 +20,14 @@ const AssetCell = styled.span`
   white-space: nowrap;
 `;
 
-const AssetIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: ${theme.color.surface2};
-  border: 1px solid ${theme.color.borderDim};
-  overflow: hidden;
+// The shared AssetIcon already resolves branded glyphs (BEAM/BeamX/NPH), a
+// colour-tinted generic glyph for unknown assets, and falls back off a broken
+// logo URL — so external logos blocked by the wallet's COEP degrade gracefully
+// instead of showing an empty circle. Strip its default right margin; the cell
+// handles spacing.
+const CellIcon = styled(AssetIcon)`
+  margin-right: 0;
   flex: 0 0 18px;
-  img, svg {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
 `;
 
 const AssetAid = styled.span`
@@ -50,8 +41,6 @@ const AssetAid = styled.span`
 // the wallet-api daemon's `assets_swap_offers_list`.
 // ---------------------------------------------------------------------------
 
-const REFRESH_MS = 30_000;
-
 type FilterTab = 'open' | 'all';
 
 const Toolbar = styled.div`
@@ -61,20 +50,23 @@ const Toolbar = styled.div`
   margin: 8px 0 12px;
 `;
 
-const TopRow = styled.div`
+// Compact summary strip — one headline open-offer count plus a wrapping chip
+// row of derived counts (non-zero highlighted). Mirrors the atomic-swaps page.
+const SummaryStrip = styled.div`
   display: flex;
-  & > * + * { margin-left: 14px; }
+  align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 10px;
-`;
-
-const StatBox = styled.div`
-  flex: 1 1 140px;
   background: ${theme.color.surface2};
   border: 1px solid ${theme.color.borderDim};
   border-radius: ${theme.radius.md};
-  padding: 10px 12px;
-  min-width: 120px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+`;
+
+const Headline = styled.div`
+  display: flex;
+  flex-direction: column;
+  margin-right: 22px;
 `;
 
 const StatLabel = styled.div`
@@ -84,9 +76,62 @@ const StatLabel = styled.div`
   color: ${theme.color.muted};
 `;
 
-const StatValue = styled.div`
+const HeadNum = styled.div`
   font-family: monospace;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
   margin-top: 4px;
+`;
+
+// flex-wrap chip row spaced with the negative-outer-margin pattern — flex `gap`
+// is unsupported on the wallet's QtWebEngine 5.15.2 (Chrome 83).
+const Chips = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  margin: -4px;
+  & > * { margin: 4px; }
+`;
+
+const Chip = styled.div<{ hot?: boolean }>`
+  display: flex;
+  align-items: center;
+  & > * + * { margin-left: 6px; }
+  font-family: monospace;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: ${(p) => (p.hot ? 'rgba(0, 246, 210, 0.08)' : 'rgba(255, 255, 255, 0.04)')};
+  border: 1px solid ${(p) => (p.hot ? theme.color.accent : theme.color.borderDim)};
+  color: ${(p) => (p.hot ? theme.color.text : theme.color.muted)};
+  & .v { color: ${(p) => (p.hot ? theme.color.accent : theme.color.muted)}; }
+`;
+
+const EmptyState = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 46px 20px;
+  color: ${theme.color.muted};
+  & > * + * { margin-top: 6px; }
+`;
+
+const EmptyIcon = styled.div`
+  color: ${theme.color.accent};
+  opacity: 0.85;
+  margin-bottom: 6px;
+  & svg { display: block; width: 40px; height: 40px; }
+`;
+
+const EmptyTitle = styled.div`
+  font-size: 15px;
+  color: ${theme.color.text};
+`;
+
+const EmptySub = styled.div`
+  font-size: 12.5px;
+  max-width: 440px;
 `;
 
 function decimalsFor(asset: ApiAsset | undefined): number {
@@ -152,8 +197,6 @@ export const AssetSwaps: React.FC = () => {
 
   useEffect(() => {
     void refresh();
-    const id = setInterval(() => { void refresh(); }, REFRESH_MS);
-    return () => clearInterval(id);
   }, [refresh]);
 
   const assetIndex = useMemo(() => {
@@ -169,47 +212,54 @@ export const AssetSwaps: React.FC = () => {
     return a?.short_name ?? a?.unit_name ?? a?.name ?? fallback ?? `AID ${aid}`;
   }
 
-  // Render the `<icon> <name> (<id>)` cell used in both swap legs. BEAM (aid 0)
-  // is the chain native and has no /assets logo_url, so we fall back to the
-  // inlined branded glyph used by the rest of the app. Logos from the on-chain
-  // OPT_LOGO_URL metadata are already URL-validated upstream — accept whatever
-  // the catalogue gives us.
+  // Render the `<icon> <name> (<id>)` cell used in both swap legs. The shared
+  // AssetIcon resolves the branded glyph, palette colour, and logo-URL fallback
+  // from the aid + the REST catalogue's colour/logo fields.
   function renderAssetCell(aid: number, currencyName: string | null): React.ReactNode {
     const asset = assetIndex.get(aid);
     const label = labelForAid(aid, currencyName);
-    const logo = asset?.logo_url ?? null;
     return (
       <AssetCell>
-        <AssetIcon>
-          {logo ? <img src={logo} alt="" />
-            : aid === BEAM_ID ? <BeamIconSvg />
-              : null}
-        </AssetIcon>
+        <CellIcon asset_id={aid} size={18} color={asset?.color} logoUrl={asset?.logo_url} />
         <span>{label}</span>
         <AssetAid>(#{aid})</AssetAid>
       </AssetCell>
     );
   }
 
+  const openCount = offers ? offers.filter((o) => !o.gone_at).length : 0;
+  const mineCount = offers ? offers.filter((o) => o.is_my).length : 0;
+
   return (
     <Page>
       <ExplorerHeader>
         <div>
           <H1>Asset swaps</H1>
+          <Subtitle>Wallet-gossiped DEX-style asset-to-asset offers (no L2 chain involved).</Subtitle>
         </div>
       </ExplorerHeader>
 
-      <Card>
-        <TopRow>
-          <StatBox>
+      {offers ? (
+        <SummaryStrip>
+          <Headline>
             <StatLabel>Open offers</StatLabel>
-            <StatValue>{offers ? offers.filter((o) => !o.gone_at).length : '—'}</StatValue>
-          </StatBox>
-          <StatBox>
-            <StatLabel>Total shown</StatLabel>
-            <StatValue>{offers ? offers.length : '—'}</StatValue>
-          </StatBox>
-        </TopRow>
+            <HeadNum>{openCount}</HeadNum>
+          </Headline>
+          <Chips>
+            <Chip hot={offers.length > 0}>
+              <span>Shown</span>
+              <span className="v">{offers.length}</span>
+            </Chip>
+            <Chip hot={mineCount > 0}>
+              <span>Mine</span>
+              <span className="v">{mineCount}</span>
+            </Chip>
+          </Chips>
+        </SummaryStrip>
+      ) : null}
+
+      <Card>
+        <H2>Offers</H2>
         <Toolbar>
           <TabBtn type="button" data-active={tab === 'open'} onClick={() => setTab('open')}>Open</TabBtn>
           <TabBtn type="button" data-active={tab === 'all'}  onClick={() => setTab('all')}>All (incl. closed)</TabBtn>
@@ -224,7 +274,13 @@ export const AssetSwaps: React.FC = () => {
           </ErrorBox>
         ) : null}
         {offers === null ? <Muted>Loading…</Muted>
-          : offers.length === 0 ? <Muted>No offers right now.</Muted>
+          : offers.length === 0 ? (
+            <EmptyState>
+              <EmptyIcon><AssetsSwapGlyph /></EmptyIcon>
+              <EmptyTitle>{tab === 'open' ? 'No open asset-swap offers right now' : 'No asset-swap offers found'}</EmptyTitle>
+              <EmptySub>DEX-style asset-to-asset offers created in the BEAM wallet appear here.</EmptySub>
+            </EmptyState>
+          )
             : (
               <ScrollX>
                 <DataTable>
