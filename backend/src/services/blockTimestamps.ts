@@ -43,6 +43,18 @@ async function dbPut(height: number, ts: Date): Promise<void> {
 }
 
 /**
+ * Seeds both caches with a timestamp obtained elsewhere (e.g. the head
+ * block's ts from `/status`), so later lookups for that height skip the
+ * explorer round-trip.
+ */
+export async function primeBlockTs(height: number, ts: Date): Promise<void> {
+  memorySet(height, ts);
+  await dbPut(height, ts).catch((err) =>
+    logger.warn({ err: err instanceof Error ? err.message : err, height }, 'block_ts cache write failed'),
+  );
+}
+
+/**
  * Returns the wall-clock timestamp of the given block height.
  *
  * Lookup order: in-memory cache → DB cache → explorer `/block?height=N`.

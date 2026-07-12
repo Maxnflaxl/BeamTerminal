@@ -72,25 +72,38 @@ export async function ingestContractCallsRange(cid: string, hMin: number, hMax: 
   if (calls.length === 0) return 0;
 
   const tsMap = await getBlockTsMap(calls.map((c) => c.height));
-  let written = 0;
-  for (const call of calls) {
-    const ts = tsMap.get(call.height);
-    if (!ts) { logger.warn({ cid, height: call.height }, 'no block_ts for call; skipping'); continue; }
-    await q(
-      `INSERT INTO contract_call_events
-         (cid, height, ord, block_ts, parent_ord, target_cid, kind, method, name, args, funds)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       ON CONFLICT (cid, height, ord) DO NOTHING`,
-      [
-        cid, call.height, call.ord, ts, call.parentOrd, call.targetCid, call.kind, call.method,
-        call.name,
-        call.args ? JSON.stringify(call.args) : null,
-        call.funds ? JSON.stringify(call.funds) : null,
-      ],
-    );
-    written += 1;
-  }
-  return written;
+  const rows = calls.filter((call) => {
+    if (tsMap.has(call.height)) return true;
+    logger.warn({ cid, height: call.height }, 'no block_ts for call; skipping');
+    return false;
+  });
+  if (rows.length === 0) return 0;
+  // One multi-row INSERT per page (a first dao-vault catch-up is ~130k calls —
+  // per-row round-trips would stall the tick). DO NOTHING tolerates
+  // batch-internal duplicates on the (cid, height, ord) key.
+  await q(
+    `INSERT INTO contract_call_events
+       (cid, height, ord, block_ts, parent_ord, target_cid, kind, method, name, args, funds)
+     SELECT $1, t.height, t.ord, t.block_ts, t.parent_ord, t.target_cid, t.kind, t.method, t.name, t.args, t.funds
+       FROM unnest($2::bigint[], $3::int[], $4::timestamptz[], $5::int[], $6::text[],
+                   $7::text[], $8::text[], $9::text[], $10::jsonb[], $11::jsonb[])
+              AS t(height, ord, block_ts, parent_ord, target_cid, kind, method, name, args, funds)
+     ON CONFLICT (cid, height, ord) DO NOTHING`,
+    [
+      cid,
+      rows.map((c) => c.height),
+      rows.map((c) => c.ord),
+      rows.map((c) => tsMap.get(c.height)!),
+      rows.map((c) => c.parentOrd),
+      rows.map((c) => c.targetCid),
+      rows.map((c) => c.kind),
+      rows.map((c) => c.method),
+      rows.map((c) => c.name),
+      rows.map((c) => (c.args ? JSON.stringify(c.args) : null)),
+      rows.map((c) => (c.funds ? JSON.stringify(c.funds) : null)),
+    ],
+  );
+  return rows.length;
 }
 
 /**

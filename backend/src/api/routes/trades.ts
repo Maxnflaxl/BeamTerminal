@@ -78,8 +78,6 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
     const useOffset = offset !== undefined;
     const beforeTs = before ? new Date(before * 1000) : new Date();
     const confirmedFilter = include_unconfirmed ? '' : 'AND t.confirmed = TRUE';
-    const lastHeight = await readLastIndexedHeight();
-    const beamUsd = await readBeamUsd();
 
     if (kind === 'lp') {
       // ctl_after: LP token supply at the first snapshot taken at/after the
@@ -145,42 +143,48 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
-    const { rows } = useOffset
-      ? await q<TradeRow>(
-        `SELECT t.trade_id::text, t.height::text, t.block_ts,
-                t.aid_in::text, t.aid_out::text,
-                t.amount_in::text, t.amount_out::text,
-                t.volume_aid1::text, t.volume_aid2::text,
-                t.price_native::text,
-                t.confirmed,
-                p.aid1::text, a1.decimals AS decimals1
-           FROM trades t
-           JOIN pools p   ON p.pool_id = t.pool_id
-           JOIN assets a1 ON a1.aid    = p.aid1
-          WHERE t.pool_id = ANY($1)
-            ${confirmedFilter}
-          ORDER BY t.block_ts DESC, t.trade_id DESC
-          LIMIT $2 OFFSET $3`,
-        [poolIds, limit, offset],
-      )
-      : await q<TradeRow>(
-        `SELECT t.trade_id::text, t.height::text, t.block_ts,
-                t.aid_in::text, t.aid_out::text,
-                t.amount_in::text, t.amount_out::text,
-                t.volume_aid1::text, t.volume_aid2::text,
-                t.price_native::text,
-                t.confirmed,
-                p.aid1::text, a1.decimals AS decimals1
-           FROM trades t
-           JOIN pools p   ON p.pool_id = t.pool_id
-           JOIN assets a1 ON a1.aid    = p.aid1
-          WHERE t.pool_id = ANY($1)
-            AND t.block_ts < $2
-            ${confirmedFilter}
-          ORDER BY t.block_ts DESC, t.trade_id DESC
-          LIMIT $3`,
-        [poolIds, beforeTs, limit],
-      );
+    // lastHeight/beamUsd are only consumed by this (Trade) branch; batch them
+    // with the independent rows query instead of awaiting serially up front.
+    const [lastHeight, beamUsd, { rows }] = await Promise.all([
+      readLastIndexedHeight(),
+      readBeamUsd(),
+      useOffset
+        ? q<TradeRow>(
+          `SELECT t.trade_id::text, t.height::text, t.block_ts,
+                  t.aid_in::text, t.aid_out::text,
+                  t.amount_in::text, t.amount_out::text,
+                  t.volume_aid1::text, t.volume_aid2::text,
+                  t.price_native::text,
+                  t.confirmed,
+                  p.aid1::text, a1.decimals AS decimals1
+             FROM trades t
+             JOIN pools p   ON p.pool_id = t.pool_id
+             JOIN assets a1 ON a1.aid    = p.aid1
+            WHERE t.pool_id = ANY($1)
+              ${confirmedFilter}
+            ORDER BY t.block_ts DESC, t.trade_id DESC
+            LIMIT $2 OFFSET $3`,
+          [poolIds, limit, offset],
+        )
+        : q<TradeRow>(
+          `SELECT t.trade_id::text, t.height::text, t.block_ts,
+                  t.aid_in::text, t.aid_out::text,
+                  t.amount_in::text, t.amount_out::text,
+                  t.volume_aid1::text, t.volume_aid2::text,
+                  t.price_native::text,
+                  t.confirmed,
+                  p.aid1::text, a1.decimals AS decimals1
+             FROM trades t
+             JOIN pools p   ON p.pool_id = t.pool_id
+             JOIN assets a1 ON a1.aid    = p.aid1
+            WHERE t.pool_id = ANY($1)
+              AND t.block_ts < $2
+              ${confirmedFilter}
+            ORDER BY t.block_ts DESC, t.trade_id DESC
+            LIMIT $3`,
+          [poolIds, beforeTs, limit],
+        ),
+    ]);
 
     const trades = rows.map((r) => {
       const aid1 = Number(r.aid1);

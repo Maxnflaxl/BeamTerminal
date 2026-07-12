@@ -53,24 +53,30 @@ export async function loadHistoricalPrices(
   //    reserve (stable choice, mirrors loadUsdTable's "deepest pool").
   const routePool = new Map<number, { poolId: number; otherDecimals: number }>();
   if (nonBeamAids.length > 0) {
+    // Latest snapshot per candidate pool via a per-pool LATERAL seek (indexed
+    // LIMIT 1) instead of a DISTINCT ON over the whole pool_state_snapshots
+    // hypertable, which full-scans (~4.5s — see the note in repos/usd.ts).
     const { rows: poolRows } = await q<{ aid: string; pool_id: string; other_decimals: number }>(
-      `WITH latest AS (
-         SELECT DISTINCT ON (pool_id) pool_id, reserve1
-           FROM pool_state_snapshots ORDER BY pool_id, ts DESC
-       ),
-       beam_pools AS (
+      `WITH beam_pools AS (
          SELECT p.pool_id, p.aid2 AS aid, l.reserve1 AS beam_reserve, a2.decimals AS other_decimals
            FROM pools p
-           JOIN latest l  ON l.pool_id = p.pool_id
            JOIN assets a2 ON a2.aid = p.aid2
+           CROSS JOIN LATERAL (
+             SELECT reserve1
+               FROM pool_state_snapshots ss
+              WHERE ss.pool_id = p.pool_id
+              ORDER BY ss.ts DESC
+              LIMIT 1
+           ) l
           WHERE p.aid1 = 0 AND p.destroyed_at_height IS NULL AND l.reserve1 > 0
+            AND p.aid2 = ANY($1::bigint[])
        ),
        ranked AS (
          SELECT *, ROW_NUMBER() OVER (PARTITION BY aid ORDER BY beam_reserve DESC) AS rn
            FROM beam_pools
        )
        SELECT aid::text, pool_id::text, other_decimals
-         FROM ranked WHERE rn = 1 AND aid = ANY($1::bigint[])`,
+         FROM ranked WHERE rn = 1`,
       [nonBeamAids],
     );
     for (const r of poolRows) {

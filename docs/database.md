@@ -146,9 +146,11 @@ CREATE TABLE pool_state_snapshots (
 );
 SELECT create_hypertable('pool_state_snapshots', 'ts', chunk_time_interval => INTERVAL '7 days');
 CREATE INDEX pool_state_snapshots_height_idx ON pool_state_snapshots (height);
+-- 039: serves per-pool "snapshot at/before/after height" probes as single seeks
+CREATE INDEX pool_state_snapshots_pool_height_idx ON pool_state_snapshots (pool_id, height);
 ```
 
-One row per pool per indexer tick. The hourly continuous aggregate `liquidity_1h` (below) is the long-term backing store for TVL charts.
+One row per pool per indexer tick. The hourly continuous aggregate `liquidity_1h` (below) is the long-term backing store for TVL charts and directly serves `/api/pairs/:id/liquidity?source=total` (migration 040 enables real-time aggregation so the un-materialized tail is included).
 
 ### `oracle_snapshots` — hypertable
 
@@ -208,7 +210,21 @@ CREATE TABLE dex_stats (
 INSERT INTO dex_stats (id) VALUES (1);
 ```
 
-`/api/stats.total_volume_usd` is precomputed by the indexer because the underlying query — hourly buckets of every trade, each priced against the nearest oracle snapshot and the deepest BEAM-quoted pool of each side — exceeded Cloudflare Tunnel's ~100 s edge timeout on production data. The indexer refreshes this every 5 minutes via `maybeKickDexStatsRefresh()`; the API reads it instantly.
+`/api/stats.total_volume_usd` is precomputed by the indexer because the underlying query — daily buckets of every trade, each priced against the nearest oracle snapshot and the deepest BEAM-quoted pool of each side — exceeded Cloudflare Tunnel's ~100 s edge timeout on production data. The indexer refreshes this every 5 minutes via `maybeKickDexStatsRefresh()`; the API reads it instantly.
+
+### `dex_stats_daily` — incremental daily volume materialization
+
+`migrations/041_dex_stats_daily.sql`.
+
+```sql
+CREATE TABLE dex_stats_daily (
+  day         TIMESTAMPTZ PRIMARY KEY,  -- UTC day bucket (time_bucket '1 day')
+  volume_usd  NUMERIC,                  -- NULL when the day's trades were unpriceable
+  trades      BIGINT NOT NULL DEFAULT 0
+);
+```
+
+Backs the `dex_stats` refresh: closed days are immutable (the 80-block confirmation window sits well inside the trailing window), so each 5-minute refresh recomputes only days `>= max(day) - 1 day` and sums the stored history, instead of re-scanning the full `trades`/`pool_state_snapshots`/`oracle_snapshots` hypertables. Reorg rewinds delete rows from the ancestor's day onward so affected days are recomputed.
 
 ### `schema_migrations` — migration runner
 

@@ -1,5 +1,5 @@
 import { getBlock } from '../explorer.js';
-import { q } from '../db.js';
+import { pool, q } from '../db.js';
 import { logger } from '../logger.js';
 
 interface CursorRow {
@@ -133,19 +133,36 @@ async function findCommonAncestor(startHeight: number): Promise<number> {
 }
 
 async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<void> {
-  // Single transaction so the cursor + data stay consistent.
-  await q('BEGIN');
+  // Single transaction so the cursor + data stay consistent. Must run on a
+  // dedicated client: pool.query() hands each statement to whichever pooled
+  // connection is free, so BEGIN/COMMIT and the DELETEs would not share a
+  // transaction (the tick's fire-and-forget tasks use the same pool
+  // concurrently).
+  const client = await pool.connect();
   try {
-    await q('DELETE FROM trades                WHERE height > $1', [commonHeight]);
-    await q('DELETE FROM lp_events             WHERE height > $1', [commonHeight]);
-    await q('DELETE FROM pool_state_snapshots  WHERE height > $1', [commonHeight]);
-    await q('DELETE FROM block_timestamps      WHERE height > $1', [commonHeight]);
+    await client.query('BEGIN');
+    await client.query('DELETE FROM trades                WHERE height > $1', [commonHeight]);
+    await client.query('DELETE FROM lp_events             WHERE height > $1', [commonHeight]);
+    await client.query('DELETE FROM pool_state_snapshots  WHERE height > $1', [commonHeight]);
+    // Rewound trades invalidate the daily volume materialization from the
+    // ancestor's day onward; drop those rows so the next dex_stats refresh
+    // recomputes them (all of them, when the ancestor's day is unknown).
+    // Runs BEFORE the block_timestamps purge so the ancestor's ts is still
+    // present when cached.
+    await client.query(
+      `DELETE FROM dex_stats_daily
+        WHERE day >= COALESCE(
+          (SELECT time_bucket(INTERVAL '1 day', ts) FROM block_timestamps WHERE height = $1),
+          to_timestamp(0))`,
+      [commonHeight],
+    );
+    await client.query('DELETE FROM block_timestamps      WHERE height > $1', [commonHeight]);
     // Watched-contract call history is height-keyed and reorg-cleaned like the
     // hot tables. Purge past the ancestor and clamp each contract's cursor so
     // the next tick re-ingests [ancestor+1, head] idempotently.
-    await q('DELETE FROM contract_call_events  WHERE height > $1', [commonHeight]);
-    await q('DELETE FROM dao_votes             WHERE height > $1', [commonHeight]);
-    await q(
+    await client.query('DELETE FROM contract_call_events  WHERE height > $1', [commonHeight]);
+    await client.query('DELETE FROM dao_votes             WHERE height > $1', [commonHeight]);
+    await client.query(
       `UPDATE contract_activity_cursor
           SET last_indexed_height = LEAST(last_indexed_height, $1)
         WHERE last_indexed_height > $1`,
@@ -154,11 +171,11 @@ async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<v
     // Don't touch `pools` rows — pools are largely cumulative; a pool that
     // existed at commonHeight still exists. If we mistakenly marked one as
     // `destroyed_at_height > commonHeight`, undo it.
-    await q(
+    await client.query(
       'UPDATE pools SET destroyed_at_height = NULL WHERE destroyed_at_height > $1',
       [commonHeight],
     );
-    await q(
+    await client.query(
       `UPDATE cursor
           SET last_indexed_height = $1,
               last_indexed_hash   = $2,
@@ -166,9 +183,11 @@ async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<v
         WHERE id = 1`,
       [commonHeight, newHash],
     );
-    await q('COMMIT');
+    await client.query('COMMIT');
   } catch (err) {
-    await q('ROLLBACK').catch(() => undefined);
+    await client.query('ROLLBACK').catch(() => undefined);
     throw err;
+  } finally {
+    client.release();
   }
 }

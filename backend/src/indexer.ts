@@ -1,9 +1,9 @@
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { pool, q, shutdown } from './db.js';
-import { getStatus, getContract, getBlock } from './explorer.js';
+import { getStatus, getContract } from './explorer.js';
 import { extractOracleSnapshot, OracleMedianUnavailable } from './parsers/oracle.js';
-import { getBlockTs } from './services/blockTimestamps.js';
+import { primeBlockTs } from './services/blockTimestamps.js';
 import { syncAssetsCatalog } from './services/assets.js';
 import { syncMinterTokens } from './services/minter.js';
 import { syncBeamSupply } from './services/beamSupply.js';
@@ -537,10 +537,12 @@ async function tick(): Promise<void> {
   await runDaoVoteProjection();
   maybeKickDaoStatsRefresh();
 
-  const headTs = await getBlockTs(status.height);
-  // Fetch head block to get the kernel hash for cursor persistence.
-  const headBlock = await getBlock({ height: status.height });
-  const headHash = headBlock.hash;
+  // `/status` already carries the head block's hash and timestamp — no extra
+  // explorer round-trips. Prime the block-ts caches so downstream
+  // getBlockTs/getBlockTsMap calls for the head height stay local.
+  const headTs = new Date(status.timestamp * 1000);
+  const headHash = status.hash;
+  await primeBlockTs(status.height, headTs);
 
   const last = await readCursor();
   // If we're a long way behind, run in backfill mode (calls only, no per-page

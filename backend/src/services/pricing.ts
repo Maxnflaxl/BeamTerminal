@@ -17,21 +17,28 @@ export interface AssetPrice {
 export async function getLatestUsdPrices(): Promise<Map<number, AssetPrice>> {
   const { rows } = await q<{ aid: string; decimals: number; symbol: string | null; usd_per_unit: string | null }>(
     `WITH beam AS (
-       SELECT last(beam_usd, ts) AS usd FROM oracle_snapshots
-     ),
-     latest_pool AS (
-       SELECT DISTINCT ON (pool_id) pool_id,
-              reserve1::numeric AS reserve1, reserve2::numeric AS reserve2
-         FROM pool_state_snapshots
-        ORDER BY pool_id, ts DESC
+       -- Newest oracle row via the (ts) PK instead of last() over the whole
+       -- hypertable (no time bound = every chunk scanned).
+       SELECT beam_usd AS usd FROM oracle_snapshots ORDER BY ts DESC LIMIT 1
      ),
      beam_paired AS (
+       -- Latest snapshot per BEAM-quoted pool via a per-pool LATERAL seek
+       -- (indexed LIMIT 1) instead of DISTINCT ON over the whole
+       -- pool_state_snapshots hypertable, which full-scans (~4.5s — see the
+       -- note in api/repos/usd.ts). Destroyed pools intentionally included:
+       -- their final reserves still price otherwise-unpriceable assets.
        SELECT DISTINCT ON (p.aid2) p.aid2 AS asset_aid,
-              lp.reserve1 AS beam_reserve, lp.reserve2 AS asset_reserve
-         FROM latest_pool lp
-         JOIN pools p ON p.pool_id = lp.pool_id
-        WHERE p.aid1 = 0 AND lp.reserve1 > 0 AND lp.reserve2 > 0
-        ORDER BY p.aid2, lp.reserve1 DESC
+              l.reserve1::numeric AS beam_reserve, l.reserve2::numeric AS asset_reserve
+         FROM pools p
+         CROSS JOIN LATERAL (
+           SELECT reserve1, reserve2
+             FROM pool_state_snapshots ss
+            WHERE ss.pool_id = p.pool_id
+            ORDER BY ss.ts DESC
+            LIMIT 1
+         ) l
+        WHERE p.aid1 = 0 AND l.reserve1 > 0 AND l.reserve2 > 0
+        ORDER BY p.aid2, l.reserve1 DESC
      )
      SELECT a.aid::text AS aid,
             a.decimals,

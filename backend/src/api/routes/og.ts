@@ -90,6 +90,7 @@ async function renderPairCard(poolId: number): Promise<string> {
     limit: 500,
     offset: 0,
     include_imposters: true,
+    poolIds: [poolId],
   });
   const row = rows.find((r) => Number(r.pool_id) === poolId);
   if (!row) return renderShell(`<text x="60" y="320" fill="#fff" font-size="48">Pair not found</text>`);
@@ -163,11 +164,10 @@ async function renderPairCard(poolId: number): Promise<string> {
 
 async function renderSiteCard(): Promise<string> {
   const [statsRes, cachedDex] = await Promise.all([
-    q<{ beam_usd: string | null; total_tvl_usd: string | null; volume_24h_usd: string | null; total_pairs: string | null; total_trades: string | null }>(
+    q<{ beam_usd: string | null; total_tvl_usd: string | null; volume_24h_usd: string | null; total_pairs: string | null }>(
       `SELECT
          (SELECT beam_usd::text FROM oracle_snapshots ORDER BY ts DESC LIMIT 1) AS beam_usd,
          (SELECT COUNT(*)::text FROM pools WHERE destroyed_at_height IS NULL) AS total_pairs,
-         (SELECT COUNT(*)::text FROM trades WHERE confirmed = TRUE) AS total_trades,
          NULL::text AS total_tvl_usd,
          NULL::text AS volume_24h_usd`,
     ),
@@ -175,7 +175,9 @@ async function renderSiteCard(): Promise<string> {
   ]);
   const r = statsRes.rows[0];
   const beamUsd = r?.beam_usd ? Number(r.beam_usd) : null;
-  const totalTrades = r?.total_trades ? Number(r.total_trades) : null;
+  // Trades total from the dex_stats cache (≤5 min stale, same tolerance as
+  // /api/stats) instead of a full COUNT(*) over the trades hypertable.
+  const totalTrades = cachedDex.total_trades;
   const totalPairs = r?.total_pairs ? Number(r.total_pairs) : null;
   const totalVolume = cachedDex.total_volume_usd;
 

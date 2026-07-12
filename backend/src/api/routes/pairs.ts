@@ -304,15 +304,14 @@ export async function pairsRoutes(app: FastifyInstance): Promise<void> {
     if (resolved === null) {
       throw NotFound('PAIR_NOT_FOUND', `no pair matching ${req.params.id}`);
     }
-    const poolIds = new Set(resolved.poolIds);
-    const rows = await listPairs({
+    const mine = await listPairs({
       sort_by: 'aid2',
       order: 'asc',
       limit: 500,
       offset: 0,
       include_imposters: true,
+      poolIds: resolved.poolIds,
     });
-    const mine = rows.filter((r) => poolIds.has(Number(r.pool_id)));
     if (mine.length === 0) throw NotFound('PAIR_NOT_FOUND', `pool ${resolved.refPoolId} not found`);
 
     const [usd, sparklines] = await Promise.all([

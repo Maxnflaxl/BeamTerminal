@@ -56,19 +56,11 @@ export async function cgTickersRoutes(app: FastifyInstance): Promise<void> {
   app.get('/tickers', async (_req, reply) => {
     const usd = await loadUsdTable();
 
+    // Latest snapshot / latest trade via per-pool LATERAL seeks (indexed
+    // LIMIT 1) instead of DISTINCT ON over the whole hypertable, which
+    // full-scans (~4.5s — see the measurement note in repos/usd.ts).
     const { rows } = await q<Row>(`
-      WITH latest_snap AS (
-        SELECT DISTINCT ON (pool_id) pool_id, reserve1, reserve2
-          FROM pool_state_snapshots
-          ORDER BY pool_id, ts DESC
-      ),
-      latest_trade AS (
-        SELECT DISTINCT ON (pool_id) pool_id, price_native, block_ts
-          FROM trades
-          WHERE confirmed = TRUE AND price_native IS NOT NULL
-          ORDER BY pool_id, block_ts DESC
-      ),
-      window_24h AS (
+      WITH window_24h AS (
         SELECT pool_id,
                SUM(volume_aid1) AS v1,
                SUM(volume_aid2) AS v2,
@@ -96,8 +88,21 @@ export async function cgTickersRoutes(app: FastifyInstance): Promise<void> {
         FROM pools p
         JOIN assets a1 ON a1.aid = p.aid1
         JOIN assets a2 ON a2.aid = p.aid2
-        LEFT JOIN latest_snap  snap ON snap.pool_id = p.pool_id
-        LEFT JOIN latest_trade lt   ON lt.pool_id   = p.pool_id
+        LEFT JOIN LATERAL (
+          SELECT reserve1, reserve2
+            FROM pool_state_snapshots s
+           WHERE s.pool_id = p.pool_id
+           ORDER BY s.ts DESC
+           LIMIT 1
+        ) snap ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT price_native, block_ts
+            FROM trades t
+           WHERE t.pool_id = p.pool_id
+             AND t.confirmed = TRUE AND t.price_native IS NOT NULL
+           ORDER BY t.block_ts DESC
+           LIMIT 1
+        ) lt ON TRUE
         LEFT JOIN window_24h   w    ON w.pool_id    = p.pool_id
        WHERE p.destroyed_at_height IS NULL
          AND NOT a1.is_imposter

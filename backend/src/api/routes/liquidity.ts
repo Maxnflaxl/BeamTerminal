@@ -65,22 +65,52 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     const toTs = to ? new Date(to * 1000) : null;
 
     let sql: string;
+    let params: Array<number[] | Date | null> = [poolIds, fromTs, toTs];
     if (source === 'total') {
       // Last reserve per bucket per pool, then summed across tiers — the real
-      // pooled amounts. Snapshots are taken every tick for all active pools, so
-      // each pool has a bucket sample and the per-bucket sum is the true total.
-      sql = `
+      // pooled amounts. Served from the liquidity_1h continuous aggregate
+      // (real-time, so it includes the un-materialized tail) instead of
+      // re-aggregating the raw snapshot hypertable's full history per request:
+      // hourly buckets are a direct read, daily buckets are last-per-day over
+      // the hourly rows (the last hourly `last` of a day IS the day's last raw
+      // sample). Bounds are appended as plain predicates — the `$n IS NULL OR`
+      // pattern would defeat chunk exclusion.
+      const bounds: string[] = [];
+      params = [poolIds];
+      if (fromTs) {
+        params.push(fromTs);
+        // Bucket-align the lower bound so a mid-bucket `from` still includes
+        // its (partial) bucket, like the raw-table version did.
+        bounds.push(`AND bucket >= time_bucket(INTERVAL '1 hour', $${params.length}::timestamptz)`);
+      }
+      if (toTs) {
+        params.push(toTs);
+        bounds.push(`AND bucket <= $${params.length}`);
+      }
+      const inner = `
+            SELECT bucket, pool_id, reserve1, reserve2
+              FROM liquidity_1h
+             WHERE pool_id = ANY($1)
+               ${bounds.join('\n               ')}`;
+      sql = interval === '1h'
+        ? `
         SELECT ts, SUM(amount1)::text AS amount1, SUM(amount2)::text AS amount2
           FROM (
-            SELECT EXTRACT(epoch FROM time_bucket(${iv}, ts))::bigint AS ts,
+            SELECT EXTRACT(epoch FROM bucket)::bigint AS ts, pool_id,
+                   reserve1 AS amount1, reserve2 AS amount2
+              FROM (${inner}) h
+          ) per_pool
+         GROUP BY ts
+         ORDER BY ts`
+        : `
+        SELECT ts, SUM(amount1)::text AS amount1, SUM(amount2)::text AS amount2
+          FROM (
+            SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', bucket))::bigint AS ts,
                    pool_id,
-                   last(reserve1, ts) AS amount1,
-                   last(reserve2, ts) AS amount2
-              FROM pool_state_snapshots
-             WHERE pool_id = ANY($1)
-               AND ($2::timestamptz IS NULL OR ts >= $2)
-               AND ($3::timestamptz IS NULL OR ts <= $3)
-             GROUP BY time_bucket(${iv}, ts), pool_id
+                   last(reserve1, bucket) AS amount1,
+                   last(reserve2, bucket) AS amount2
+              FROM (${inner}) h
+             GROUP BY time_bucket(INTERVAL '1 day', bucket), pool_id
           ) per_pool
          GROUP BY ts
          ORDER BY ts`;
@@ -138,7 +168,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
          ORDER BY bucket`;
     }
 
-    const { rows } = await q<SeriesRow>(sql, [poolIds, fromTs, toTs]);
+    const { rows } = await q<SeriesRow>(sql, params);
     const series = rows.map((r) => ({
       ts: Number(r.ts),
       amount1: r.amount1 ?? '0',

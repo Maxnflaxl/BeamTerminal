@@ -14,7 +14,9 @@ import { q } from '../../db.js';
  * Assets not reachable via a BEAM-quoted pool have no USD rate (Map omits them);
  * callers treat that as "no USD valuation possible".
  *
- * Cached for one request lifetime — call once at the top of each handler.
+ * Cached across requests for a short TTL: the underlying data only changes
+ * when the indexer ticks (30s), and every consuming route already declares
+ * `max-age=15` or more, so concurrent pollers share one computation.
  */
 export interface UsdTable {
   beam_usd: number | null;
@@ -33,7 +35,26 @@ interface OracleRow {
   beam_usd: string;
 }
 
+// TTL sits inside the weakest declared client tolerance (max-age=15). Caching
+// the promise (not the value) also collapses concurrent cache-miss callers
+// into a single pair of queries.
+const USD_TTL_MS = 10_000;
+let cached: { at: number; promise: Promise<UsdTable> } | null = null;
+
 export async function loadUsdTable(): Promise<UsdTable> {
+  if (cached && Date.now() - cached.at < USD_TTL_MS) return cached.promise;
+  const entry = { at: Date.now(), promise: fetchUsdTable() };
+  cached = entry;
+  try {
+    return await entry.promise;
+  } catch (err) {
+    // Never cache a failure — the next caller retries immediately.
+    if (cached === entry) cached = null;
+    throw err;
+  }
+}
+
+async function fetchUsdTable(): Promise<UsdTable> {
   const { rows: oracle } = await q<OracleRow>(
     'SELECT beam_usd::text FROM oracle_snapshots ORDER BY ts DESC LIMIT 1',
   );

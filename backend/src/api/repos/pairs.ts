@@ -41,6 +41,10 @@ export interface ListOpts {
   search?: string;
   kind?: 0 | 1 | 2;
   include_imposters: boolean;
+  /** Restrict to these pools SQL-side — single-pair callers (pair detail, OG
+   *  card) pass their resolved ids so the per-pool LATERALs (incl. the 24h
+   *  trades aggregate) run for 1–3 pools instead of the whole catalog. */
+  poolIds?: number[];
 }
 
 /**
@@ -69,6 +73,10 @@ export async function listPairs(opts: ListOpts): Promise<PairRowRaw[]> {
   if (opts.kind !== undefined) {
     params.push(opts.kind);
     where.push(`p.kind = $${params.length}`);
+  }
+  if (opts.poolIds !== undefined) {
+    params.push(opts.poolIds);
+    where.push(`p.pool_id = ANY($${params.length})`);
   }
   if (opts.search) {
     // Split on "/" so users can narrow by pair, e.g. "BEAM/BeamX". Single

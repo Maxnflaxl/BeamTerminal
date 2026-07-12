@@ -141,21 +141,30 @@ export async function fetchCandles(opts: FetchCandlesOpts): Promise<Candle[]> {
     [refPoolId, toTs, limit, poolIds],
   );
 
-  // For USD denom we need the BEAM/USD reference per-candle. We pull every
-  // oracle snapshot within the candle range AND the latest one as a fallback
-  // for buckets older than our oracle history (e.g. backfilled trades).
-  let oracleHistory: OracleHistoryRow[] = [];
+  // For USD denom we need the BEAM/USD reference per-candle: the newest
+  // oracle snapshot at/before each bucket, resolved in SQL as one indexed
+  // seek per bucket (≤ limit rows) instead of pulling the whole snapshot
+  // range into Node. The latest snapshot overall is the fallback for buckets
+  // older than our oracle history (e.g. backfilled trades).
+  const usdByBucket = new Map<number, number>();
   let fallbackUsd: number | null = null;
   if (denom === 'usd' && usdSide !== 'unsupported' && rows.length > 0) {
-    const minTs = rows[rows.length - 1]!.bucket;
-    const { rows: oh } = await q<OracleHistoryRow>(
-      `SELECT ts, beam_usd::text
-         FROM oracle_snapshots
-        WHERE ts >= $1 AND ts <= $2
-        ORDER BY ts ASC`,
-      [minTs, toTs],
+    const buckets = rows.map((r) => r.bucket);
+    const { rows: oh } = await q<{ b: Date; beam_usd: string | null }>(
+      `SELECT t.b, o.beam_usd::text
+         FROM unnest($1::timestamptz[]) AS t(b)
+         LEFT JOIN LATERAL (
+           SELECT beam_usd
+             FROM oracle_snapshots o
+            WHERE o.ts <= t.b
+            ORDER BY o.ts DESC
+            LIMIT 1
+         ) o ON TRUE`,
+      [buckets],
     );
-    oracleHistory = oh;
+    for (const r of oh) {
+      if (r.beam_usd !== null) usdByBucket.set(r.b.getTime(), Number(r.beam_usd));
+    }
 
     const { rows: latest } = await q<OracleHistoryRow>(
       'SELECT ts, beam_usd::text FROM oracle_snapshots ORDER BY ts DESC LIMIT 1',
@@ -164,20 +173,7 @@ export async function fetchCandles(opts: FetchCandlesOpts): Promise<Candle[]> {
   }
 
   function beamUsdAt(t: Date): number | null {
-    if (oracleHistory.length === 0) return fallbackUsd;
-    let lo = 0;
-    let hi = oracleHistory.length - 1;
-    let bestIdx = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (oracleHistory[mid]!.ts.getTime() <= t.getTime()) {
-        bestIdx = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return bestIdx >= 0 ? Number(oracleHistory[bestIdx]!.beam_usd) : fallbackUsd;
+    return usdByBucket.get(t.getTime()) ?? fallbackUsd;
   }
 
   return rows

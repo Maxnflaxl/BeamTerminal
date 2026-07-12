@@ -91,6 +91,13 @@ export async function indexCalls(
   // throughout, and we can skip the repeated SELECT against `pools`.
   const poolIds: PoolIdCache = new Map();
 
+  // Trade/LP rows are accumulated and flushed as one multi-row INSERT per
+  // table — a 2000-call backfill page is 2 round-trips instead of 2000.
+  // Lifecycle calls (Pool Create/Destroy) still write inline; they're rare
+  // and target `pools`, which the batched inserts don't touch.
+  const tradeRows: TradeInsertRow[] = [];
+  const lpRows: LpInsertRow[] = [];
+
   for (const call of calls) {
     const blockTs = tsMap.get(call.height);
     if (!blockTs) {
@@ -99,12 +106,15 @@ export async function indexCalls(
       continue;
     }
 
-    const written = await writeCall(call, blockTs, poolIds);
+    const written = await classifyCall(call, blockTs, poolIds, tradeRows, lpRows);
     if (written === 'trade') trades++;
     else if (written === 'lp') lp++;
     else if (written === 'lifecycle') lifecycle++;
     else skipped++;
   }
+
+  await flushTrades(tradeRows);
+  await flushLpEvents(lpRows);
 
   if (calls.length >= MAX_CALLS_PER_PAGE && hMin === hMax) {
     logger.warn(
@@ -117,6 +127,106 @@ export async function indexCalls(
 }
 
 type WriteOutcome = 'trade' | 'lp' | 'lifecycle' | 'skipped';
+
+interface TradeInsertRow {
+  poolId: string;
+  height: number;
+  blockTs: Date;
+  aidIn: number;
+  aidOut: number;
+  amountIn: string;
+  amountOut: string;
+  feeGroth: string | null;
+  volumeAid1: string;
+  volumeAid2: string;
+  priceNative: string;
+}
+
+interface LpInsertRow {
+  poolId: string;
+  height: number;
+  blockTs: Date;
+  kind: 'Deposit' | 'Withdraw';
+  amount1: string;
+  amount2: string;
+  amountCtl: string;
+}
+
+/** One multi-row INSERT for a page's trades. Batch-internal duplicates on the
+ *  natural key are merged in JS first (a multi-row upsert may not touch the
+ *  same row twice), reproducing the sequential semantics: first row wins, a
+ *  later duplicate only contributes its fee when the kept row has none. */
+async function flushTrades(rows: TradeInsertRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  const byKey = new Map<string, TradeInsertRow>();
+  for (const r of rows) {
+    const key = `${r.poolId}:${r.height}:${r.aidIn}:${r.aidOut}:${r.amountIn}:${r.amountOut}:${r.blockTs.getTime()}`;
+    const kept = byKey.get(key);
+    if (!kept) byKey.set(key, r);
+    else if (kept.feeGroth === null && r.feeGroth !== null) kept.feeGroth = r.feeGroth;
+  }
+  const v = [...byKey.values()];
+  await q(
+    `INSERT INTO trades (
+       pool_id, height, block_ts, aid_in, aid_out,
+       amount_in, amount_out, fee_groth,
+       volume_aid1, volume_aid2, price_native,
+       confirmed
+     )
+     SELECT t.pool_id, t.height, t.block_ts, t.aid_in, t.aid_out,
+            t.amount_in, t.amount_out, t.fee_groth,
+            t.volume_aid1, t.volume_aid2, t.price_native,
+            FALSE
+       FROM unnest($1::bigint[], $2::bigint[], $3::timestamptz[], $4::bigint[], $5::bigint[],
+                   $6::numeric[], $7::numeric[], $8::numeric[],
+                   $9::numeric[], $10::numeric[], $11::numeric[])
+              AS t(pool_id, height, block_ts, aid_in, aid_out,
+                   amount_in, amount_out, fee_groth,
+                   volume_aid1, volume_aid2, price_native)
+     ON CONFLICT (pool_id, height, aid_in, aid_out, amount_in, amount_out, block_ts)
+     DO UPDATE SET fee_groth = EXCLUDED.fee_groth
+             WHERE trades.fee_groth IS NULL`,
+    [
+      v.map((r) => r.poolId),
+      v.map((r) => r.height),
+      v.map((r) => r.blockTs),
+      v.map((r) => r.aidIn),
+      v.map((r) => r.aidOut),
+      v.map((r) => r.amountIn),
+      v.map((r) => r.amountOut),
+      v.map((r) => r.feeGroth),
+      v.map((r) => r.volumeAid1),
+      v.map((r) => r.volumeAid2),
+      v.map((r) => r.priceNative),
+    ],
+  );
+}
+
+/** One multi-row INSERT for a page's LP events. DO NOTHING tolerates
+ *  batch-internal duplicates, so no JS dedupe is needed. */
+async function flushLpEvents(rows: LpInsertRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  await q(
+    `INSERT INTO lp_events (
+       pool_id, height, block_ts, kind, amount1, amount2, amount_ctl, confirmed
+     )
+     SELECT t.pool_id, t.height, t.block_ts, t.kind, t.amount1, t.amount2, t.amount_ctl, FALSE
+       FROM unnest($1::bigint[], $2::bigint[], $3::timestamptz[], $4::text[],
+                   $5::numeric[], $6::numeric[], $7::numeric[])
+              AS t(pool_id, height, block_ts, kind, amount1, amount2, amount_ctl)
+     ON CONFLICT (pool_id, height, kind, amount1, amount2, amount_ctl, block_ts)
+     DO NOTHING`,
+    [
+      rows.map((r) => r.poolId),
+      rows.map((r) => r.height),
+      rows.map((r) => r.blockTs),
+      rows.map((r) => r.kind),
+      rows.map((r) => r.amount1),
+      rows.map((r) => r.amount2),
+      rows.map((r) => r.amountCtl),
+    ],
+  );
+}
 
 // Per-run cache of (aid1,aid2,kind) -> pool_id (or null for "no such pool").
 // Caching null is safe within one indexCalls run: the resolvable pool set is
@@ -134,7 +244,13 @@ async function resolvePoolIdCached(key: PoolKey, cache: PoolIdCache): Promise<bi
   return id;
 }
 
-async function writeCall(call: AmmCall, blockTs: Date, poolIds: PoolIdCache): Promise<WriteOutcome> {
+async function classifyCall(
+  call: AmmCall,
+  blockTs: Date,
+  poolIds: PoolIdCache,
+  tradeRows: TradeInsertRow[],
+  lpRows: LpInsertRow[],
+): Promise<WriteOutcome> {
   switch (call.method) {
     case 'Pool Create': {
       // We don't get aid_ctl from the call args (it's derived inside the
@@ -186,31 +302,19 @@ async function writeCall(call: AmmCall, blockTs: Date, poolIds: PoolIdCache): Pr
         call.aid_in === call.aid1 ? call.amount_out : call.amount_in;
       const priceNative = priceAid2PerAid1(volumeAid1, volumeAid2);
 
-      await q(
-        `INSERT INTO trades (
-           pool_id, height, block_ts, aid_in, aid_out,
-           amount_in, amount_out, fee_groth,
-           volume_aid1, volume_aid2, price_native,
-           confirmed
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE)
-         ON CONFLICT (pool_id, height, aid_in, aid_out, amount_in, amount_out, block_ts)
-         DO UPDATE SET fee_groth = EXCLUDED.fee_groth
-                 WHERE trades.fee_groth IS NULL`,
-        [
-          poolId,
-          call.height,
-          blockTs,
-          call.aid_in,
-          call.aid_out,
-          call.amount_in.toString(),
-          call.amount_out.toString(),
-          call.fee_groth !== null ? call.fee_groth.toString() : null,
-          volumeAid1.toString(),
-          volumeAid2.toString(),
-          priceNative,
-        ],
-      );
+      tradeRows.push({
+        poolId: poolId.toString(),
+        height: call.height,
+        blockTs,
+        aidIn: call.aid_in,
+        aidOut: call.aid_out,
+        amountIn: call.amount_in.toString(),
+        amountOut: call.amount_out.toString(),
+        feeGroth: call.fee_groth !== null ? call.fee_groth.toString() : null,
+        volumeAid1: volumeAid1.toString(),
+        volumeAid2: volumeAid2.toString(),
+        priceNative,
+      });
       return 'trade';
     }
 
@@ -230,23 +334,15 @@ async function writeCall(call: AmmCall, blockTs: Date, poolIds: PoolIdCache): Pr
       await ensureAssetExists(call.aid_ctl, call.height);
 
       const kind = call.method === 'Liquidity Add' ? 'Deposit' : 'Withdraw';
-      await q(
-        `INSERT INTO lp_events (
-           pool_id, height, block_ts, kind, amount1, amount2, amount_ctl, confirmed
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
-         ON CONFLICT (pool_id, height, kind, amount1, amount2, amount_ctl, block_ts)
-         DO NOTHING`,
-        [
-          poolId,
-          call.height,
-          blockTs,
-          kind,
-          call.amount1.toString(),
-          call.amount2.toString(),
-          call.amount_ctl.toString(),
-        ],
-      );
+      lpRows.push({
+        poolId: poolId.toString(),
+        height: call.height,
+        blockTs,
+        kind,
+        amount1: call.amount1.toString(),
+        amount2: call.amount2.toString(),
+        amountCtl: call.amount_ctl.toString(),
+      });
       return 'lp';
     }
   }
