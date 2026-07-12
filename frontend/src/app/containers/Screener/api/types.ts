@@ -578,13 +578,14 @@ export interface ApiMiningPool {
   min_payout: number | null;
   updated_at: string | null;
   hashrate_series: { ts: number; value: number }[];
-  blocks_last_100: number | null;
-  blocks_last_1000: number | null;
+  blocks_past_hour: number | null;
+  blocks_past_24h: number | null;
 }
 
 export interface ApiMiningPools {
   network_hashrate: number | null;
   block_height: number | null;
+  blocks_24h_total: number | null;
   pools: ApiMiningPool[];
 }
 

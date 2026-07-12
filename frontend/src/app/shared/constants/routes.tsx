@@ -8,7 +8,6 @@ export const ROUTES = {
     EXPLORER_BEAM: '/explorer/beam',
     EXPLORER_BANS: '/explorer/bans',
     EXPLORER_COUNTDOWN: '/explorer/countdown',
-    EXPLORER_HEALTH: '/explorer/health',
     EXPLORER_SUPPLY: '/explorer/supply',
     EXPLORER_BRIDGE: '/explorer/bridge',
     EXPLORER_MINING: '/explorer/mining',

@@ -7,7 +7,6 @@ export { NetworkCharts } from './containers/NetworkCharts';
 export { ExplorerLayout } from './containers/ExplorerLayout';
 export { Countdown } from './containers/explorer/Countdown';
 export { Supply } from './containers/explorer/Supply';
-export { Health } from './containers/explorer/Health';
 export { BANS } from './containers/explorer/BANS';
 export { BridgeTracker } from './containers/explorer/BridgeTracker';
 export { Mining } from './containers/explorer/Mining';

@@ -340,7 +340,7 @@ export const WarnBox = styled.div`
 `;
 
 // ---------------------------------------------------------------------------
-// Node selector (shared across BANS/Health/Bridge — pick one explorer-node URL)
+// Node selector (shared across BANS/Bridge — pick one explorer-node URL)
 // ---------------------------------------------------------------------------
 
 const NodeSelectorBox = styled.div`

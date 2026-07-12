@@ -6,7 +6,7 @@ import {
   type IChartApi, type ISeriesApi, type LineData, type UTCTimestamp,
 } from 'lightweight-charts';
 import { api } from '../../api/client';
-import type { ApiMiningPools, ApiMiningPool, ApiMiningBlocks } from '../../api/types';
+import type { ApiMiningPools, ApiMiningPool, ApiMiningBlocks, ApiNetwork } from '../../api/types';
 import type { ApiChartPoint } from '../../api/client';
 import { Sparkline } from '../../components/Sparkline';
 import {
@@ -23,6 +23,14 @@ function fmtSI(v: number): string {
   if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M';
   if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
   return v.toFixed(0);
+}
+
+// Difficulty is shown to two decimals (5.88M reads better than fmtSI's 5.9M).
+function fmtDifficulty(diff: number): string {
+  if (diff >= 1e9) return `${(diff / 1e9).toFixed(2)}G`;
+  if (diff >= 1e6) return `${(diff / 1e6).toFixed(2)}M`;
+  if (diff >= 1e3) return `${(diff / 1e3).toFixed(2)}K`;
+  return diff.toFixed(2);
 }
 
 function fmtAge(iso: string | null): string {
@@ -313,6 +321,110 @@ const AgeCell: React.FC<{ iso: string | null; interval: number | null }> = ({ is
   );
 };
 
+// Block-times bar viz: one bar per inter-block interval over the last ~60
+// blocks, colored by solve time, with a 60s-target reference line. Uses
+// `& > * + * { margin-left }` rather than gap — flexbox gap isn't supported by
+// the wallet's Chromium 83.
+const BlockTimesSection = styled.div`
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid ${theme.color.borderDim};
+`;
+
+const BlockTimesHead = styled.div`
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: justify;
+  justify-content: space-between;
+  margin-bottom: 12px;
+`;
+
+const BlockTimesTitle = styled.div`
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: ${theme.color.muted};
+`;
+
+const BlockTimesAside = styled.span`
+  font-size: 10px;
+  color: ${theme.color.muted};
+`;
+
+const BlockTimeWrap = styled.div`
+  position: relative;
+  height: 100px;
+`;
+
+const BlockTimeBars = styled.div`
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-align: end;
+  align-items: flex-end;
+  & > * + * { margin-left: 3px; }
+  height: 100px;
+`;
+
+const BtBar = styled.div<{ color: string; barHeight: number }>`
+  -webkit-box-flex: 1;
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+  background: ${(p) => p.color};
+  height: ${(p) => p.barHeight}px;
+  opacity: 0.75;
+  position: relative;
+  cursor: default;
+  &:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: ${theme.color.surface2};
+    border: 1px solid ${theme.color.border};
+    color: ${theme.color.text};
+    font-size: 10px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+    z-index: 10;
+  }
+`;
+
+const BtTargetLine = styled.div<{ bottom: number }>`
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: ${(p) => p.bottom}px;
+  height: 0;
+  border-top: 1px solid rgba(0, 245, 192, 0.45);
+  pointer-events: none;
+  z-index: 1;
+  &::after {
+    content: '60s target';
+    position: absolute;
+    right: 0;
+    top: -14px;
+    font-size: 9px;
+    color: ${theme.color.accent};
+    opacity: 0.75;
+    white-space: nowrap;
+  }
+`;
+
+const BtAxis = styled.div`
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-pack: justify;
+  justify-content: space-between;
+  font-size: 10px;
+  color: ${theme.color.muted};
+  margin-top: 4px;
+`;
+
 const pagerCss = css`
   display: -webkit-box;
   display: flex;
@@ -332,6 +444,8 @@ export const Mining: React.FC = () => {
   const BLOCKS_PER_PAGE = 25;
   const [poolData, setPoolData] = useState<ApiMiningPools | null>(null);
   const [blockData, setBlockData] = useState<ApiMiningBlocks | null>(null);
+  // Canonical network snapshot: difficulty, avg block time, last-60 blocks.
+  const [net, setNet] = useState<ApiNetwork | null>(null);
   const [poolErr, setPoolErr] = useState<string | null>(null);
   const [blocksLoaded, setBlocksLoaded] = useState(false);
   const [blocksError, setBlocksError] = useState(false);
@@ -357,6 +471,9 @@ export const Mining: React.FC = () => {
       api.miningBlocks(BLOCKS_PER_PAGE, blockPage * BLOCKS_PER_PAGE)
         .then((d) => { if (alive) { setBlockData(d); setBlocksLoaded(true); setBlocksError(false); } })
         .catch(() => { if (alive) { setBlocksLoaded(true); setBlocksError(true); } });
+      api.network()
+        .then((d) => { if (alive) setNet(d); })
+        .catch(() => {});
     };
     load();
     const t = setInterval(load, 60_000);
@@ -453,6 +570,21 @@ export const Mining: React.FC = () => {
   const blocks   = blockData?.blocks ?? [];
   const hasNext  = blocks.length === BLOCKS_PER_PAGE;
 
+  // Consensus stats + per-interval block times (seconds), oldest→newest.
+  const difficulty   = net?.difficulty ?? null;
+  const avgBlockTime = net?.avg_block_time ?? null;
+  const blockTimes = useMemo(() => {
+    const recent = net?.recent ?? [];
+    const out: number[] = [];
+    for (let i = 0; i < recent.length - 1; i += 1) {
+      const dt = recent[i + 1].ts - recent[i].ts;
+      if (dt > 0 && dt < 1800) out.push(dt);
+    }
+    return out;
+  }, [net]);
+  const btMaxT = Math.max(...blockTimes, 120);
+  const btTargetBottom = (60 / btMaxT) * 100;
+
   const sorted = useMemo(
     () => [...pools].sort((a, b) => (b.hashrate ?? -1) - (a.hashrate ?? -1)),
     [pools],
@@ -481,17 +613,18 @@ export const Mining: React.FC = () => {
     [pools],
   );
 
-  // blocks distribution slices — over the last 1000 network blocks
+  // blocks distribution slices — over the past 24h, against the network total
+  const blocks24hTotal = poolData?.blocks_24h_total ?? 0;
   const blockSlices: Slice[] = useMemo(() => {
-    const known = sorted.filter((p) => (p.blocks_last_1000 ?? 0) > 0);
-    const sum = known.reduce((s, p) => s + (p.blocks_last_1000 ?? 0), 0);
+    const known = sorted.filter((p) => (p.blocks_past_24h ?? 0) > 0);
+    const sum = known.reduce((s, p) => s + (p.blocks_past_24h ?? 0), 0);
     const out: Slice[] = known.map((p, i) => ({
-      label: p.name, value: p.blocks_last_1000 ?? 0, color: COLORS[i % COLORS.length],
+      label: p.name, value: p.blocks_past_24h ?? 0, color: COLORS[i % COLORS.length],
     }));
-    const unknown = Math.max(0, 1000 - sum);
+    const unknown = Math.max(0, blocks24hTotal - sum);
     if (unknown > 0) out.push({ label: 'Unknown', value: unknown, color: COLORS[7] });
     return out;
-  }, [sorted]);
+  }, [sorted, blocks24hTotal]);
   const blockSliceTotal = blockSlices.reduce((s, x) => s + x.value, 0) || 1;
 
   // --- render ----------------------------------------------------------------
@@ -507,6 +640,12 @@ export const Mining: React.FC = () => {
             Network hashrate: <strong>{fmtHashrate(network)}</strong>
             {blockHt != null && (
               <span style={{ marginLeft: 12 }}>Block: <strong>{blockHt.toLocaleString()}</strong></span>
+            )}
+            {difficulty != null && (
+              <span style={{ marginLeft: 12 }}>Diff: <strong>{fmtDifficulty(difficulty)}</strong></span>
+            )}
+            {avgBlockTime != null && (
+              <span style={{ marginLeft: 12 }}>Avg block: <strong>{avgBlockTime.toFixed(1)}s</strong></span>
             )}
             {totalMiners != null && (
               <span style={{ marginLeft: 12 }}>Miners: <strong>{totalMiners.toLocaleString()}</strong></span>
@@ -527,7 +666,7 @@ export const Mining: React.FC = () => {
                 <th>Hashrate</th>
                 <th className="right">Miners</th>
                 <th className="right">Workers</th>
-                <th className="right">Blocks / 100</th>
+                <th className="right">Blocks (1h)</th>
                 <th className="right">Block Height</th>
                 <th className="right">Last Found</th>
                 <th style={{ width: 20 }}></th>
@@ -558,7 +697,7 @@ export const Mining: React.FC = () => {
                     </td>
                     <td className="right">{p.miners != null ? p.miners.toLocaleString() : '—'}</td>
                     <td className="right">{p.workers != null ? p.workers.toLocaleString() : '—'}</td>
-                    <td className="right">{p.blocks_last_100 ?? '—'}</td>
+                    <td className="right">{p.blocks_past_hour ?? '—'}</td>
                     <td className="right">{p.last_block_height != null ? p.last_block_height.toLocaleString() : '—'}</td>
                     <td className="right">{fmtAge(p.last_block_ts)}</td>
                     <td><Dot data-kind={offline ? 'error' : 'live'} /></td>
@@ -581,28 +720,66 @@ export const Mining: React.FC = () => {
         </TabRow>
 
         {tab === 'blocks' && (
-          blockSlices.length === 0
-            ? <Muted>No block attribution data available yet.</Muted>
-            : (
-              <DonutLayout>
-                <Donut
-                  slices={blockSlices.map((s, i) => ({ key: String(i), label: s.label, color: s.color, value: s.value }))}
-                  size={180}
-                  idlePrimary={blockSliceTotal}
-                  idleSecondary="blocks"
-                />
-                <Legend>
-                  {blockSlices.map((s, i) => (
-                    <li key={i}>
-                      <span className="swatch" style={{ background: s.color }} />
-                      <span>{s.label}</span>
-                      <span className="cnt">{s.value}</span>
-                      <span className="pct">{((s.value / blockSliceTotal) * 100).toFixed(1)}%</span>
-                    </li>
-                  ))}
-                </Legend>
-              </DonutLayout>
-            )
+          <>
+            {blockSlices.length === 0
+              ? <Muted>No block attribution data available yet.</Muted>
+              : (
+                <DonutLayout>
+                  <Donut
+                    slices={blockSlices.map((s, i) => ({ key: String(i), label: s.label, color: s.color, value: s.value }))}
+                    size={180}
+                    idlePrimary={blockSliceTotal}
+                    idleSecondary="past 24h"
+                  />
+                  <Legend>
+                    {blockSlices.map((s, i) => (
+                      <li key={i}>
+                        <span className="swatch" style={{ background: s.color }} />
+                        <span>{s.label}</span>
+                        <span className="cnt">{s.value}</span>
+                        <span className="pct">{((s.value / blockSliceTotal) * 100).toFixed(1)}%</span>
+                      </li>
+                    ))}
+                  </Legend>
+                </DonutLayout>
+              )}
+            {blockTimes.length > 0 && (
+              <BlockTimesSection>
+                <BlockTimesHead>
+                  <BlockTimesTitle>Block times (past hour)</BlockTimesTitle>
+                  <BlockTimesAside>{avgBlockTime != null ? `avg ${avgBlockTime.toFixed(1)}s` : 'avg —s'}</BlockTimesAside>
+                </BlockTimesHead>
+                <BlockTimeWrap>
+                  <BlockTimeBars>
+                    {blockTimes.map((t, i) => {
+                      const pct = Math.min(t / btMaxT, 1);
+                      const barH = Math.max(2, Math.round(pct * 100));
+                      let color: string = theme.color.accent;
+                      if (t < 30) color = theme.color.danger;
+                      else if (t < 45) color = theme.color.warn;
+                      else if (t <= 90) color = theme.color.accent;
+                      else if (t <= 120) color = theme.color.warn;
+                      else color = theme.color.danger;
+                      return (
+                        <BtBar
+                          // eslint-disable-next-line react/no-array-index-key
+                          key={i}
+                          color={color}
+                          barHeight={barH}
+                          data-tip={`${t}s`}
+                        />
+                      );
+                    })}
+                  </BlockTimeBars>
+                  <BtTargetLine bottom={btTargetBottom} />
+                </BlockTimeWrap>
+                <BtAxis>
+                  <span>1h ago</span>
+                  <span>now</span>
+                </BtAxis>
+              </BlockTimesSection>
+            )}
+          </>
         )}
 
         {tab !== 'blocks' && (

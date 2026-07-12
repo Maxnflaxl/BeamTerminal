@@ -1,6 +1,6 @@
 // Shared formatters for explorer surfaces. Keep the hashrate convention in ONE
-// place so the Mining summary line, Health tiles, NetworkCharts, and the mining
-// calculator all render the same value with the same unit string.
+// place so the Mining summary line, NetworkCharts, and the mining calculator
+// all render the same value with the same unit string.
 
 // Format a Sol/s hashrate on the Sol/s → KSol/s → MSol/s → GSol/s scale.
 export function fmtHashrate(solPerSec: number | null | undefined): string {

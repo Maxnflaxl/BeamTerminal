@@ -52,7 +52,6 @@ const items = [
   { to: ROUTES.NAV.EXPLORER_BEAM,      label: 'Block Explorer' },
   { to: ROUTES.NAV.EXPLORER_COUNTDOWN, label: 'Halving' },
   { to: ROUTES.NAV.EXPLORER_SUPPLY,    label: 'Supply' },
-  { to: ROUTES.NAV.EXPLORER_HEALTH,    label: 'Health' },
   { to: ROUTES.NAV.EXPLORER_BANS,      label: 'BANS' },
   { to: ROUTES.NAV.EXPLORER_DAO,       label: 'DAO' },
   { to: ROUTES.NAV.EXPLORER_BRIDGE,    label: 'Bridge' },
