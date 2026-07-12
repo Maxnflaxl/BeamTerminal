@@ -148,9 +148,10 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
       rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0 } },
       timeScale: {
         minBarSpacing: 0.01,
-        // Interactive (expanded) chart: show the time of day and fix the data
-        // edges so you can't pan/scroll into empty whitespace past the series.
-        ...(interactive ? { timeVisible: true, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true } : {}),
+        // Interactive (expanded) chart: show the time of day. Edges are left
+        // free (no fixLeftEdge/fixRightEdge) so any point — including the
+        // latest — can be panned to the centre of the view.
+        ...(interactive ? { timeVisible: true, secondsVisible: false } : {}),
       },
       // Grid cells are static previews (no free pan/zoom). The expanded chart is
       // interactive: native wheel/drag zoom is on, and zooming refetches finer

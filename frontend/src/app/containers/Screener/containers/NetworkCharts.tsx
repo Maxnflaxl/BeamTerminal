@@ -573,6 +573,7 @@ function toSvg(
   title: string,
   formatter: (v: number) => string,
   scale: number,
+  emptyLabel?: string,
 ): string {
   const W = 720;
   const H = 360;
@@ -580,7 +581,7 @@ function toSvg(
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
   if (series.length === 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#888" font-family="sans-serif">No data</text></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#888" font-family="sans-serif">${escapeXml(emptyLabel ?? 'No data')}</text></svg>`;
   }
   const xs = series.map((p) => p.ts);
   const ys = series.map((p) => p.value * scale);
@@ -650,6 +651,7 @@ function blackholeSvg(
   title: string,
   formatter: (v: number) => string,
   logScale: boolean,
+  emptyLabel?: string,
 ): string {
   const W = 720;
   const H = 380;
@@ -660,7 +662,7 @@ function blackholeSvg(
   const styles = buildBlackholeLineStyles(series);
   const allPts = series.flatMap((s) => s.points);
   if (allPts.length === 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#888" font-family="sans-serif">No data</text></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#888" font-family="sans-serif">${escapeXml(emptyLabel ?? 'No data')}</text></svg>`;
   }
   const xMin = Math.min(...allPts.map((p) => p.ts));
   const xMax = Math.max(...allPts.map((p) => p.ts));
@@ -939,8 +941,10 @@ export const NetworkCharts: React.FC = () => {
   const poolsCreatedRaw = useOneShot<ApiChartSeries>(() => api.charts.poolsCreated());
   const poolsClosedRaw  = useOneShot<ApiChartSeries>(() => api.charts.poolsClosed());
   // Start the cumulative pool-count charts at 0 rather than their first day's total.
-  const poolsCreated = useMemo(() => withZeroBaseline(poolsCreatedRaw), [poolsCreatedRaw]);
-  const poolsClosed  = useMemo(() => withZeroBaseline(poolsClosedRaw), [poolsClosedRaw]);
+  const poolsCreated = useMemo(() => withZeroBaseline(poolsCreatedRaw),
+    [poolsCreatedRaw.data, poolsCreatedRaw.loading, poolsCreatedRaw.error]);
+  const poolsClosed  = useMemo(() => withZeroBaseline(poolsClosedRaw),
+    [poolsClosedRaw.data, poolsClosedRaw.loading, poolsClosedRaw.error]);
 
   // DEX volume (total) is an all-time cumulative — it can only come from the
   // daily tier (the hourly tier is a bounded trailing-24h window). Derive its
@@ -1064,7 +1068,7 @@ export const NetworkCharts: React.FC = () => {
         downloadBlob(blackholeCsv(filtered, expanded.title), `${base}.csv`, 'text/csv;charset=utf-8');
         return;
       }
-      const svg = blackholeSvg(filtered, expanded.title, expanded.formatter, !!logPerKey[expanded.key]);
+      const svg = blackholeSvg(filtered, expanded.title, expanded.formatter, !!logPerKey[expanded.key], expanded.emptyLabel);
       if (format === 'svg') downloadBlob(svg, `${base}.svg`, 'image/svg+xml');
       else downloadSvgAsPng(svg, `${base}.png`);
       return;
@@ -1075,7 +1079,7 @@ export const NetworkCharts: React.FC = () => {
       downloadBlob(toCsv(filtered, expanded.title), `${base}.csv`, 'text/csv;charset=utf-8');
       return;
     }
-    const svg = toSvg(filtered, expanded.title, expanded.formatter, expanded.scale ?? 1);
+    const svg = toSvg(filtered, expanded.title, expanded.formatter, expanded.scale ?? 1, expanded.emptyLabel);
     if (format === 'svg') downloadBlob(svg, `${base}.svg`, 'image/svg+xml');
     else downloadSvgAsPng(svg, `${base}.png`);
   };
@@ -1323,6 +1327,16 @@ const ExpandedChart: React.FC<
     [overlay?.state.data, timeframe],
   );
 
+  // Daily-only charts have no finer tier to refetch, but the expanded chart is
+  // still freely pannable/zoomable. Drive the same preset from the filtered
+  // window so a timeframe click re-centers the view (rangeable charts do this
+  // from tfBounds above).
+  useEffect(() => {
+    if (rangeable || !filtered || filtered.length === 0) return;
+    presetNonce.current += 1;
+    setPreset({ from: filtered[0].ts, to: filtered[filtered.length - 1].ts, nonce: presetNonce.current });
+  }, [rangeable, filtered]);
+
   let shown: ReadonlyArray<ApiChartPoint> | null;
   let loading: boolean;
   let error: string | null;
@@ -1351,9 +1365,9 @@ const ExpandedChart: React.FC<
       hideAmml={hideAmml}
       overlaySeries={filteredOverlay ?? undefined}
       overlayLabel={overlay?.label}
-      interactive={rangeable}
+      interactive
       onVisibleRangeChange={rangeable ? onVisibleRange : undefined}
-      presetWindow={rangeable ? preset : undefined}
+      presetWindow={preset}
     />
   );
 };
