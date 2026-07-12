@@ -475,6 +475,7 @@ No query params.
 {
   "network_hashrate": 1234567.89,
   "block_height": 3863512,
+  "blocks_24h_total": 1438,
   "pools": [
     {
       "id": "herominers",
@@ -491,7 +492,8 @@ No query params.
       "min_payout": 1.0,
       "updated_at": "2025-05-16T10:30:00.000Z",
       "hashrate_series": [950000, 970000, 987654],
-      "blocks_last_100": 12
+      "blocks_past_hour": 2,
+      "blocks_past_24h": 41
     }
   ]
 }
@@ -499,13 +501,15 @@ No query params.
 
 * `network_hashrate` — network-wide hashrate in Sol/s, derived as `Σ difficulty / Δt` across the last 60 blocks; `null` if `block_metrics` is empty.
 * `block_height` — height of the current network tip; `null` if `block_metrics` is empty.
+* `blocks_24h_total` — total network blocks in the past 24h (the distribution donut's denominator; the `Unknown` slice is this minus the attributed sum). `0` if `block_metrics` is empty.
 * Per-pool fields:
   * `hashrate` — pool hashrate in Sol/s as self-reported by the pool's API; `null` if the pool is unreachable.
   * `miners`, `workers`, `blocks_24h`, `last_block_height`, `last_block_ts`, `fee`, `min_payout`, `updated_at` — all `null` when the pool is offline or has never been polled successfully.
   * `fee` — pool fee in percent (e.g. `1.0` = 1%).
   * `min_payout` — minimum payout in BEAM.
   * `hashrate_series` — last ≤ 30 non-null hashrate snapshots (Sol/s), ordered oldest → newest. Empty array if no data yet.
-  * `blocks_last_100` — count of the last 100 network blocks attributed to this pool (based on the pool's self-reported found-blocks feed). `0` if none.
+  * `blocks_past_hour` — network blocks in the past hour attributed to this pool. `0` if none.
+  * `blocks_past_24h` — network blocks in the past 24h attributed to this pool. `0` if none.
 
 Pool stats are scraped from each pool's own API on every new block; the freshness of each entry reflects when the poll last succeeded.
 

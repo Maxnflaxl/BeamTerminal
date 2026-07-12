@@ -79,30 +79,33 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
       sparkByPool.set(r.pool_id, arr);
     }
 
-    // Per-pool blocks in last 100 network blocks. Order by block_ts (the
-    // hypertable partition column), not height: ORDER BY height DESC LIMIT n
-    // produces an unstable MergeAppend across per-chunk height indexes that can
-    // return an old chunk's rows (see services/networkSnapshot.ts). block_ts is
-    // monotonic with height, so this is the same window.
-    const { rows: b100Rows } = await q<BlocksLast100Row>(
-      `WITH recent AS (SELECT height FROM block_metrics ORDER BY block_ts DESC LIMIT 100)
+    // Per-pool blocks in the past hour (pools-table column). Window on block_ts
+    // directly — the hypertable partition column — so this reads one recent chunk.
+    const { rows: bHourRows } = await q<BlocksLast100Row>(
+      `WITH recent AS (SELECT height FROM block_metrics WHERE block_ts >= now() - interval '1 hour')
        SELECT b.pool_id, COUNT(*)::int AS n
          FROM mining_pool_blocks b
          JOIN recent r ON r.height = b.height
         GROUP BY b.pool_id`,
     );
-    const blocks100ByPool = new Map<string, number>(b100Rows.map((r) => [r.pool_id, r.n]));
+    const blocksHourByPool = new Map<string, number>(bHourRows.map((r) => [r.pool_id, r.n]));
 
-    // Per-pool blocks in last 1000 network blocks (used for the distribution
-    // donut). Order by block_ts, not height — same reason as above.
-    const { rows: b1000Rows } = await q<BlocksLast100Row>(
-      `WITH recent AS (SELECT height FROM block_metrics ORDER BY block_ts DESC LIMIT 1000)
+    // Per-pool blocks in the past 24h (distribution donut).
+    const { rows: bDayRows } = await q<BlocksLast100Row>(
+      `WITH recent AS (SELECT height FROM block_metrics WHERE block_ts >= now() - interval '24 hours')
        SELECT b.pool_id, COUNT(*)::int AS n
          FROM mining_pool_blocks b
          JOIN recent r ON r.height = b.height
         GROUP BY b.pool_id`,
     );
-    const blocks1000ByPool = new Map<string, number>(b1000Rows.map((r) => [r.pool_id, r.n]));
+    const blocksDayByPool = new Map<string, number>(bDayRows.map((r) => [r.pool_id, r.n]));
+
+    // Total network blocks in the past 24h — the donut's denominator, so the
+    // "Unknown" slice = total − attributed (never a hardcoded block count).
+    const { rows: dayTotalRows } = await q<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM block_metrics WHERE block_ts >= now() - interval '24 hours'`,
+    );
+    const blocks24hTotal = dayTotalRows[0]?.n ?? 0;
 
     const pools = POOLS.map((p) => {
       const s = byId.get(p.id);
@@ -121,13 +124,18 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
         min_payout: s?.min_payout != null ? Number(s.min_payout) : null,
         updated_at: s?.ts ? s.ts.toISOString() : null,
         hashrate_series: sparkByPool.get(p.id) ?? [],
-        blocks_last_100: blocks100ByPool.get(p.id) ?? 0,
-        blocks_last_1000: blocks1000ByPool.get(p.id) ?? 0,
+        blocks_past_hour: blocksHourByPool.get(p.id) ?? 0,
+        blocks_past_24h: blocksDayByPool.get(p.id) ?? 0,
       };
     });
 
     void reply.header('cache-control', 'public, max-age=60');
-    return { network_hashrate: networkHashrate, block_height: blockHeight, pools };
+    return {
+      network_hashrate: networkHashrate,
+      block_height: blockHeight,
+      blocks_24h_total: blocks24hTotal,
+      pools,
+    };
   });
 
   // -------------------------------------------------------------------------
