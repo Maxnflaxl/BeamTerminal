@@ -8,11 +8,12 @@ import {
   EXPLORER_API, HALVING_MARKERS, FORK_MARKERS,
   expectedSupplyFast, blockRewardAtHeight, emissionRateChangeHeights,
   parseExplorerNumber, extractStatusMetric,
-  fmtInt,
+  fmtInt, fmtDateFromHeight, specialBlocks,
   type SupplySnapshot,
 } from './supplyMath';
 import {
   Page, Card, H2, Label, Value, Btn, Input, Grid2, Row, theme,
+  DataTable, ScrollX,
 } from './shared';
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,24 @@ const ChartWrap = styled.div`
   height: 600px;
 `;
 
+const Collapsible = styled.details`
+  & > summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: ${theme.color.accent};
+    padding: 4px 0;
+    user-select: none;
+  }
+`;
+
+// Fixed layout so expanding a row's description grows only its height — with the
+// default auto layout the column widths recompute and the whole table jumps.
+const SpecialBlocksTable = styled(DataTable)`
+  table-layout: fixed;
+  td { vertical-align: top; }
+  td a { word-break: break-all; }
+`;
+
 // ---------------------------------------------------------------------------
 // Data fetching
 // ---------------------------------------------------------------------------
@@ -70,8 +89,18 @@ interface ChartData {
   reward: ChartPoint[];
   // Block-height markers (height + label + color), positioned in time by
   // a date interpolation from genesis or real explorer timestamps.
-  markers: { time: UTCTimestamp; label: string; color: string }[];
+  markers: { time: UTCTimestamp; label: string; color: string; kind: 'halving' | 'fork' | 'special' }[];
 }
+
+// Non-halving/non-fork narrative blocks, as chart markers. Derived from the same
+// specialBlocks catalog; multi-height entries mark their last block.
+const SPECIAL_MARKERS = specialBlocks
+  .filter((b) => !/Halving|Hard-Fork/.test(b.title))
+  .map((b) => {
+    const hs = b.block_list ?? (b.block_range ? [b.block_range[1]] : []);
+    return { height: hs[hs.length - 1] ?? 0, label: b.title };
+  })
+  .filter((m) => m.height > 0);
 
 function collectChartHeights(tip: number, step: number): number[] {
   const s = new Set<number>();
@@ -79,6 +108,7 @@ function collectChartHeights(tip: number, step: number): number[] {
   s.add(tip);
   for (const m of HALVING_MARKERS) if (m.height <= tip) s.add(m.height);
   for (const m of FORK_MARKERS)    if (m.height <= tip) s.add(m.height);
+  for (const m of SPECIAL_MARKERS) if (m.height <= tip) s.add(m.height);
   for (const h of emissionRateChangeHeights(tip)) s.add(h);
   return Array.from(s).sort((a, b) => a - b);
 }
@@ -123,9 +153,15 @@ export const Supply: React.FC = () => {
   const [expected, setExpected] = useState<SupplySnapshot>({ total: 0, miner: 0, treasury: 0 });
   const [manualHeight, setManualHeight] = useState('');
   const [manualActual, setManualActual] = useState('');
-  const [showMarkers, setShowMarkers] = useState(() => {
-    try { return localStorage.getItem('supplyChartShowMarkers') !== 'false'; } catch { return true; }
-  });
+  const readFlag = (key: string, dflt: boolean): boolean => {
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? dflt : v === 'true';
+    } catch { return dflt; }
+  };
+  const [showHalvings, setShowHalvings] = useState(() => readFlag('supplyChartShowHalvings', true));
+  const [showForks, setShowForks] = useState(() => readFlag('supplyChartShowForks', true));
+  const [showSpecial, setShowSpecial] = useState(() => readFlag('supplyChartShowSpecial', false));
   const [manualOverride, setManualOverride] = useState<number | null>(null);
 
   const chartWrapRef = useRef<HTMLDivElement>(null);
@@ -177,10 +213,13 @@ export const Supply: React.FC = () => {
         data.reward.push({ time: ts, value: blockRewardAtHeight(h) });
       }
       for (const m of HALVING_MARKERS) {
-        if (m.height <= tip) data.markers.push({ time: tsForHeight(m.height, dates), label: m.label, color: '#ff9c6e' });
+        if (m.height <= tip) data.markers.push({ time: tsForHeight(m.height, dates), label: m.label, color: '#ff9c6e', kind: 'halving' });
       }
       for (const m of FORK_MARKERS) {
-        if (m.height <= tip) data.markers.push({ time: tsForHeight(m.height, dates), label: m.label, color: '#b388ff' });
+        if (m.height <= tip) data.markers.push({ time: tsForHeight(m.height, dates), label: m.label, color: '#b388ff', kind: 'fork' });
+      }
+      for (const m of SPECIAL_MARKERS) {
+        if (m.height <= tip) data.markers.push({ time: tsForHeight(m.height, dates), label: m.label, color: '#22d3ee', kind: 'special' });
       }
       data.markers.sort((a, b) => Number(a.time) - Number(b.time));
       dataRef.current = data;
@@ -190,12 +229,16 @@ export const Supply: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height]);
 
-  // Re-render markers when toggle flips.
+  // Re-render markers when any toggle flips.
   useEffect(() => {
     if (dataRef.current) renderChart(dataRef.current);
-    try { localStorage.setItem('supplyChartShowMarkers', showMarkers ? 'true' : 'false'); } catch { /* ignore */ }
+    try {
+      localStorage.setItem('supplyChartShowHalvings', showHalvings ? 'true' : 'false');
+      localStorage.setItem('supplyChartShowForks', showForks ? 'true' : 'false');
+      localStorage.setItem('supplyChartShowSpecial', showSpecial ? 'true' : 'false');
+    } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showMarkers]);
+  }, [showHalvings, showForks, showSpecial]);
 
   // Dispose the chart on unmount — renderChart only removes the *previous*
   // instance on re-render, so without this the last chart's canvas + WebGL
@@ -238,20 +281,20 @@ export const Supply: React.FC = () => {
     sTrea.setData(data.treasury as LineData[]);
     sRew.setData(data.reward as LineData[]);
 
-    if (showMarkers) {
-      // Vertical lines via priceLines aren't a thing in LWC; use marker series
-      // by adding small dashed segments — fallback: just label points on the
-      // total series.
-      sTotal.setMarkers(data.markers.map((m) => ({
-        time: m.time,
-        position: 'inBar' as const,
-        color: m.color,
-        shape: 'arrowDown' as const,
-        text: m.label,
-      })));
-    } else {
-      sTotal.setMarkers([]);
-    }
+    const shownKinds = {
+      halving: showHalvings, fork: showForks, special: showSpecial,
+    };
+    sTotal.setMarkers(
+      data.markers
+        .filter((m) => shownKinds[m.kind])
+        .map((m) => ({
+          time: m.time,
+          position: 'inBar' as const,
+          color: m.color,
+          shape: 'arrowDown' as const,
+          text: m.label,
+        })),
+    );
     chart.timeScale().fitContent();
   }
 
@@ -345,17 +388,82 @@ export const Supply: React.FC = () => {
           <label>
             <input
               type="checkbox"
-              checked={showMarkers}
-              onChange={(e) => setShowMarkers(e.target.checked)}
+              checked={showHalvings}
+              onChange={(e) => setShowHalvings(e.target.checked)}
               style={{ marginRight: 6 }}
             />
-            Halvings &amp; hard forks
+            <Dot color="#ff9c6e" /> Halvings
           </label>
-          <span><Dot color="#ff9c6e" /> halving</span>
-          <span><Dot color="#b388ff" /> hard fork</span>
+          <label>
+            <input
+              type="checkbox"
+              checked={showForks}
+              onChange={(e) => setShowForks(e.target.checked)}
+              style={{ marginRight: 6 }}
+            />
+            <Dot color="#b388ff" /> Hard forks
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={showSpecial}
+              onChange={(e) => setShowSpecial(e.target.checked)}
+              style={{ marginRight: 6 }}
+            />
+            <Dot color="#22d3ee" /> Special blocks
+          </label>
         </Row>
         <ChartWrap ref={chartWrapRef} />
       </div>
+
+      <Card>
+        <H2>Special historical blocks</H2>
+        <ScrollX>
+          <SpecialBlocksTable>
+            <thead>
+              <tr>
+                <th className="right" style={{ width: 130 }}>Height</th>
+                <th style={{ width: 110 }}>Date</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {specialBlocks.map((b, i) => {
+                const repHeight = b.block_list?.[0] ?? b.block_range?.[0] ?? 0;
+                return (
+                  // eslint-disable-next-line react/no-array-index-key
+                  <tr key={i}>
+                    <td className="right">
+                      {b.block_list?.map((h) => <div key={h}>{fmtInt(h)}</div>)}
+                      {b.block_range && (
+                        <div>{fmtInt(b.block_range[0])}<br />to {fmtInt(b.block_range[1])}</div>
+                      )}
+                    </td>
+                    <td>{fmtDateFromHeight(repHeight)}</td>
+                    <td>
+                      <Collapsible>
+                        <summary>{b.title}</summary>
+                        <div style={{ marginTop: 8 }}>{b.description}</div>
+                        {b.links && (
+                          <ul style={{ marginTop: 8 }}>
+                            {b.links.map((l, j) => (
+                              // eslint-disable-next-line react/no-array-index-key
+                              <li key={j}>
+                                {l[0]}:{' '}
+                                <a href={l[1]} target="_blank" rel="noreferrer" style={{ color: theme.color.accent }}>{l[1]}</a>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </Collapsible>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </SpecialBlocksTable>
+        </ScrollX>
+      </Card>
     </Page>
   );
 };
