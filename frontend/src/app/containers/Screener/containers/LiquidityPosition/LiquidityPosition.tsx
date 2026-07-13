@@ -18,6 +18,7 @@ import {
 import { ILCurveChart } from './charts/ILCurveChart';
 import { ScenariosChart } from './charts/ScenariosChart';
 import { SimulatorChart } from './charts/SimulatorChart';
+import { MOBILE_MEDIA } from '../../components/responsive';
 
 // ---------------------------------------------------------------------------
 // Styling — mirrors the dark cards used across the Screener (#042548 panels).
@@ -30,7 +31,7 @@ const Page = styled.div`
   /* Fill the viewport so the global footer stays pinned to the bottom even on
      the short empty state (matches PairsList / AssetsList / PairDetail). */
   min-height: calc(100vh - 130px);
-  @media (max-width: 640px) { padding: 12px; }
+  ${MOBILE_MEDIA} { padding: 12px; }
 `;
 
 const Title = styled.h1`
@@ -174,7 +175,7 @@ const PickerBtn = styled.button<{ active?: boolean }>`
 const Grid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-gap: 16px;
   margin-top: 16px;
   @media (max-width: 760px) { grid-template-columns: 1fr; }
 `;

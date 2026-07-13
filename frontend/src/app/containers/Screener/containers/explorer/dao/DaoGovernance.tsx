@@ -83,7 +83,8 @@ const LegendItem = styled.span`
 const detailsCls = css`
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  /* Owl margins, not gap — flex gap is unsupported in the wallet's Chrome 83. */
+  & > * + * { margin-left: 5px; }
   font-size: 11px;
   font-weight: 600;
   padding: 6px 14px;

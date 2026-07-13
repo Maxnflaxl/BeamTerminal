@@ -1094,8 +1094,10 @@ class BeamDappConnector extends EventEmitter {
                     : `Please approve the connection request in your BEAM wallet to use ${this.config.appName}`
                 }
             </p>
-            <div id="beam-connector-buttons" style="display: flex; gap: 12px; justify-content: center;">
+            <!-- Button margins, not flex gap — unsupported in the wallet's Chrome 83. -->
+            <div id="beam-connector-buttons" style="display: flex; justify-content: center;">
                 <button id="beam-retry-btn" style="
+                    margin: 0 6px;
                     padding: 12px 24px;
                     border-radius: 50px;
                     border: none;
@@ -1107,6 +1109,7 @@ class BeamDappConnector extends EventEmitter {
                 ">Try Again</button>
                 ${this.environment === WalletEnvironment.WEB ? `
                     <button id="beam-install-btn" style="
+                        margin: 0 6px;
                         padding: 12px 24px;
                         border-radius: 50px;
                         border: none;

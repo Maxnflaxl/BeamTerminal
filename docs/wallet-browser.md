@@ -63,12 +63,11 @@ Documented at: `BackButton.tsx:34`, `Footer.tsx:96`, `SimpleChart.tsx:17`,
 `BlackholeChart.tsx:89`, `explorer/Dapps.tsx:61`, `explorer/dao/DaoTreasury.tsx:158`,
 `explorer/Mining.tsx:326`, `explorer/ActionTimeline.tsx:150`.
 
-> ⚠️ **`gap:` audit:** the core DEX paths — `Footer` grid, `LiquidityBanner`
-> tiers grid, and the `PairsList` mobile card/stats grids — have been converted to
-> `grid-gap`. A broader grep still finds ~20 non-zero `gap:` usages across the
-> explorer/DAO pages and a few inline styles that would also lose their spacing in
-> the wallet (grids → `grid-gap`, flex → owl-margins). Sweeping those is tracked
-> in the root `TODO.md`. (`gap: 0` is harmless — no spacing either way.)
+> ✅ **`gap:` audit:** the whole `src/` tree is swept — every grid uses
+> `grid-gap` and every flex container uses owl-margins (or an explicit child
+> margin). The only remaining `gap:` declarations are `gap: 0`, which is
+> harmless — no spacing either way. Keep it that way; re-check with:
+> `grep -rnE "[^-a-z]gap:" src | grep -v grid-gap`.
 
 ### `inset` shorthand — UNSUPPORTED (needs Chromium ≥ 87)
 
@@ -110,7 +109,7 @@ For line-clamping and some flex box models, use the old prefixed properties
 | QtWebEngine `downloadRequested` handler | Absent in the wallet profile → browser downloads are silently dropped | Hide download UI when `BeamDappConnector.isDesktop()` (`explorer/Dapps.tsx:558`) |
 | Native `<datalist>` popup | Unthemeable and won't reliably open on click in QtWebEngine | Custom themed dropdown combobox (`BeamExplorer.tsx:2874`) |
 | `IntersectionObserver` | **Available** | Used for chart-cell virtualization (caps canvas/WebGL memory) with an always-mounted fallback (`NetworkCharts.tsx:808`) |
-| `window.matchMedia` | **Available** | Used with a `typeof` guard + legacy `addListener` path (`PairsList.tsx:131`) |
+| `window.matchMedia` | **Available** | Used with `typeof` guards in `useMediaQuery` (`Screener/components/responsive.tsx`, also home of the shared 640px mobile breakpoint + `MobileOnly`/`DesktopOnly`) |
 
 ## Rule of thumb
 

@@ -219,7 +219,7 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
 const FormGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  grid-gap: 12px;
   margin-bottom: 16px;
   @media (max-width: 600px) { grid-template-columns: 1fr; }
 `;
@@ -289,7 +289,7 @@ const LoadingNote = styled.div`
 const SliderGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 12px;
+  grid-gap: 12px;
   margin-bottom: 4px;
   @media (max-width: 600px) { grid-template-columns: 1fr; }
 `;

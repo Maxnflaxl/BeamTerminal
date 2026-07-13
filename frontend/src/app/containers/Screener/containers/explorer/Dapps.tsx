@@ -78,7 +78,7 @@ const Mono = styled.span`
 const DappGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 10px;
+  grid-gap: 10px;
 `;
 
 const DappCard = styled.button`

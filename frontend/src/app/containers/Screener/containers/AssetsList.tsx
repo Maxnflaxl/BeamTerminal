@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate } from 'react-router-dom';
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { MOBILE_MEDIA, DesktopOnly, MobileOnly } from '../components/responsive';
 import { useAssets } from '../hooks';
 import { fmtNum } from '../components/format';
 import { ScreenerTable } from '../components/ScreenerTable';
@@ -18,7 +19,7 @@ const Header = styled.div`
   display: flex;
   & > * + * { margin-left: 16px; }
   align-items: center;
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     padding: 0 12px;
   }
 `;
@@ -58,25 +59,16 @@ const TableWrap = styled.div`
   padding: 0 20px;
   overflow-x: auto;
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     padding: 0 12px;
     overflow-x: visible;
   }
 `;
 
-const DesktopOnly = styled.div`
-  @media (max-width: 640px) { display: none; }
-`;
-
-const MobileOnly = styled.div`
-  display: none;
-  @media (max-width: 640px) { display: block; }
-`;
-
 const ACard = styled.div`
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 10px;
+  grid-gap: 10px;
   padding: 12px;
   margin-bottom: 8px;
   background: rgba(255, 255, 255, 0.02);
@@ -126,7 +118,7 @@ const ACardDesc = styled.div`
 const ACardStats = styled.div`
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 2px 12px;
+  grid-gap: 2px 12px;
   margin-top: 4px;
   font-family: 'SFProDisplay', monospace;
   font-size: 12px;

@@ -1680,7 +1680,7 @@ const HdrsTableWrap = styled.div`
 const ColumnGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 4px 12px;
+  grid-gap: 4px 12px;
   margin-top: 6px;
 `;
 
@@ -2911,7 +2911,8 @@ const ComboOption = styled.div`
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 14px;
+  /* Owl margins, not gap — flex gap is unsupported in the wallet's Chrome 83. */
+  & > * + * { margin-left: 14px; }
   padding: 7px 11px;
   font-family: ${theme.font.mono};
   font-size: 13px;
@@ -2920,6 +2921,14 @@ const ComboOption = styled.div`
   &:hover { background: ${theme.color.surface}; }
   &[data-active='true'] { color: ${theme.color.accent}; }
   & small { color: ${theme.color.muted}; font-size: 11px; }
+`;
+
+// Inline control group in the "Table options" row. Owl margins, not gap —
+// flex gap is unsupported in the wallet's Chrome 83.
+const TableOptsGroup = styled.span`
+  display: inline-flex;
+  align-items: center;
+  & > * + * { margin-left: 8px; }
 `;
 
 function ComboField({
@@ -3155,7 +3164,7 @@ function HdrsView(
             display: 'flex', flexWrap: 'wrap', alignItems: 'center', margin: '8px 0',
           }}
         >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <TableOptsGroup>
             <SegToggle>
               <button type="button" data-active={!isTf} onClick={() => setSizeMode('rows')}>Rows</button>
               <button type="button" data-active={isTf} onClick={() => setSizeMode('timeframe')}>Timeframe</button>
@@ -3190,7 +3199,7 @@ function HdrsView(
                 {isTf ? `${effectiveNMax.toLocaleString('en-US')} rows · ` : ''}≈ {pageCount} request{pageCount === 1 ? '' : 's'}
               </Muted>
             )}
-          </span>
+          </TableOptsGroup>
           <label style={{ marginLeft: 12 }}>
             Interval:{' '}
             <Select

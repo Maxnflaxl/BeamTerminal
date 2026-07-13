@@ -67,7 +67,7 @@ const ClickRow = styled.tr`
 const FlowRow = styled.div`
   display: grid;
   grid-template-columns: 110px 96px 1fr;
-  gap: 12px;
+  grid-gap: 12px;
   padding: 9px 16px;
   border-bottom: 1px solid ${theme.color.borderDim};
   font-size: 12px;
@@ -220,7 +220,8 @@ const HistSummary = styled.div`
   border-bottom: 1px solid ${theme.color.borderDim};
   font-size: 12px;
   display: flex;
-  gap: 18px;
+  /* Owl margins, not gap — flex gap is unsupported in the wallet's Chrome 83. */
+  & > * + * { margin-left: 18px; }
 `;
 
 export const DaoTreasury: React.FC = () => {

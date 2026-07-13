@@ -296,7 +296,7 @@ const IntervalGroup = styled.div`
 const Grid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-gap: 16px;
 
   @media (max-width: 800px) {
     grid-template-columns: 1fr;

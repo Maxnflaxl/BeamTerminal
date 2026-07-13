@@ -323,7 +323,7 @@ const Empty = styled.div`
 const ActivityRow = styled.div`
   display: grid;
   grid-template-columns: 110px 110px 1fr;
-  gap: 12px;
+  grid-gap: 12px;
   padding: 10px 16px;
   border-bottom: 1px solid ${theme.color.borderDim};
   font-size: 12px;

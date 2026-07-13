@@ -126,7 +126,7 @@ export const Surface2 = styled.div`
 export const StatGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-gap: 12px;
   margin-bottom: 16px;
 `;
 
@@ -386,7 +386,7 @@ export const Row = styled.div`
 export const Grid2 = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-gap: 16px;
   @media (max-width: 900px) { grid-template-columns: 1fr; }
 `;
 

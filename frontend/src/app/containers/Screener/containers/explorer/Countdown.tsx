@@ -136,7 +136,7 @@ const fmtAmount = (n: number): string =>
 const Grid = styled.div`
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  grid-gap: 12px;
   text-align: center;
   margin-top: 8px;
 

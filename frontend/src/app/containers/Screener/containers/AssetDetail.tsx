@@ -5,6 +5,7 @@ import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon'
 import { BlockHeight } from '@app/shared/components/BlockHeight';
 import { BackButton } from '@app/shared/components/BackButton';
 import { useAsset, useAssetDistribution, useAssetHistory, usePairs } from '../hooks';
+import { MOBILE_MEDIA } from '../components/responsive';
 import { fmt$, fmtNum, pairUrlId } from '../components/format';
 import { KindBadge } from '../components/KindBadge';
 import { ScreenerTable } from '../components/ScreenerTable';
@@ -15,7 +16,7 @@ const Page = styled.div`
   max-width: 1000px;
   margin: 24px auto;
   padding: 0 20px;
-  @media (max-width: 640px) { padding: 0 12px; }
+  ${MOBILE_MEDIA} { padding: 0 12px; }
 `;
 
 const TopBar = styled.div`

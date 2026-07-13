@@ -1,6 +1,7 @@
 import React from 'react';
 import { styled } from '@linaria/react';
 import type { ApiStats } from '../api/types';
+import { MOBILE_MEDIA } from './responsive';
 import { fmt$, fmtNum } from './format';
 import { BeamIcon } from '@app/shared/icons';
 
@@ -17,7 +18,7 @@ const Row = styled.div`
   align-items: center;
   flex-wrap: wrap;
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     padding: 12px;
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -36,7 +37,7 @@ const Stat = styled.div`
     padding-right: 0;
   }
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     margin-right: 0;
     padding: 10px 12px;
     border-right: none;
@@ -90,7 +91,7 @@ const BeamPx = styled.div`
     margin-top: 3px;
   }
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     margin-left: 0;
   }
 `;

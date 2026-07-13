@@ -1,7 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ROUTES } from '@app/shared/constants';
+import {
+  MOBILE_MEDIA, DesktopOnly, MobileOnly, useIsMobile,
+} from '../components/responsive';
 import { usePairs, useStats } from '../hooks';
 import type { ApiPair, SortKey, SortOrder } from '../api/types';
 import { StatsBar } from '../components/StatsBar';
@@ -36,7 +39,7 @@ const Header = styled.div`
   align-items: center;
   & > * + * { margin-left: 16px; }
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     padding: 0 12px;
     & > * + * { margin-left: 10px; }
   }
@@ -74,7 +77,7 @@ const LpButton = styled(Link)`
   transition: background 120ms, border-color 120ms;
   &:hover { background: rgba(0, 246, 210, 0.22); }
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     font-size: 12px;
     padding: 8px 10px;
   }
@@ -97,7 +100,7 @@ const CreatePoolBtn = styled.button`
   transition: filter 120ms;
   &:hover { filter: brightness(1.08); }
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     font-size: 12px;
     padding: 8px 10px;
   }
@@ -109,44 +112,11 @@ const TableWrap = styled.div`
   padding: 0 20px;
   overflow-x: auto;
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     padding: 0 12px;
     overflow-x: visible;
   }
 `;
-
-const DesktopOnly = styled.div`
-  @media (max-width: 640px) { display: none; }
-`;
-
-const MobileOnly = styled.div`
-  display: none;
-  @media (max-width: 640px) { display: block; }
-`;
-
-// Track a media query so we can render ONLY the active layout's rows. The card
-// (mobile) and table (desktop) lists both map over every pair; without this
-// gate both are in the DOM at all times with one CSS-hidden, doubling the row
-// count — ~8 SVGs per row (icons + sparkline) wasted on the inactive layout.
-// The CSS wrappers stay as an instant-visual guard during a resize before the
-// change event fires. matchMedia is available in the wallet's QtWebEngine.
-const MOBILE_QUERY = '(max-width: 640px)';
-function useMediaQuery(query: string): boolean {
-  const [match, setMatch] = useState(
-    () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia(query).matches
-      : false),
-  );
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
-    const mql = window.matchMedia(query);
-    const onChange = (): void => setMatch(mql.matches);
-    onChange();
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
-  }, [query]);
-  return match;
-}
 
 const SortBar = styled.div`
   display: flex;
@@ -292,7 +262,7 @@ const FilterBar = styled.div`
   flex-wrap: wrap;
   & > * { margin: 0 6px 6px 0; }
 
-  @media (max-width: 640px) {
+  ${MOBILE_MEDIA} {
     padding: 0 12px;
   }
 `;
@@ -351,8 +321,13 @@ export const PairsList: React.FC = () => {
 
   const [filter, setFilter] = useState<DexFilter>('all');
   const [createOpen, setCreateOpen] = useState(false);
-  // Render only the active layout's rows (see useMediaQuery note above).
-  const isMobile = useMediaQuery(MOBILE_QUERY);
+  // Render only the active layout's rows. The card (mobile) and table (desktop)
+  // lists both map over every pair; without this gate both are in the DOM at
+  // all times with one CSS-hidden, doubling the row count — ~8 SVGs per row
+  // (icons + sparkline) wasted on the inactive layout. The MobileOnly/
+  // DesktopOnly wrappers stay as an instant-visual guard during a resize
+  // before the media-query change event fires.
+  const isMobile = useIsMobile();
   // MY filter + Create Pool are wallet-only (shown inside the BEAM wallet, hidden
   // on the public web). `inWallet` is isInsideWallet() from walletEnv.
   const { inWallet } = useWallet();

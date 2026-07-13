@@ -285,7 +285,8 @@ const ExtUrl = styled.div`
 const ExtActions = styled.div`
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  /* Owl margins, not gap — flex gap is unsupported in the wallet's Chrome 83. */
+  & > * + * { margin-left: 10px; }
 `;
 const ExtCancel = styled.button`
   padding: 8px 16px;

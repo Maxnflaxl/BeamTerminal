@@ -97,7 +97,7 @@ const ChartWrap = styled.div`
 const DonutLayout = styled.div`
   display: grid;
   grid-template-columns: 190px 1fr;
-  gap: 24px;
+  grid-gap: 24px;
   align-items: center;
   @media (max-width: 600px) { grid-template-columns: 1fr; }
 `;
@@ -300,13 +300,15 @@ const AgeCell: React.FC<{ iso: string | null; interval: number | null }> = ({ is
   const bar = ageBar(interval);
   return (
     <div
-      style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}
+      style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
       <span>{fmtAge(iso)}</span>
+      {/* marginTop, not flex gap on the parent — unsupported in the wallet's
+          Chrome 83 (and a gap would also offset the absolute tooltip). */}
       {bar && (
-        <div style={{ width: 64, height: 3, borderRadius: 2, background: 'rgba(148,163,184,0.18)' }}>
+        <div style={{ width: 64, height: 3, borderRadius: 2, background: 'rgba(148,163,184,0.18)', marginTop: 3 }}>
           <div style={{ width: `${bar.pct}%`, height: '100%', borderRadius: 2, background: bar.color }} />
         </div>
       )}

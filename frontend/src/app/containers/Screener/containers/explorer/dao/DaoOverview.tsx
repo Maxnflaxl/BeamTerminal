@@ -11,7 +11,7 @@ import { fmtUsd } from './daoShared';
 const Cards = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
+  grid-gap: 16px;
   margin-bottom: 20px;
 `;
 const hubCls = css`
