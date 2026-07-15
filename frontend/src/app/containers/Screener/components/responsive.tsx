@@ -25,10 +25,8 @@ export const MobileOnly = styled.div`
 // matchMedia is available in the wallet's QtWebEngine (Chrome 83), but keep the
 // typeof guards for SSR-ish tooling contexts.
 export function useMediaQuery(query: string): boolean {
-  const [match, setMatch] = useState(
-    () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia(query).matches
-      : false),
+  const [match, setMatch] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(query).matches : false,
   );
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;

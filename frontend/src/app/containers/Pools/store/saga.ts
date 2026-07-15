@@ -1,9 +1,5 @@
-import {
-  all, call, delay, put, select, takeLatest,
-} from 'redux-saga/effects';
-import {
-  IAsset, IPoolCard, ITxId, ITxResult, ITxStatus, TxStatus,
-} from '@core/types';
+import { all, call, delay, put, select, takeLatest } from 'redux-saga/effects';
+import { IAsset, IPoolCard, ITxId, ITxResult, ITxStatus, TxStatus } from '@core/types';
 import {
   AddLiquidityApi,
   CreatePoolApi,
@@ -153,10 +149,7 @@ export function* addLiquidity(action: ReturnType<typeof mainActions.onAddLiquidi
   try {
     const ammConfig = (yield selectAmmCallConfig()) as ReturnType<typeof toContractCallConfig>;
     // @ts-ignore
-    const {
-      txid,
-      res,
-    } = (yield call(AddLiquidityApi, action.payload ? action.payload : null, ammConfig)) as ITxResult;
+    const { txid, res } = (yield call(AddLiquidityApi, action.payload ? action.payload : null, ammConfig)) as ITxResult;
     if (res) {
       yield put(mainActions.setPredict(res));
     }
@@ -196,10 +189,7 @@ export function* tradePool(action: ReturnType<typeof mainActions.onTradePool.req
   try {
     const ammConfig = (yield selectAmmCallConfig()) as ReturnType<typeof toContractCallConfig>;
     // @ts-ignore
-    const {
-      res,
-      txid,
-    } = (yield call(TradePoolApi, action.payload ? action.payload : null, ammConfig)) as ITxResult;
+    const { res, txid } = (yield call(TradePoolApi, action.payload ? action.payload : null, ammConfig)) as ITxResult;
     if (res) {
       yield put(mainActions.setPredict(res));
     }
@@ -218,10 +208,7 @@ export function* withdrawPool(action: ReturnType<typeof mainActions.onWithdraw.r
   try {
     const ammConfig = (yield selectAmmCallConfig()) as ReturnType<typeof toContractCallConfig>;
     // @ts-ignore
-    const {
-      res,
-      txid,
-    } = (yield call(WithdrawApi, action.payload ? action.payload : null, ammConfig)) as ITxResult;
+    const { res, txid } = (yield call(WithdrawApi, action.payload ? action.payload : null, ammConfig)) as ITxResult;
     if (res) {
       yield put(mainActions.setPredict(res));
     }
@@ -267,9 +254,7 @@ export function* favoriteAsset(action: ReturnType<typeof mainActions.onToggleFav
     const assetId = action.payload as number;
     const current = (yield select((state: AppState) => state.main.favoriteAssets)) as number[];
     const list = current || [];
-    const updated = list.includes(assetId)
-      ? list.filter((id) => id !== assetId)
-      : [...list, assetId];
+    const updated = list.includes(assetId) ? list.filter((id) => id !== assetId) : [...list, assetId];
     yield localStorage.setItem('favoriteAssets', JSON.stringify(updated));
     yield put(mainActions.setFavoriteAssets(updated));
   } catch (e) {
@@ -278,9 +263,7 @@ export function* favoriteAsset(action: ReturnType<typeof mainActions.onToggleFav
 }
 
 export function* findBestPool(action: ReturnType<typeof mainActions.onFindBestPool.request>): Generator {
-  const {
-    pools, aid1, aid2, val2_pay, val1_buy,
-  } = action.payload;
+  const { pools, aid1, aid2, val2_pay, val1_buy } = action.payload;
 
   const predictParams = {
     aid1,
@@ -293,14 +276,16 @@ export function* findBestPool(action: ReturnType<typeof mainActions.onFindBestPo
 
   // @ts-ignore – fire all pool predictions in parallel
   const results: Array<{ pool: IPoolCard; result: ITxResult | null }> = yield all(
-    pools.map((pool: IPoolCard) => call(function* () {
-      try {
-        const result = (yield call(TradePoolApi, { ...predictParams, kind: pool.kind }, ammConfig)) as ITxResult;
-        return { pool, result };
-      } catch (_) {
-        return { pool, result: null };
-      }
-    })),
+    pools.map((pool: IPoolCard) =>
+      call(function* () {
+        try {
+          const result = (yield call(TradePoolApi, { ...predictParams, kind: pool.kind }, ammConfig)) as ITxResult;
+          return { pool, result };
+        } catch (_) {
+          return { pool, result: null };
+        }
+      }),
+    ),
   );
 
   let bestPool = pools[0];
@@ -339,18 +324,22 @@ function parseLpBalance(userView: any): number {
   return 0;
 }
 
-export function* loadAccumulatorRewards(action: ReturnType<typeof mainActions.loadAccumulatorRewards.request>): Generator {
+export function* loadAccumulatorRewards(
+  action: ReturnType<typeof mainActions.loadAccumulatorRewards.request>,
+): Generator {
   const { pool } = action.payload;
   if (!pool) {
-    yield put(mainActions.setRewardsState({
-      isAvailable: false,
-      isLoading: false,
-      error: null,
-      lpTokenBalance: 0,
-      estimatedReward: 0,
-      locks: [],
-      lockOptions: DEFAULT_LOCK_OPTIONS,
-    }));
+    yield put(
+      mainActions.setRewardsState({
+        isAvailable: false,
+        isLoading: false,
+        error: null,
+        lpTokenBalance: 0,
+        estimatedReward: 0,
+        locks: [],
+        lockOptions: DEFAULT_LOCK_OPTIONS,
+      }),
+    );
     return;
   }
 
@@ -362,24 +351,28 @@ export function* loadAccumulatorRewards(action: ReturnType<typeof mainActions.lo
     const locks = parseAccumulatorLocks(userView);
     const lpTokenBalance = parseLpBalance(userView);
     const hasRemaining = Number(params?.['farm-remaining-height'] || params?.['farm-nph-remaining-height'] || 0) > 0;
-    yield put(mainActions.setRewardsState({
-      isLoading: false,
-      isAvailable: hasRemaining || lpTokenBalance > 0 || locks.length > 0,
-      lockOptions: DEFAULT_LOCK_OPTIONS,
-      locks,
-      lpTokenBalance,
-      error: null,
-    }));
+    yield put(
+      mainActions.setRewardsState({
+        isLoading: false,
+        isAvailable: hasRemaining || lpTokenBalance > 0 || locks.length > 0,
+        lockOptions: DEFAULT_LOCK_OPTIONS,
+        locks,
+        lpTokenBalance,
+        error: null,
+      }),
+    );
   } catch (error: any) {
-    yield put(mainActions.setRewardsState({
-      isLoading: false,
-      isAvailable: false,
-      error: error?.message || 'Failed to load rewards',
-      lockOptions: DEFAULT_LOCK_OPTIONS,
-      locks: [],
-      lpTokenBalance: 0,
-      estimatedReward: 0,
-    }));
+    yield put(
+      mainActions.setRewardsState({
+        isLoading: false,
+        isAvailable: false,
+        error: error?.message || 'Failed to load rewards',
+        lockOptions: DEFAULT_LOCK_OPTIONS,
+        locks: [],
+        lpTokenBalance: 0,
+        estimatedReward: 0,
+      }),
+    );
   }
 }
 
@@ -407,7 +400,7 @@ export function* lockAccumulatorRewards(
       yield put(mainActions.loadAccumulatorRewards.request({ pool: (yield select(selectCurrentPool())) as IPoolCard }));
     }
   } catch (error: any) {
-    yield put(mainActions.lockAccumulatorRewards.failure(error, null));
+    yield put(mainActions.lockAccumulatorRewards.failure(error));
     toast(error?.message || 'Failed to lock rewards');
   }
 }
@@ -423,7 +416,7 @@ export function* updateAccumulatorRewards(
       yield put(mainActions.loadAccumulatorRewards.request({ pool: (yield select(selectCurrentPool())) as IPoolCard }));
     }
   } catch (error: any) {
-    yield put(mainActions.updateAccumulatorRewards.failure(error, null));
+    yield put(mainActions.updateAccumulatorRewards.failure(error));
     toast(error?.message || 'Failed to update rewards');
   }
 }

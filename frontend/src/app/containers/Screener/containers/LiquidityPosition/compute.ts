@@ -50,8 +50,7 @@ export interface Metrics {
   durationMs: number;
 }
 
-const toHuman = (groths: string, decimals: number): number =>
-  Number(groths) / 10 ** decimals;
+const toHuman = (groths: string, decimals: number): number => Number(groths) / 10 ** decimals;
 
 export function computeMetrics(p: PositionInput): Metrics {
   const a1i = toHuman(p.amount1, p.decimals1);
@@ -113,8 +112,7 @@ export function computePnl(m: Metrics, unit: Unit): Pnl {
   const totalInitial = unit === 1 ? 2 * m.a1i : 2 * m.a2i;
   const totalCurrent = unit === 1 ? 2 * m.aid1Total : 2 * m.aid2Total;
   const roi = totalCurrent / totalInitial - 1;
-  const priceChange =
-    unit === 1 ? m.p2in1pool / m.p2in1init - 1 : m.p1in2pool / m.p1in2init - 1;
+  const priceChange = unit === 1 ? m.p2in1pool / m.p2in1init - 1 : m.p1in2pool / m.p1in2init - 1;
   return {
     totalInitial,
     totalCurrent,
@@ -177,8 +175,7 @@ export interface IlCurveData {
   currentPrice: number;
 }
 
-const ilAt = (ratio: number): number =>
-  ratio <= 0 ? -1 : (2 * Math.sqrt(ratio)) / (1 + ratio) - 1;
+const ilAt = (ratio: number): number => (ratio <= 0 ? -1 : (2 * Math.sqrt(ratio)) / (1 + ratio) - 1);
 
 export function ilCurveData(m: Metrics, unit: Unit): IlCurveData {
   const r = unit === 1 ? m.p2in1pool / m.p2in1init : m.p1in2pool / m.p1in2init;
@@ -215,15 +212,10 @@ export interface ScenariosData {
   fees: number;
 }
 
-export function scenariosData(
-  m: Metrics,
-  unit: Unit,
-  name1: string,
-  name2: string,
-): ScenariosData {
+export function scenariosData(m: Metrics, unit: Unit, name1: string, name2: string): ScenariosData {
   const hypo = computeHypo(m, unit);
   const initial = unit === 1 ? 2 * m.a1i : 2 * m.a2i;
-  const current = hypo.current;
+  const { current } = hypo;
   const principal = unit === 1 ? 2 * m.aid1Principal : 2 * m.aid2Principal;
   const fees = unit === 1 ? 2 * m.aid1Fees : 2 * m.aid2Fees;
   return {
@@ -255,26 +247,25 @@ const SIM_RATIOS = [0.2, 0.25, 0.33, 0.5, 1, 2, 3, 4, 5];
 const SIM_LABELS = ['÷5', '÷4', '÷3', '÷2', 'x1', 'x2', 'x3', 'x4', 'x5'];
 const MONTH_DAYS = 30.42;
 
-export function simulatorData(
-  m: Metrics,
-  unit: Unit,
-  durationMonths: number,
-  usageMultiplier: number,
-): SimulatorData {
+export function simulatorData(m: Metrics, unit: Unit, durationMonths: number, usageMultiplier: number): SimulatorData {
   const currentTotal = unit === 1 ? 2 * m.aid1Total : 2 * m.aid2Total;
   const initialTotal = unit === 1 ? 2 * m.a1i : 2 * m.a2i;
   const currentPrincipal = unit === 1 ? 2 * m.aid1Principal : 2 * m.aid2Principal;
   const currentFees = unit === 1 ? 2 * m.aid1Fees : 2 * m.aid2Fees;
 
-  const avgDailyFees =
-    m.durationMs > 0 ? currentFees / (m.durationMs / (24 * 60 * 60 * 1000)) : 0;
+  const avgDailyFees = m.durationMs > 0 ? currentFees / (m.durationMs / (24 * 60 * 60 * 1000)) : 0;
   const projectedDays = durationMonths * MONTH_DAYS;
   const projectedFees = currentFees + avgDailyFees * projectedDays * usageMultiplier;
 
   const pointsFuture = SIM_RATIOS.map((ratio) => {
     const fPrincipal = currentPrincipal * Math.sqrt(ratio);
     const fTotal = fPrincipal + projectedFees;
-    return { ratio, y: fTotal / currentTotal - 1, principal: fPrincipal, fees: projectedFees };
+    return {
+      ratio,
+      y: fTotal / currentTotal - 1,
+      principal: fPrincipal,
+      fees: projectedFees,
+    };
   });
   const pointsPrincipal = SIM_RATIOS.map((ratio) => ({
     ratio,
@@ -409,10 +400,16 @@ function opValue(
   switch (unit) {
     // Liquidity ops are balanced at the pool ratio, so valuing both legs in one
     // pair asset at the op's own price is just double that leg.
-    case 'aid1': return 2 * a1w;
-    case 'aid2': return 2 * a2w;
-    case 'beam': return b1 != null && b2 != null ? a1w * b1 + a2w * b2 : NaN;
-    case 'usd':  return u1 != null && u2 != null ? a1w * u1 + a2w * u2 : NaN;
+    case 'aid1':
+      return 2 * a1w;
+    case 'aid2':
+      return 2 * a2w;
+    case 'beam':
+      return b1 != null && b2 != null ? a1w * b1 + a2w * b2 : NaN;
+    case 'usd':
+      return u1 != null && u2 != null ? a1w * u1 + a2w * u2 : NaN;
+    default:
+      return NaN;
   }
 }
 
@@ -458,16 +455,41 @@ export function aggregate(inp: AggInput): Aggregate {
     let withdrawn = 0;
     let ok = true;
     for (const op of inp.ops) {
-      const v = opValue(w1(op.amount1), w2(op.amount2), unit, op.beamPerAid1, op.beamPerAid2, op.usdPerAid1, op.usdPerAid2);
-      if (Number.isNaN(v)) { ok = false; break; }
+      const v = opValue(
+        w1(op.amount1),
+        w2(op.amount2),
+        unit,
+        op.beamPerAid1,
+        op.beamPerAid2,
+        op.usdPerAid1,
+        op.usdPerAid2,
+      );
+      if (Number.isNaN(v)) {
+        ok = false;
+        break;
+      }
       if (op.kind === 'Deposit') invested += v;
       else withdrawn += v;
     }
     const remaining = ok
-      ? opValue(rem1, rem2, unit, inp.currentBeamPerAid1, inp.currentBeamPerAid2, inp.currentUsdPerAid1, inp.currentUsdPerAid2)
+      ? opValue(
+          rem1,
+          rem2,
+          unit,
+          inp.currentBeamPerAid1,
+          inp.currentBeamPerAid2,
+          inp.currentUsdPerAid1,
+          inp.currentUsdPerAid2,
+        )
       : NaN;
     const available = ok && !Number.isNaN(remaining);
-    flows[unit] = { available, invested, withdrawn, remaining, pnl: withdrawn + remaining - invested };
+    flows[unit] = {
+      available,
+      invested,
+      withdrawn,
+      remaining,
+      pnl: withdrawn + remaining - invested,
+    };
   }
 
   // Net remaining position → reuse the single-deposit analysis. Basis is the

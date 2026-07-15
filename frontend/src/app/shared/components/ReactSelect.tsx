@@ -65,9 +65,7 @@ const ReactSelect = ({
 }: IReactSelectProps) => {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const noOptionsText = isFilter ? 'Type to search assets' : 'Select asset';
-  const {
-    Option, DropdownIndicator, ClearIndicator, SingleValue,
-  } = components;
+  const { Option, DropdownIndicator, ClearIndicator, SingleValue } = components;
 
   function IconOption(props) {
     const { value, label } = props;
@@ -141,11 +139,11 @@ const ReactSelect = ({
       }}
       styles={userStyles}
       {...rest}
-      {...((customPrefix === 'custom-filter' || customPrefix === 'custom-asset-select' || customPrefix === 'custom-kind')
+      {...(customPrefix === 'custom-filter' || customPrefix === 'custom-asset-select' || customPrefix === 'custom-kind'
         ? {
-          menuPortalTarget: typeof document !== 'undefined' ? document.body : null,
-          menuPosition: 'fixed' as const,
-        }
+            menuPortalTarget: typeof document !== 'undefined' ? document.body : null,
+            menuPosition: 'fixed' as const,
+          }
         : {})}
     />
   );

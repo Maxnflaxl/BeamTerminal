@@ -40,9 +40,7 @@ export const Sparkline: React.FC<Props> = ({ values, width = 96, height = 28 }) 
   const step = values.length === 1 ? 0 : width / (values.length - 1);
   const y = (v: number): number => height - pad - ((v - lo) / range) * (height - pad * 2);
 
-  const d = values
-    .map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(2)},${y(v).toFixed(2)}`)
-    .join(' ');
+  const d = values.map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
 
   const positive = values[values.length - 1]! >= values[0]!;
   const stroke = positive ? '#00e2c2' : '#ff5f5f';

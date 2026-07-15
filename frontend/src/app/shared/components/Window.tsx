@@ -16,7 +16,8 @@ interface WindowProps {
 }
 
 const Container = styled.div<{ bgColor: string }>`
-  background-color: ${({ bgColor }) => (BeamDappConnector.isWeb() || BeamDappConnector.isMobile() ? bgColor : 'transparent')};
+  background-color: ${({ bgColor }) =>
+    BeamDappConnector.isWeb() || BeamDappConnector.isMobile() ? bgColor : 'transparent'};
   min-height: 100%;
   width: 100%;
   max-width: 100%;
@@ -41,10 +42,10 @@ const ButtonWrapper = styled.div<{ margin: string }>`
     display: flex;
     justify-content: flex-end;
     max-width: 1310px;
-    margin-top: ${() => (BeamDappConnector.isWeb() ? '20px' : '0')} ;
-     @media (max-width: 913px) {
-       justify-content: center;
-     }
+    margin-top: ${() => (BeamDappConnector.isWeb() ? '20px' : '0')};
+    @media (max-width: 913px) {
+      justify-content: center;
+    }
   }
 `;
 const ButtonStyled = styled.div`
@@ -55,9 +56,7 @@ const ButtonStyled = styled.div`
   }
 `;
 
-const Window: React.FC<WindowProps> = ({
-  children, title, backButton, createPool, hideHeader,
-}) => {
+const Window: React.FC<WindowProps> = ({ children, title, backButton, createPool, hideHeader }) => {
   const rootRef = useRef();
   const navigate = useNavigate();
   const onPreviousClick = () => {
@@ -80,7 +79,7 @@ const Window: React.FC<WindowProps> = ({
         )}
         {!hideHeader && (
           <HeaderWrapper>
-            {backButton && <BackButton title="back" onClick={onPreviousClick} />}
+            {backButton && <BackButton onClick={onPreviousClick} />}
             {title && <Title variant="heading">{title}</Title>}
           </HeaderWrapper>
         )}

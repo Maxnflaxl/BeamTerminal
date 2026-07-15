@@ -1,9 +1,23 @@
+import { useEffect } from 'react';
 import { styled } from '@linaria/react';
 
-// Shared chrome for the DEX wallet-action modals (Add/Withdraw liquidity and
-// Create pool): the centered overlay + card, the close button, the four-variant
-// action button, the fee-tier table, and the connect/busy/action button-state
-// machine. Keeps the two modals visually and behaviourally in lockstep.
+// Shared chrome for modal surfaces across the app: the centered overlay, the
+// close button, the four-variant action button, the fee-tier table, and the
+// connect/busy/action button-state machine. Keeps the wallet-action modals
+// (and every other overlay) visually and behaviourally in lockstep.
+
+/** Escape-key close. `enabled` lets stacked modals encode close precedence —
+ *  only the topmost surface should listen. */
+export function useEscapeClose(onClose: () => void, enabled = true): void {
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, enabled]);
+}
 
 export const FEE_TIERS = [
   { kind: 0, label: 'Low · 0.05%' },
@@ -19,7 +33,7 @@ const TIER_FEE_PCT: Record<number, number> = { 0: 0.05, 1: 0.3, 2: 1 };
 
 export const tierFeePct = (kind: number): number => TIER_FEE_PCT[kind] ?? 0;
 
-export const Overlay = styled.div`
+export const Overlay = styled.div<{ z?: number; backdrop?: string; pad?: string }>`
   position: fixed;
   /* The inset shorthand isn't supported in QtWebEngine 5.15.2 (Chrome 83), the
      BEAM Wallet host — without the longhand the fixed overlay collapses to
@@ -28,12 +42,12 @@ export const Overlay = styled.div`
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 1000;
-  background: rgba(0, 0, 0, 0.6);
+  z-index: ${(p) => p.z ?? 1000};
+  background: ${(p) => p.backdrop ?? 'rgba(0, 0, 0, 0.6)'};
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: ${(p) => p.pad ?? '16px'};
 `;
 
 export const Card = styled.div`
@@ -55,7 +69,9 @@ export const CloseBtn = styled.button`
   line-height: 1;
   cursor: pointer;
   padding: 0 4px;
-  &:hover { color: #fff; }
+  &:hover {
+    color: #fff;
+  }
 `;
 
 export type BtnVariant = 'primary' | 'muted' | 'error' | 'success';
@@ -71,21 +87,28 @@ export const Btn = styled.button<{ variant: BtnVariant }>`
   cursor: pointer;
   font-family: inherit;
   transition: all 0.15s;
-  background: ${(p) => (p.variant === 'error'
-    ? 'var(--color-red)'
-    : p.variant === 'muted'
+  background: ${(p) =>
+    p.variant === 'error'
+      ? 'var(--color-red)'
+      : p.variant === 'muted'
       ? 'rgba(255, 255, 255, 0.08)'
-      : 'var(--color-green)')};
-  color: ${(p) => (p.variant === 'error'
-    ? 'white'
-    : p.variant === 'muted'
-      ? 'rgba(255, 255, 255, 0.5)'
-      : 'var(--color-dark-blue)')};
-  &:hover:not(:disabled) { filter: brightness(1.1); }
-  &:disabled { cursor: not-allowed; opacity: 0.8; }
+      : 'var(--color-green)'};
+  color: ${(p) =>
+    p.variant === 'error' ? 'white' : p.variant === 'muted' ? 'rgba(255, 255, 255, 0.5)' : 'var(--color-dark-blue)'};
+  &:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.8;
+  }
 `;
 
-export interface ActionBtnState { text: string; variant: BtnVariant; disabled: boolean; }
+export interface ActionBtnState {
+  text: string;
+  variant: BtnVariant;
+  disabled: boolean;
+}
 
 /**
  * The connect → busy → action button lifecycle shared by the wallet-action
@@ -101,16 +124,16 @@ export function actionButtonState(opts: {
   /** A muted/disabled reason blocking the action (e.g. "Enter amount"); null if ready. */
   disabledReason?: string | null;
   actionLabel: string;
+  /** Connect-button copy; surfaces may name the action ("Connect Wallet to Swap"). */
+  connectLabel?: string;
 }): ActionBtnState {
-  const {
-    feedback, headless, connecting, executing, busyLabel, disabledReason, actionLabel,
-  } = opts;
+  const { feedback, headless, connecting, executing, busyLabel, disabledReason, actionLabel } = opts;
   if (feedback?.kind === 'success') return { text: feedback.text, variant: 'success', disabled: true };
   if (feedback?.kind === 'error') return { text: feedback.text, variant: 'error', disabled: true };
   if (headless) {
     return connecting
       ? { text: 'Connecting…', variant: 'muted', disabled: true }
-      : { text: 'Connect Wallet', variant: 'primary', disabled: false };
+      : { text: opts.connectLabel ?? 'Connect Wallet', variant: 'primary', disabled: false };
   }
   if (executing) return { text: busyLabel, variant: 'muted', disabled: true };
   if (disabledReason) return { text: disabledReason, variant: 'muted', disabled: true };

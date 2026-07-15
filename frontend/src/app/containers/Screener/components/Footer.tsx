@@ -3,11 +3,11 @@ import { styled } from '@linaria/react';
 import { api } from '../api/client';
 
 interface HealthResp {
-  status:              string;
+  status: string;
   last_indexed_height: number;
-  chain_head:          number | null;
-  blocks_behind:       number | null;
-  lag_seconds:         number;
+  chain_head: number | null;
+  blocks_behind: number | null;
+  lag_seconds: number;
 }
 
 const Wrap = styled.footer`
@@ -33,11 +33,13 @@ const Inner = styled.div`
 const Col = styled.div`
   display: flex;
   flex-direction: column;
-  & > * + * { margin-top: 6px; }
+  & > * + * {
+    margin-top: 6px;
+  }
 `;
 
 const ColTitle = styled.div`
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -51,7 +53,9 @@ const FLink = styled.a`
   text-decoration: none;
   transition: color 120ms;
 
-  &:hover { color: #00f6d2; }
+  &:hover {
+    color: #00f6d2;
+  }
 `;
 
 const BottomBar = styled.div`
@@ -62,7 +66,9 @@ const BottomBar = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);
   flex-wrap: wrap;
@@ -73,16 +79,16 @@ const Badge = styled.span<{ tone: 'ok' | 'lag' | 'err' }>`
   align-items: center;
   padding: 4px 9px;
   border-radius: 999px;
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: ${(p) =>
-    p.tone === 'ok'  ? '#00f6d2'
-  : p.tone === 'lag' ? '#f0c14b'
-  : '#ff7676'};
-  border: 1px solid ${(p) =>
-    p.tone === 'ok'  ? 'rgba(0, 246, 210, 0.4)'
-  : p.tone === 'lag' ? 'rgba(240, 193, 75, 0.5)'
-  : 'rgba(255, 118, 118, 0.5)'};
+  color: ${(p) => (p.tone === 'ok' ? '#00f6d2' : p.tone === 'lag' ? '#f0c14b' : '#ff7676')};
+  border: 1px solid
+    ${(p) =>
+      p.tone === 'ok'
+        ? 'rgba(0, 246, 210, 0.4)'
+        : p.tone === 'lag'
+        ? 'rgba(240, 193, 75, 0.5)'
+        : 'rgba(255, 118, 118, 0.5)'};
   background: rgba(0, 0, 0, 0.18);
 `;
 
@@ -105,17 +111,45 @@ const IndexerBadge: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     const fetchHealth = (): void => {
-      api.health()
-        .then((h) => { if (!cancelled) { setHealth(h as HealthResp); setErrored(false); } })
-        .catch(() => { if (!cancelled) setErrored(true); });
+      api
+        .health()
+        .then((h) => {
+          if (!cancelled) {
+            setHealth(h as HealthResp);
+            setErrored(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setErrored(true);
+        });
     };
     fetchHealth();
-    const t = setInterval(fetchHealth, 30_000);
-    return () => { cancelled = true; clearInterval(t); };
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      fetchHealth();
+    }, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, []);
 
-  if (errored && !health) return <Badge tone="err"><BadgeDot />indexer · unreachable</Badge>;
-  if (!health) return <Badge tone="ok"><BadgeDot />syncing…</Badge>;
+  if (errored && !health) {
+    return (
+      <Badge tone="err">
+        <BadgeDot />
+        indexer · unreachable
+      </Badge>
+    );
+  }
+  if (!health) {
+    return (
+      <Badge tone="ok">
+        <BadgeDot />
+        syncing…
+      </Badge>
+    );
+  }
 
   const behind = health.blocks_behind ?? 0;
   const lagSec = health.lag_seconds ?? 0;
@@ -138,24 +172,38 @@ export const Footer: React.FC = () => (
     <Inner>
       <Col>
         <ColTitle>BEAM</ColTitle>
-        <FLink href="https://beam.mw" target="_blank" rel="noopener noreferrer">beam.mw</FLink>
+        <FLink href="https://beam.mw" target="_blank" rel="noopener noreferrer">
+          beam.mw
+        </FLink>
       </Col>
       <Col>
         <ColTitle>Community</ColTitle>
-        <FLink href="https://x.com/beamprivacy" target="_blank" rel="noopener noreferrer">X (Twitter)</FLink>
-        <FLink href="https://t.me/beamprivacy" target="_blank" rel="noopener noreferrer">Telegram</FLink>
-        <FLink href="https://discord.gg/fwfArUqpfh" target="_blank" rel="noopener noreferrer">Discord</FLink>
+        <FLink href="https://x.com/beamprivacy" target="_blank" rel="noopener noreferrer">
+          X (Twitter)
+        </FLink>
+        <FLink href="https://t.me/beamprivacy" target="_blank" rel="noopener noreferrer">
+          Telegram
+        </FLink>
+        <FLink href="https://discord.gg/fwfArUqpfh" target="_blank" rel="noopener noreferrer">
+          Discord
+        </FLink>
       </Col>
       <Col>
         <ColTitle>BeamTerminal</ColTitle>
-        <FLink href="https://github.com/Maxnflaxl/BeamTerminal" target="_blank" rel="noopener noreferrer">GitHub</FLink>
-        <FLink href="https://beamterminal.0xmx.net/api/" target="_blank" rel="noopener noreferrer">API</FLink>
+        <FLink href="https://github.com/Maxnflaxl/BeamTerminal" target="_blank" rel="noopener noreferrer">
+          GitHub
+        </FLink>
+        <FLink href="https://beamterminal.0xmx.net/api/" target="_blank" rel="noopener noreferrer">
+          API
+        </FLink>
         <FLink href="#/privacy">Privacy Policy</FLink>
       </Col>
       <Col>
         <ColTitle>Contact</ColTitle>
         <FLink href="mailto:me@maxnflaxl.dev">me@maxnflaxl.dev</FLink>
-        <FLink href="https://t.me/maxnflaxl" target="_blank" rel="noopener noreferrer">Telegram (@maxnflaxl)</FLink>
+        <FLink href="https://t.me/maxnflaxl" target="_blank" rel="noopener noreferrer">
+          Telegram (@maxnflaxl)
+        </FLink>
       </Col>
     </Inner>
     <BottomBar>

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { styled } from '@linaria/react';
 import { theme } from './shared';
+import { CenteredNote } from '../../components/CenteredNote';
 import { CATEGORIES, methodCategory, type BansCategory } from './bansActions';
 import type { ApiBansAction } from '../../api/types';
 
@@ -11,7 +12,13 @@ const PAD_T = 8;
 const PAD_B = 26;
 const LANE_H = 28;
 
-interface Tick { x: number; laneIdx: number; action: ApiBansAction; color: string; category: BansCategory; }
+interface Tick {
+  x: number;
+  laneIdx: number;
+  action: ApiBansAction;
+  color: string;
+  category: BansCategory;
+}
 
 function fmtDate(ms: number): string {
   return new Date(ms).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -44,8 +51,12 @@ export const ActionTimeline: React.FC<{ actions: ApiBansAction[] }> = ({ actions
       .map((a) => ({ a, ms: Date.parse(a.block_ts), cat: methodCategory(a.method) }))
       .filter((x) => Number.isFinite(x.ms) && laneIndex.has(x.cat));
     if (parsed.length === 0) return { ticks: [] as Tick[], minMs: 0, maxMs: 0 };
-    let lo = Infinity; let hi = -Infinity;
-    for (const p of parsed) { if (p.ms < lo) lo = p.ms; if (p.ms > hi) hi = p.ms; }
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const p of parsed) {
+      if (p.ms < lo) lo = p.ms;
+      if (p.ms > hi) hi = p.ms;
+    }
     if (hi === lo) hi = lo + 1;
     const out: Tick[] = parsed.map((p) => {
       const laneIdx = laneIndex.get(p.cat)!;
@@ -75,13 +86,19 @@ export const ActionTimeline: React.FC<{ actions: ApiBansAction[] }> = ({ actions
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const laneIdx = Math.floor((e.clientY - rect.top - PAD_T) / LANE_H);
-    if (laneIdx < 0 || laneIdx >= LANES.length) { setHover(null); return; }
+    if (laneIdx < 0 || laneIdx >= LANES.length) {
+      setHover(null);
+      return;
+    }
     let best: Tick | null = null;
     let bestDx = 12;
     for (const t of visibleTicks) {
       if (t.laneIdx !== laneIdx) continue;
       const dx = Math.abs(t.x - mx);
-      if (dx < bestDx) { bestDx = dx; best = t; }
+      if (dx < bestDx) {
+        bestDx = dx;
+        best = t;
+      }
     }
     setHover(best ? { x: best.x, y: laneY(best.laneIdx) + LANE_H / 2, action: best.action } : null);
   }
@@ -89,7 +106,8 @@ export const ActionTimeline: React.FC<{ actions: ApiBansAction[] }> = ({ actions
   function toggle(cat: BansCategory): void {
     setHidden((prev) => {
       const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
       return next;
     });
   }
@@ -109,18 +127,52 @@ export const ActionTimeline: React.FC<{ actions: ApiBansAction[] }> = ({ actions
         <svg width={width} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
           {gridlines.map((g, i) => (
             <g key={`g${i}`}>
-              <line x1={g.x} y1={PAD_T} x2={g.x} y2={PAD_T + LANES.length * LANE_H} stroke={theme.color.borderDim} strokeWidth={1} />
-              <text x={g.x} y={height - 8} fill={theme.color.muted} fontSize={10} textAnchor="middle">{g.label}</text>
+              <line
+                x1={g.x}
+                y1={PAD_T}
+                x2={g.x}
+                y2={PAD_T + LANES.length * LANE_H}
+                stroke={theme.color.borderDim}
+                strokeWidth={1}
+              />
+              <text x={g.x} y={height - 8} fill={theme.color.muted} fontSize={10} textAnchor="middle">
+                {g.label}
+              </text>
             </g>
           ))}
           {LANES.map((l, i) => (
             <g key={l.key}>
-              <text x={PAD_L - 10} y={laneY(i) + LANE_H / 2 + 3} fill={theme.color.muted} fontSize={11} textAnchor="end">{l.label}</text>
-              <line x1={PAD_L} y1={laneY(i) + LANE_H} x2={width - PAD_R} y2={laneY(i) + LANE_H} stroke={theme.color.borderDim} strokeWidth={1} opacity={0.5} />
+              <text
+                x={PAD_L - 10}
+                y={laneY(i) + LANE_H / 2 + 3}
+                fill={theme.color.muted}
+                fontSize={11}
+                textAnchor="end"
+              >
+                {l.label}
+              </text>
+              <line
+                x1={PAD_L}
+                y1={laneY(i) + LANE_H}
+                x2={width - PAD_R}
+                y2={laneY(i) + LANE_H}
+                stroke={theme.color.borderDim}
+                strokeWidth={1}
+                opacity={0.5}
+              />
             </g>
           ))}
           {visibleTicks.map((t, i) => (
-            <line key={`t${i}`} x1={t.x} y1={laneY(t.laneIdx) + 4} x2={t.x} y2={laneY(t.laneIdx) + LANE_H - 4} stroke={t.color} strokeWidth={2} opacity={0.55} />
+            <line
+              key={`t${i}`}
+              x1={t.x}
+              y1={laneY(t.laneIdx) + 4}
+              x2={t.x}
+              y2={laneY(t.laneIdx) + LANE_H - 4}
+              stroke={t.color}
+              strokeWidth={2}
+              opacity={0.55}
+            />
           ))}
           {hover && <circle cx={hover.x} cy={hover.y} r={3} fill={theme.color.text} />}
         </svg>
@@ -128,13 +180,19 @@ export const ActionTimeline: React.FC<{ actions: ApiBansAction[] }> = ({ actions
         {hover && (
           <Tip style={{ left: Math.min(hover.x + 10, Math.max(width - 170, 0)), top: hover.y - 6 }}>
             <TipName>{hover.action.name || '(no name)'}</TipName>
-            <TipMeta>{hover.action.method} · h {hover.action.height}</TipMeta>
+            <TipMeta>
+              {hover.action.method} · h {hover.action.height}
+            </TipMeta>
             <TipMeta>{fmtDate(Date.parse(hover.action.block_ts))}</TipMeta>
           </Tip>
         )}
       </SvgWrap>
 
-      {ticks.length === 0 && <Empty>No actions to plot.</Empty>}
+      {ticks.length === 0 && (
+        <CenteredNote pad="20px" size={12}>
+          No actions to plot.
+        </CenteredNote>
+      )}
     </Wrap>
   );
 };
@@ -151,7 +209,10 @@ const Legend = styled.div`
      / Chrome 83 lacks) give the chips comfortable spacing between each other and
      keep the rows apart when they wrap on a narrow panel / the wallet DApp. */
   margin: 2px 0 8px;
-  & > * { margin-right: 10px; margin-bottom: 8px; }
+  & > * {
+    margin-right: 10px;
+    margin-bottom: 8px;
+  }
 `;
 const Chip = styled.button`
   display: inline-flex;
@@ -163,7 +224,9 @@ const Chip = styled.button`
   color: ${theme.color.text};
   font-size: 11px;
   cursor: pointer;
-  &[data-off='true'] { opacity: 0.4; }
+  &[data-off='true'] {
+    opacity: 0.4;
+  }
 `;
 const Swatch = styled.span`
   width: 10px;
@@ -199,10 +262,4 @@ const TipName = styled.div`
 const TipMeta = styled.div`
   color: ${theme.color.muted};
   font-size: 10px;
-`;
-const Empty = styled.div`
-  padding: 20px;
-  text-align: center;
-  color: ${theme.color.muted};
-  font-size: 12px;
 `;

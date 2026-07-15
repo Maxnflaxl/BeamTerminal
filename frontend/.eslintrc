@@ -1,5 +1,12 @@
 {
-  "extends": ["airbnb", "airbnb-typescript","plugin:react-hooks/recommended"],
+  "extends": [
+    "airbnb",
+    "airbnb-typescript",
+    "plugin:react-hooks/recommended",
+    "prettier",
+    "prettier/react",
+    "prettier/@typescript-eslint"
+  ],
   "parser": "@typescript-eslint/parser",
   "plugins": ["@typescript-eslint"],
   "parserOptions": {
@@ -13,11 +20,37 @@
     "quotes": ["error", "single"],
     "max-len": [1,125,2],
     "no-use-before-define": "off",
+    "@typescript-eslint/no-use-before-define": "off",
+    "no-void": "off",
+    "no-continue": "off",
+    "no-plusplus": "off",
+    "no-bitwise": "off",
+    "no-await-in-loop": "off",
+    "no-restricted-properties": "off",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "ForInStatement",
+        "message": "for..in iterates the prototype chain; use Object.{keys,values,entries} instead."
+      },
+      {
+        "selector": "LabeledStatement",
+        "message": "Labels are a form of GOTO; refactor instead."
+      },
+      {
+        "selector": "WithStatement",
+        "message": "`with` is disallowed in strict mode."
+      }
+    ],
     "no-param-reassign": ["error", { "props": false }],
     "import/prefer-default-export": "off",
     "@typescript-eslint/naming-convention": "off",
     "jsx-a11y/anchor-is-valid": "off",
     "jsx-a11y/no-autofocus": "off",
+    "jsx-a11y/label-has-associated-control": [
+      "error",
+      { "assert": "either", "controlComponents": ["Select", "Input"], "depth": 25 }
+    ],
     "react/prop-types": "off",
     "react/require-default-props": "off",
     "react/no-array-index-key": "off",

@@ -1,17 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { styled } from '@linaria/react';
-import {
-  PageNarrow, Card, H2, Label, Value, Muted, theme,
-} from './shared';
+import { EXPLORER_API } from '@app/shared/constants';
+import { fmtAmount } from './supplyMath';
+import { PageNarrow, Card, H2, Label, Value, Muted, theme } from './shared';
 
 // Mainnet emission schedule — mirrors beam/core/block_crypt.cpp Rules::Emission.
-const EXPLORER_API = 'https://explorer.0xmx.net/api/';
-const DROP0 = 1440 * 365;        // blocks until first halving
-const DROP1 = 1440 * 365 * 4;    // blocks between subsequent halvings
-const EMIT_BASE = 80;            // base subsidy
+const DROP0 = 1440 * 365; // blocks until first halving
+const DROP1 = 1440 * 365 * 4; // blocks between subsequent halvings
+const EMIT_BASE = 80; // base subsidy
 const POLL_MS = 45_000;
 
-interface Emission { rate: number; hEnd: number }
+interface Emission {
+  rate: number;
+  hEnd: number;
+}
 
 function getEmissionEx(h: number, base: number): Emission {
   const b0 = Math.floor(base);
@@ -28,8 +30,7 @@ function getEmissionEx(h: number, base: number): Emission {
   return { rate: b >> n, hEnd };
 }
 
-const blockRewardAtHeight = (h: number): number =>
-  (h < 1 ? 0 : getEmissionEx(h, EMIT_BASE).rate);
+const blockRewardAtHeight = (h: number): number => (h < 1 ? 0 : getEmissionEx(h, EMIT_BASE).rate);
 
 function nextHalvingHeight(tip: number): number | null {
   const hQuery = Math.max(1, Math.floor(Number(tip)));
@@ -52,9 +53,10 @@ function extractStatusMetric(node: unknown, label: string): number | null {
   if (Array.isArray(node)) {
     for (const item of node) {
       if (
-        Array.isArray(item) && item.length >= 2
-        && (item[0] as { type?: string; value?: unknown })?.type === 'th'
-        && (item[0] as { value?: unknown })?.value === label
+        Array.isArray(item) &&
+        item.length >= 2 &&
+        (item[0] as { type?: string; value?: unknown })?.type === 'th' &&
+        (item[0] as { value?: unknown })?.value === label
       ) {
         const raw = (item[1] as { value?: unknown })?.value ?? item[1];
         const parsed = parseExplorerNumber(raw);
@@ -77,9 +79,8 @@ function extractStatusMetric(node: unknown, label: string): number | null {
 function extractTimestampSeconds(node: unknown): number | null {
   if (!node || typeof node !== 'object') return null;
   const obj = node as Record<string, unknown>;
-  const direct = parseExplorerNumber(obj.timestamp)
-    ?? parseExplorerNumber(obj.Timestamp)
-    ?? parseExplorerNumber(obj.time);
+  const direct =
+    parseExplorerNumber(obj.timestamp) ?? parseExplorerNumber(obj.Timestamp) ?? parseExplorerNumber(obj.time);
   if (direct !== null && direct > 1e9 && direct < 4e10) return direct;
   if (Array.isArray(node)) {
     for (const item of node) {
@@ -96,15 +97,12 @@ function extractTimestampSeconds(node: unknown): number | null {
 }
 
 const parseTipFromStatus = (data: Record<string, unknown>): number | null =>
-  parseExplorerNumber(data.height)
-  ?? parseExplorerNumber(data.h)
-  ?? extractStatusMetric(data, 'Height')
-  ?? null;
+  parseExplorerNumber(data.height) ?? parseExplorerNumber(data.h) ?? extractStatusMetric(data, 'Height') ?? null;
 
 async function fetchTipBlockTimestamp(tip: number): Promise<number | null> {
   try {
-    const res = await fetch(`${EXPLORER_API}block?height=${tip}&exp_am=1`);
-    const data = await res.json() as Record<string, unknown>;
+    const res = await fetch(`${EXPLORER_API}/block?height=${tip}&exp_am=1`);
+    const data = (await res.json()) as Record<string, unknown>;
     if (data && data.found === false) return null;
     const sec = extractTimestampSeconds(data);
     return sec !== null ? sec * 1000 : null;
@@ -123,11 +121,13 @@ interface State {
 }
 
 const initialState: State = {
-  tip: null, nextH: null, blocksLeft: null, lastBlockMs: null, exhausted: false, error: null,
+  tip: null,
+  nextH: null,
+  blocksLeft: null,
+  lastBlockMs: null,
+  exhausted: false,
+  error: null,
 };
-
-const fmtAmount = (n: number): string =>
-  Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 8 });
 
 // ---------------------------------------------------------------------------
 // Page-specific styled components (no shared equivalent)
@@ -198,8 +198,8 @@ export const Countdown: React.FC = () => {
 
     async function poll(): Promise<void> {
       try {
-        const res = await fetch(`${EXPLORER_API}status?exp_am=1`);
-        const data = await res.json() as Record<string, unknown>;
+        const res = await fetch(`${EXPLORER_API}/status?exp_am=1`);
+        const data = (await res.json()) as Record<string, unknown>;
         if (stopped) return;
         const tip = parseTipFromStatus(data);
 
@@ -223,7 +223,14 @@ export const Countdown: React.FC = () => {
           lastBlockMs = await fetchTipBlockTimestamp(tip);
         }
         if (stopped) return;
-        setState({ tip, nextH, blocksLeft, lastBlockMs, exhausted: false, error: null });
+        setState({
+          tip,
+          nextH,
+          blocksLeft,
+          lastBlockMs,
+          exhausted: false,
+          error: null,
+        });
       } catch {
         if (stopped) return;
         setState({ ...initialState, error: 'Explorer unavailable.' });
@@ -231,8 +238,14 @@ export const Countdown: React.FC = () => {
     }
 
     void poll();
-    const pollId = setInterval(poll, POLL_MS);
-    const tickId = setInterval(() => setNow(Date.now()), 1000);
+    const pollId = setInterval(() => {
+      if (document.hidden) return;
+      void poll();
+    }, POLL_MS);
+    const tickId = setInterval(() => {
+      if (document.hidden) return;
+      setNow(Date.now());
+    }, 1000);
     return () => {
       stopped = true;
       clearInterval(pollId);
@@ -240,15 +253,14 @@ export const Countdown: React.FC = () => {
     };
   }, []);
 
-  const {
-    tip, nextH, blocksLeft, lastBlockMs, exhausted, error,
-  } = state;
+  const { tip, nextH, blocksLeft, lastBlockMs, exhausted, error } = state;
 
   let status: { text: string; kind: 'ok' | 'bad' | 'muted' } | null = null;
   let showCountdown = false;
   if (error) status = { text: error, kind: 'bad' };
   else if (exhausted) status = { text: 'Miner subsidy schedule ended (no further halvings).', kind: 'ok' };
-  else if (tip === null || tip < 1 || nextH === null) status = { text: 'Waiting for a valid chain height from the explorer…', kind: 'muted' };
+  else if (tip === null || tip < 1 || nextH === null)
+    status = { text: 'Waiting for a valid chain height from the explorer…', kind: 'muted' };
   else showCountdown = true;
 
   let days = 0;
@@ -259,9 +271,12 @@ export const Countdown: React.FC = () => {
     const baseMs = lastBlockMs !== null ? lastBlockMs : now;
     const deadlineMs = baseMs + blocksLeft * 60 * 1000;
     let rem = Math.max(0, Math.floor((deadlineMs - now) / 1000));
-    days = Math.floor(rem / 86400); rem -= days * 86400;
-    hours = Math.floor(rem / 3600); rem -= hours * 3600;
-    mins = Math.floor(rem / 60); secs = rem - mins * 60;
+    days = Math.floor(rem / 86400);
+    rem -= days * 86400;
+    hours = Math.floor(rem / 3600);
+    rem -= hours * 3600;
+    mins = Math.floor(rem / 60);
+    secs = rem - mins * 60;
   }
 
   const pad = (n: number): string => String(n).padStart(2, '0');
@@ -275,16 +290,28 @@ export const Countdown: React.FC = () => {
         <Label>Countdown (estimated)</Label>
         {showCountdown && (
           <Grid>
-            <Unit><Num>{String(days)}</Num><UnitLabel>days</UnitLabel></Unit>
-            <Unit><Num>{pad(hours)}</Num><UnitLabel>hours</UnitLabel></Unit>
-            <Unit><Num>{pad(mins)}</Num><UnitLabel>minutes</UnitLabel></Unit>
-            <Unit><Num>{pad(secs)}</Num><UnitLabel>seconds</UnitLabel></Unit>
+            <Unit>
+              <Num>{String(days)}</Num>
+              <UnitLabel>days</UnitLabel>
+            </Unit>
+            <Unit>
+              <Num>{pad(hours)}</Num>
+              <UnitLabel>hours</UnitLabel>
+            </Unit>
+            <Unit>
+              <Num>{pad(mins)}</Num>
+              <UnitLabel>minutes</UnitLabel>
+            </Unit>
+            <Unit>
+              <Num>{pad(secs)}</Num>
+              <UnitLabel>seconds</UnitLabel>
+            </Unit>
           </Grid>
         )}
         {status && <StatusMsg kind={status.kind}>{status.text}</StatusMsg>}
         <Footnote>
-          ETA uses the timestamp of the current chain tip when available, plus remaining blocks × 60s (Beam target block time).
-          Explorer polls every 45s.
+          ETA uses the timestamp of the current chain tip when available, plus remaining blocks × 60s (Beam target block
+          time). Explorer polls every 45s.
         </Footnote>
       </Card>
 

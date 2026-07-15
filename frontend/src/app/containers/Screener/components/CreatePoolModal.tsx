@@ -3,21 +3,25 @@ import { styled } from '@linaria/react';
 import type { ApiAssetListEntry } from '../api/types';
 import { useWallet, invokeCreatePool } from '../wallet';
 import { useAssets, usePairs } from '../hooks';
-import {
-  Overlay, Card, CloseBtn, Btn, FEE_TIERS, actionButtonState,
-} from './modalChrome';
+import { Overlay, Card, CloseBtn, Btn, FEE_TIERS, actionButtonState } from './modalChrome';
 
 const Head = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 14px;
-  h3 { margin: 0; font-size: 16px; font-weight: 700; color: #fff; }
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+  }
 `;
 
 const Field = styled.div`
   margin-bottom: 12px;
-  label {
+  label,
+  .fieldLabel {
     display: block;
     font-size: 11px;
     text-transform: uppercase;
@@ -37,14 +41,23 @@ const Select = styled.select`
   font-family: inherit;
   font-size: 14px;
   outline: none;
-  &:focus { border-color: var(--color-green); }
-  &:disabled { opacity: 0.6; }
-  option { background: #042548; color: #fff; }
+  &:focus {
+    border-color: var(--color-green);
+  }
+  &:disabled {
+    opacity: 0.6;
+  }
+  option {
+    background: #042548;
+    color: #fff;
+  }
 `;
 
 const TierRow = styled.div`
   display: flex;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   flex-wrap: wrap;
 `;
 
@@ -57,7 +70,9 @@ const TierPill = styled.button<{ active?: boolean }>`
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  &:hover { border-color: rgba(0, 246, 210, 0.5); }
+  &:hover {
+    border-color: rgba(0, 246, 210, 0.5);
+  }
 `;
 
 const ErrMsg = styled.div`
@@ -76,23 +91,24 @@ const AssetSelect: React.FC<{
   optionLabel: (aid: number) => string;
   locked: boolean;
   error?: string;
-}> = ({
-  label, value, onChange, options, optionLabel, locked, error,
-}) => (
+}> = ({ label, value, onChange, options, optionLabel, locked, error }) => (
   <Field>
-    <label>{label}</label>
+    <label htmlFor={`pool-${label}`}>{label}</label>
     {locked && value !== null ? (
-      <Select value={value} disabled>
+      <Select id={`pool-${label}`} value={value} disabled>
         <option value={value}>{optionLabel(value)}</option>
       </Select>
     ) : (
       <Select
+        id={`pool-${label}`}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
       >
         <option value="">Select asset…</option>
         {options.map((a) => (
-          <option key={a.aid} value={a.aid}>{optionLabel(a.aid)}</option>
+          <option key={a.aid} value={a.aid}>
+            {optionLabel(a.aid)}
+          </option>
         ))}
       </Select>
     )}
@@ -110,16 +126,15 @@ interface Props {
 }
 
 export const CreatePoolModal: React.FC<Props> = ({
-  initialAid1, initialAid2, initialKind, lockPair = false, onClose,
+  initialAid1,
+  initialAid2,
+  initialKind,
+  lockPair = false,
+  onClose,
 }) => {
   const { headless, connecting, connect } = useWallet();
   const { data } = useAssets();
-  const assets = useMemo(
-    () => (data?.assets ?? [])
-      .slice()
-      .sort((a, b) => a.aid - b.aid),
-    [data],
-  );
+  const assets = useMemo(() => (data?.assets ?? []).slice().sort((a, b) => a.aid - b.aid), [data]);
 
   // Every existing pool (one row per fee tier) → keyed "aid1_aid2_kind" so we
   // can block creating a duplicate. The contract rejects duplicates too, but
@@ -145,19 +160,18 @@ export const CreatePoolModal: React.FC<Props> = ({
   const sameAsset = aid1 !== null && aid2 !== null && aid1 === aid2;
   const lo = aid1 !== null && aid2 !== null ? Math.min(aid1, aid2) : null;
   const hi = aid1 !== null && aid2 !== null ? Math.max(aid1, aid2) : null;
-  const poolExists = lo !== null && hi !== null && !sameAsset
-    && existingKeys.has(`${lo}_${hi}_${kind}`);
+  const poolExists = lo !== null && hi !== null && !sameAsset && existingKeys.has(`${lo}_${hi}_${kind}`);
   const canSubmit = aid1 !== null && aid2 !== null && !sameAsset && !poolExists;
 
   const create = useCallback(async () => {
     if (aid1 === null || aid2 === null) return;
     // Canonical pool key: lower AID first.
-    const lo = Math.min(aid1, aid2);
-    const hi = Math.max(aid1, aid2);
+    const loAid = Math.min(aid1, aid2);
+    const hiAid = Math.max(aid1, aid2);
     setExecuting(true);
     setFeedback(null);
     try {
-      const res = await invokeCreatePool({ aid1: lo, aid2: hi, kind });
+      const res = await invokeCreatePool({ aid1: loAid, aid2: hiAid, kind });
       if (res?.txid) {
         setFeedback({ kind: 'success', text: 'Pool creation submitted' });
         setTimeout(() => onClose(), 1200);
@@ -187,7 +201,9 @@ export const CreatePoolModal: React.FC<Props> = ({
       <Card onClick={(e) => e.stopPropagation()}>
         <Head>
           <h3>Create Pool</h3>
-          <CloseBtn type="button" aria-label="Close" onClick={onClose}>×</CloseBtn>
+          <CloseBtn type="button" aria-label="Close" onClick={onClose}>
+            ×
+          </CloseBtn>
         </Head>
 
         <AssetSelect
@@ -209,15 +225,10 @@ export const CreatePoolModal: React.FC<Props> = ({
         />
 
         <Field>
-          <label>Fee tier</label>
+          <span className="fieldLabel">Fee tier</span>
           <TierRow>
             {FEE_TIERS.map((t) => (
-              <TierPill
-                key={t.kind}
-                type="button"
-                active={kind === t.kind}
-                onClick={() => setKind(t.kind)}
-              >
+              <TierPill key={t.kind} type="button" active={kind === t.kind} onClick={() => setKind(t.kind)}>
                 {t.label}
               </TierPill>
             ))}
@@ -229,7 +240,15 @@ export const CreatePoolModal: React.FC<Props> = ({
           type="button"
           variant={btn.variant}
           disabled={btn.disabled}
-          onClick={headless ? () => { void connect(); } : () => { void create(); }}
+          onClick={
+            headless
+              ? () => {
+                  void connect();
+                }
+              : () => {
+                  void create();
+                }
+          }
         >
           {btn.text}
         </Btn>

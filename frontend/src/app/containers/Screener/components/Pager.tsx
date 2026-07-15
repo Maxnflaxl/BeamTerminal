@@ -5,7 +5,9 @@ const Bar = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
   padding: 8px 12px;
   flex-wrap: wrap;
   font-size: 12px;
@@ -15,7 +17,9 @@ const Bar = styled.div`
 const Pages = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 4px; }
+  & > * + * {
+    margin-left: 4px;
+  }
   margin-left: auto;
   button {
     min-width: 26px;
@@ -28,15 +32,24 @@ const Pages = styled.div`
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
-    &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); color: white; }
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.06);
+      color: white;
+    }
     &.active {
       border-color: var(--color-green);
       color: var(--color-green);
       font-weight: 600;
     }
-    &:disabled { opacity: 0.3; cursor: default; }
+    &:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
   }
-  .gap { padding: 0 2px; color: rgba(255, 255, 255, 0.3); }
+  .gap {
+    padding: 0 2px;
+    color: rgba(255, 255, 255, 0.3);
+  }
 `;
 
 interface Props {
@@ -55,7 +68,9 @@ interface Props {
 // (1 2 3 4 5 … 225).
 function pageList(current: number, last: number): Array<number | 'gap'> {
   const out: Array<number | 'gap'> = [];
-  const push = (n: number): void => { if (!out.includes(n)) out.push(n); };
+  const push = (n: number): void => {
+    if (!out.includes(n)) out.push(n);
+  };
   const window = [current - 1, current, current + 1].filter((n) => n >= 1 && n <= last);
   push(1);
   if ((window[0] ?? 1) > 2) out.push('gap');
@@ -65,9 +80,7 @@ function pageList(current: number, last: number): Array<number | 'gap'> {
   return out;
 }
 
-export const Pager: React.FC<Props> = ({
-  page, pageSize, total, loadedCount, onChange,
-}) => {
+export const Pager: React.FC<Props> = ({ page, pageSize, total, loadedCount, onChange }) => {
   const current1 = page + 1; // 1-based for display
   const lastPage = total !== null ? Math.max(1, Math.ceil(total / pageSize)) : null;
   const from = total === 0 ? 0 : page * pageSize + 1;
@@ -80,27 +93,36 @@ export const Pager: React.FC<Props> = ({
     <Bar>
       <span>
         {total !== null
-          ? `Showing ${from.toLocaleString('en-US')} to ${to.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} entries`
+          ? `Showing ${from.toLocaleString('en-US')} to ${to.toLocaleString('en-US')} of ${total.toLocaleString(
+              'en-US',
+            )} entries`
           : `Showing ${from.toLocaleString('en-US')} to ${to.toLocaleString('en-US')}`}
       </span>
       <Pages>
-        <button type="button" disabled={!canPrev} onClick={() => onChange(page - 1)}>‹</button>
-        {lastPage !== null
-          ? pageList(current1, lastPage).map((p, i) => (p === 'gap' ? (
-            // eslint-disable-next-line react/no-array-index-key
-            <span key={`gap-${i}`} className="gap">…</span>
-          ) : (
-            <button
-              key={p}
-              type="button"
-              className={p === current1 ? 'active' : ''}
-              onClick={() => onChange(p - 1)}
-            >
-              {p}
-            </button>
-          )))
-          : <button type="button" className="active">{current1}</button>}
-        <button type="button" disabled={!canNext} onClick={() => onChange(page + 1)}>›</button>
+        <button type="button" disabled={!canPrev} onClick={() => onChange(page - 1)}>
+          ‹
+        </button>
+        {lastPage !== null ? (
+          pageList(current1, lastPage).map((p, i) =>
+            p === 'gap' ? (
+              // eslint-disable-next-line react/no-array-index-key
+              <span key={`gap-${i}`} className="gap">
+                …
+              </span>
+            ) : (
+              <button key={p} type="button" className={p === current1 ? 'active' : ''} onClick={() => onChange(p - 1)}>
+                {p}
+              </button>
+            ),
+          )
+        ) : (
+          <button type="button" className="active">
+            {current1}
+          </button>
+        )}
+        <button type="button" disabled={!canNext} onClick={() => onChange(page + 1)}>
+          ›
+        </button>
       </Pages>
     </Bar>
   );

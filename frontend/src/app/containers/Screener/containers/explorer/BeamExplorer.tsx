@@ -1,15 +1,26 @@
-import React, {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-} from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { styled } from '@linaria/react';
 import {
-  Page, Card, ExplorerHeader, H1, H2, H3,
-  Btn, Input, Select, Pill,
-  DataTable, ScrollX, ErrorBox, Row, theme,
+  Page,
+  Card,
+  ExplorerHeader,
+  H1,
+  H2,
+  H3,
+  Btn,
+  Input,
+  Select,
+  Pill,
+  DataTable,
+  ScrollX,
+  ErrorBox,
+  Row,
+  theme,
 } from './shared';
 import { specialBlocks } from './supplyMath';
+import { CenteredNote } from '../../components/CenteredNote';
 import { useBlockTimestamp, type BlockUrlResolver } from '../../../../shared/components/BlockHeight';
 import { useComparePoints } from '../../components/chart-compare/useComparePoints';
 import type { UseComparePoints } from '../../components/chart-compare/useComparePoints';
@@ -49,10 +60,7 @@ const explorerNodes: Record<string, NetworkConfig> = {
   dappnet2: {
     type: 'PoS',
     description: 'PoS, ~15-sec blocks',
-    url: [
-      'https://explorer.0xmx.net/api/dappnet2/',
-      'https://BeamSmart.net:8002/',
-    ],
+    url: ['https://explorer.0xmx.net/api/dappnet2/', 'https://BeamSmart.net:8002/'],
   },
   warp_dev3: {
     type: 'PoS',
@@ -100,13 +108,32 @@ interface ViewState {
 // `?network=mainnet&type=contract&id=<cid>`), matching the original
 // BeamExplorer.htm scheme so any contract/asset/block view is a shareable link.
 const VIEW_TYPES: ReadonlySet<string> = new Set<ViewType>([
-  'status', 'block', 'treasury', 'asset', 'assets',
-  'contract', 'contracts', 'hdrs', 'peers', 'historical',
+  'status',
+  'block',
+  'treasury',
+  'asset',
+  'assets',
+  'contract',
+  'contracts',
+  'hdrs',
+  'peers',
+  'historical',
 ]);
 
 // Optional string fields carried in the URL alongside `network`/`type`.
 const VIEW_PARAM_KEYS = [
-  'id', 'height', 'kernel', 'hMin', 'hMax', 'nMax', 'nMaxOps', 'nMaxTxs', 'cols', 'dh', 'adj', 'q',
+  'id',
+  'height',
+  'kernel',
+  'hMin',
+  'hMax',
+  'nMax',
+  'nMaxOps',
+  'nMaxTxs',
+  'cols',
+  'dh',
+  'adj',
+  'q',
 ] as const;
 
 function parseView(sp: URLSearchParams): ViewState {
@@ -133,41 +160,196 @@ function serializeView(v: ViewState): Record<string, string> {
 // Column header metadata (block headers grid)
 // ---------------------------------------------------------------------------
 
-interface ColumnMeta { color: string | null; original: string; title: string; description: string }
+interface ColumnMeta {
+  color: string | null;
+  original: string;
+  title: string;
+  description: string;
+}
 
 const COLUMN_DEFAULT_DISPLAY = 'THdfkioyzp';
 
 const columnHeaders: Record<string, ColumnMeta> = {
-  h: { color: '#000000', original: 'Height', title: 'Height', description: 'Block height' },
-  H: { color: null, original: 'Hash', title: 'Hash', description: 'Block hash' },
-  N: { color: '#606060', original: 'Number', title: 'Number', description: 'Block number' },
-  T: { color: '#808080', original: 'Timestamp', title: 'Timestamp', description: 'Block timestamp' },
-  g: { color: '#bf3c3c', original: 'd.Age', title: 'Duration', description: 'Block duration (seconds)' },
-  G: { color: '#d67a7a', original: 'Age', title: 'Age', description: 'Block age since genesis (seconds)' },
-  d: { color: '#008484', original: 'Difficulty', title: 'Difficulty', description: 'Block difficulty' },
-  D: { color: '#00bdbd', original: 'Chainwork', title: 'Chainwork', description: 'Total difficulty since genesis' },
-  f: { color: '#7b00b0', original: 'Fee', title: 'Fees', description: 'Block fees (Beam)' },
-  F: { color: '#8660d7', original: 'T.Fee', title: 'Total fees', description: 'Total fees since genesis' },
-  k: { color: '#ff0080', original: 'Txs', title: 'Txs', description: 'Number of kernels in the block' },
-  K: { color: '#ff79bc', original: 'T.Txs', title: 'Total txs', description: 'Total kernels since genesis' },
-  i: { color: '#006400', original: 'MW.Inputs', title: 'MW in', description: 'Mimblewimble inputs in the block' },
-  I: { color: '#00bb00', original: 'T.MW.Inputs', title: 'Total MW in', description: 'Total MW inputs since genesis' },
-  o: { color: '#ff0006', original: 'MW.Outputs', title: 'MW out', description: 'Mimblewimble outputs in the block' },
-  O: { color: '#ff5e5e', original: 'T.MW.Outputs', title: 'Total MW out', description: 'Total MW outputs since genesis' },
-  u: { color: '#808000', original: 'MW.Utxos', title: 'MW UTXOs', description: 'Change in MW UTXO count' },
-  U: { color: '#bdb76b', original: 'T.MW.Utxos', title: 'Total MW UTXOs', description: 'Total unspent MW UTXOs' },
-  y: { color: '#0000e3', original: 'SH.Inputs', title: 'SH in', description: 'Lelantus Shielded Pool inputs' },
-  Y: { color: '#4f4fff', original: 'T.SH.Inputs', title: 'Total SH in', description: 'Total Shielded inputs' },
-  z: { color: '#804040', original: 'SH.Outputs', title: 'SH out', description: 'Shielded Pool outputs' },
-  Z: { color: '#b87272', original: 'T.SH.Outputs', title: 'Total SH out', description: 'Total Shielded outputs' },
-  b: { color: '#5a3362', original: 'Contracts', title: 'New contracts', description: 'Smart contracts deployed in the block' },
-  B: { color: '#a66ab3', original: 'T.Contracts', title: 'Total contracts', description: 'Total contracts since genesis' },
-  p: { color: '#ce00ce', original: 'ContractCalls', title: 'Contract calls', description: 'Smart contract calls in the block' },
-  P: { color: '#ff53ff', original: 'T.ContractCalls', title: 'Total contract calls', description: 'Total contract calls since genesis' },
-  c: { color: '#004080', original: 'D.Size.Compressed', title: 'Size variation', description: 'Blockchain size change (bytes)' },
-  C: { color: '#6d92c2', original: 'Size.Compressed', title: 'Total size', description: 'Total blockchain size' },
-  a: { color: '#009d27', original: 'D.Size.Archive', title: 'Archive size', description: 'Block archive size (bytes)' },
-  A: { color: '#00d535', original: 'Size.Archive', title: 'Total archive size', description: 'Total archive size' },
+  h: {
+    color: '#000000',
+    original: 'Height',
+    title: 'Height',
+    description: 'Block height',
+  },
+  H: {
+    color: null,
+    original: 'Hash',
+    title: 'Hash',
+    description: 'Block hash',
+  },
+  N: {
+    color: '#606060',
+    original: 'Number',
+    title: 'Number',
+    description: 'Block number',
+  },
+  T: {
+    color: '#808080',
+    original: 'Timestamp',
+    title: 'Timestamp',
+    description: 'Block timestamp',
+  },
+  g: {
+    color: '#bf3c3c',
+    original: 'd.Age',
+    title: 'Duration',
+    description: 'Block duration (seconds)',
+  },
+  G: {
+    color: '#d67a7a',
+    original: 'Age',
+    title: 'Age',
+    description: 'Block age since genesis (seconds)',
+  },
+  d: {
+    color: '#008484',
+    original: 'Difficulty',
+    title: 'Difficulty',
+    description: 'Block difficulty',
+  },
+  D: {
+    color: '#00bdbd',
+    original: 'Chainwork',
+    title: 'Chainwork',
+    description: 'Total difficulty since genesis',
+  },
+  f: {
+    color: '#7b00b0',
+    original: 'Fee',
+    title: 'Fees',
+    description: 'Block fees (Beam)',
+  },
+  F: {
+    color: '#8660d7',
+    original: 'T.Fee',
+    title: 'Total fees',
+    description: 'Total fees since genesis',
+  },
+  k: {
+    color: '#ff0080',
+    original: 'Txs',
+    title: 'Txs',
+    description: 'Number of kernels in the block',
+  },
+  K: {
+    color: '#ff79bc',
+    original: 'T.Txs',
+    title: 'Total txs',
+    description: 'Total kernels since genesis',
+  },
+  i: {
+    color: '#006400',
+    original: 'MW.Inputs',
+    title: 'MW in',
+    description: 'Mimblewimble inputs in the block',
+  },
+  I: {
+    color: '#00bb00',
+    original: 'T.MW.Inputs',
+    title: 'Total MW in',
+    description: 'Total MW inputs since genesis',
+  },
+  o: {
+    color: '#ff0006',
+    original: 'MW.Outputs',
+    title: 'MW out',
+    description: 'Mimblewimble outputs in the block',
+  },
+  O: {
+    color: '#ff5e5e',
+    original: 'T.MW.Outputs',
+    title: 'Total MW out',
+    description: 'Total MW outputs since genesis',
+  },
+  u: {
+    color: '#808000',
+    original: 'MW.Utxos',
+    title: 'MW UTXOs',
+    description: 'Change in MW UTXO count',
+  },
+  U: {
+    color: '#bdb76b',
+    original: 'T.MW.Utxos',
+    title: 'Total MW UTXOs',
+    description: 'Total unspent MW UTXOs',
+  },
+  y: {
+    color: '#0000e3',
+    original: 'SH.Inputs',
+    title: 'SH in',
+    description: 'Lelantus Shielded Pool inputs',
+  },
+  Y: {
+    color: '#4f4fff',
+    original: 'T.SH.Inputs',
+    title: 'Total SH in',
+    description: 'Total Shielded inputs',
+  },
+  z: {
+    color: '#804040',
+    original: 'SH.Outputs',
+    title: 'SH out',
+    description: 'Shielded Pool outputs',
+  },
+  Z: {
+    color: '#b87272',
+    original: 'T.SH.Outputs',
+    title: 'Total SH out',
+    description: 'Total Shielded outputs',
+  },
+  b: {
+    color: '#5a3362',
+    original: 'Contracts',
+    title: 'New contracts',
+    description: 'Smart contracts deployed in the block',
+  },
+  B: {
+    color: '#a66ab3',
+    original: 'T.Contracts',
+    title: 'Total contracts',
+    description: 'Total contracts since genesis',
+  },
+  p: {
+    color: '#ce00ce',
+    original: 'ContractCalls',
+    title: 'Contract calls',
+    description: 'Smart contract calls in the block',
+  },
+  P: {
+    color: '#ff53ff',
+    original: 'T.ContractCalls',
+    title: 'Total contract calls',
+    description: 'Total contract calls since genesis',
+  },
+  c: {
+    color: '#004080',
+    original: 'D.Size.Compressed',
+    title: 'Size variation',
+    description: 'Blockchain size change (bytes)',
+  },
+  C: {
+    color: '#6d92c2',
+    original: 'Size.Compressed',
+    title: 'Total size',
+    description: 'Total blockchain size',
+  },
+  a: {
+    color: '#009d27',
+    original: 'D.Size.Archive',
+    title: 'Archive size',
+    description: 'Block archive size (bytes)',
+  },
+  A: {
+    color: '#00d535',
+    original: 'Size.Archive',
+    title: 'Total archive size',
+    description: 'Total archive size',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -188,6 +370,10 @@ function getNodeUrl(network: string): string {
 // HDRS_MAX_PAGES backstops a runaway chain: ~45k rows is about as much as the
 // table can render before the tab gets unhappy, which is also the 1-month cap.
 const HDRS_MAX_PER_REQUEST = 2048;
+// Cap on rows RENDERED at once: a timeframe query can fetch ~43k rows, and a
+// single <table> that size freezes the tab (worst in the wallet renderer).
+// The chart and CSV export consume the full fetched set regardless.
+const HDRS_RENDER_CAP = 2048;
 const HDRS_MAX_PAGES = 22;
 
 // BEAM targets ~60s blocks, so 1 row/min at dh=1 (matches the DH_PRESETS below).
@@ -210,7 +396,12 @@ function timeframeToBlocks(token: string): number | null {
   } else {
     const m = /^(\d+)\s*([dwmy])$/i.exec(t);
     if (!m) return null;
-    const daysPer: Record<string, number> = { d: 1, w: 7, m: 30, y: 365 };
+    const daysPer: Record<string, number> = {
+      d: 1,
+      w: 7,
+      m: 30,
+      y: 365,
+    };
     blocks = Number(m[1]) * daysPer[m[2]!.toLowerCase()]! * BLOCKS_PER_DAY;
   }
   return Math.min(blocks, TIMEFRAME_MAX_BLOCKS);
@@ -219,7 +410,7 @@ function timeframeToBlocks(token: string): number | null {
 function buildRequestUrl(view: ViewState): string | null {
   const prefix = getNodeUrl(view.network);
   let suffix = '?exp_am=1';
-  let type: string = view.type;
+  let { type } = view;
 
   switch (view.type) {
     case 'asset':
@@ -277,10 +468,7 @@ async function fetchHdrsPaginated(
   signal: AbortSignal,
   onProgress?: (done: number, total: number) => void,
 ): Promise<any> {
-  const wanted = Math.min(
-    Math.max(1, Math.floor(Number(view.nMax) || 100)),
-    HDRS_MAX_PER_REQUEST * HDRS_MAX_PAGES,
-  );
+  const wanted = Math.min(Math.max(1, Math.floor(Number(view.nMax) || 100)), HDRS_MAX_PER_REQUEST * HDRS_MAX_PAGES);
   const totalPages = Math.ceil(wanted / HDRS_MAX_PER_REQUEST);
   let remaining = wanted;
   let hMax = view.hMax || undefined; // undefined ⇒ start at the chain tip
@@ -324,7 +512,13 @@ async function fetchHdrSample(
   hMax: string | undefined,
   signal: AbortSignal,
 ): Promise<{ height: number; ts: number | null } | null> {
-  const url = buildRequestUrl({ ...view, type: 'hdrs', cols: 'T', nMax: '1', hMax });
+  const url = buildRequestUrl({
+    ...view,
+    type: 'hdrs',
+    cols: 'T',
+    nMax: '1',
+    hMax,
+  });
   if (!url) return null;
   const r = await fetch(url, { signal });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -374,7 +568,7 @@ async function resolveTimeframe(
 
 function formatTimestamp(time: number, zone: 'local' | 'utc' = 'utc'): string {
   let d = new Date();
-  const diff = (zone === 'local') ? d.getTimezoneOffset() : 0;
+  const diff = zone === 'local' ? d.getTimezoneOffset() : 0;
   d = new Date((time - diff * 60) * 1000);
   const iso = d.toISOString();
   return iso.replace(/(.*)T(.*)\..*/, '$1 $2');
@@ -388,7 +582,9 @@ function formatTimestamp(time: number, zone: 'local' | 'utc' = 'utc'): string {
 
 const SearchForm = styled.form`
   display: flex;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   flex: 1;
   min-width: 240px;
 `;
@@ -404,7 +600,11 @@ const DensePage = styled.div`
   line-height: 1.4;
 
   /* Headings */
-  h1 { font-size: 16px; letter-spacing: 0; text-transform: none; }
+  h1 {
+    font-size: 16px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
   h2 {
     font-size: 13px;
     margin: 12px 0 6px;
@@ -423,7 +623,8 @@ const DensePage = styled.div`
   table {
     font-size: 12px;
   }
-  table th, table td {
+  table th,
+  table td {
     padding: 4px 8px;
   }
   table th {
@@ -433,7 +634,8 @@ const DensePage = styled.div`
   }
 
   /* Compact cards / collapsibles */
-  section, details {
+  section,
+  details {
     padding: 10px 12px;
     margin-bottom: 8px;
   }
@@ -447,7 +649,9 @@ const DensePage = styled.div`
 const NavTabs = styled.div`
   display: flex;
   flex-wrap: wrap;
-  & > * + * { margin-left: 14px; }
+  & > * + * {
+    margin-left: 14px;
+  }
   margin: 6px 0 14px;
   padding-bottom: 6px;
   border-bottom: 1px solid ${theme.color.divider};
@@ -464,7 +668,9 @@ const NavTab = styled.button`
   cursor: pointer;
   text-transform: none;
   letter-spacing: 0;
-  &:hover { color: ${theme.color.text}; }
+  &:hover {
+    color: ${theme.color.text};
+  }
   &[data-active='true'] {
     color: ${theme.color.accent};
     text-decoration: underline;
@@ -481,8 +687,14 @@ const TinyPill = styled.span`
   font-weight: 600;
   background: rgba(255, 255, 255, 0.08);
   color: ${theme.color.text};
-  &[data-tone='purple']  { background: rgba(218, 104, 245, 0.16); color: ${theme.color.purple}; }
-  &[data-tone='info']    { background: rgba(11, 204, 247, 0.16); color: ${theme.color.info}; }
+  &[data-tone='purple'] {
+    background: rgba(218, 104, 245, 0.16);
+    color: ${theme.color.purple};
+  }
+  &[data-tone='info'] {
+    background: rgba(11, 204, 247, 0.16);
+    color: ${theme.color.info};
+  }
 `;
 
 const Collapsible = styled.details`
@@ -519,14 +731,19 @@ const ChartCollapsible = styled.details`
     user-select: none;
     list-style: none;
   }
-  & > summary::-webkit-details-marker { display: none; }
+  & > summary::-webkit-details-marker {
+    display: none;
+  }
 `;
 
 const Link = styled.a`
   color: ${theme.color.accent};
   text-decoration: none;
   cursor: pointer;
-  &:hover { text-decoration: underline; color: ${theme.color.purple}; }
+  &:hover {
+    text-decoration: underline;
+    color: ${theme.color.purple};
+  }
 `;
 
 // Inline atoms used inside the typed-cell JSON renderer.
@@ -537,9 +754,16 @@ const Mono = styled.span`
   color: ${theme.color.muted};
 `;
 
-const Pos = styled.span` color: ${theme.color.success}; `;
-const Neg = styled.span` color: ${theme.color.danger}; `;
-const Muted = styled.span` color: ${theme.color.muted}; font-style: italic; `;
+const Pos = styled.span`
+  color: ${theme.color.success};
+`;
+const Neg = styled.span`
+  color: ${theme.color.danger};
+`;
+const Muted = styled.span`
+  color: ${theme.color.muted};
+  font-style: italic;
+`;
 
 const BlockLinkWrap = styled.span`
   position: relative;
@@ -564,16 +788,11 @@ const BlockHoverTip = styled.span`
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 `;
 
-const Loading = styled.div`
-  color: ${theme.color.muted};
-  padding: 24px;
-  text-align: center;
-  font-size: 16px;
-`;
-
 const Pager = styled.div`
   display: flex;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   margin: 8px 0;
 `;
 
@@ -589,8 +808,18 @@ interface RenderCtx {
 
 function AmountClr({ amount }: { amount: string }): JSX.Element {
   const c = amount[0];
-  if (c === '+') return <Pos><Mono>{amount}</Mono></Pos>;
-  if (c === '-') return <Neg><Mono>{amount}</Mono></Neg>;
+  if (c === '+')
+    return (
+      <Pos>
+        <Mono>{amount}</Mono>
+      </Pos>
+    );
+  if (c === '-')
+    return (
+      <Neg>
+        <Mono>{amount}</Mono>
+      </Neg>
+    );
   return <Mono style={{ color: theme.color.warn }}>{amount}</Mono>;
 }
 
@@ -598,11 +827,15 @@ function AssetLink({ aid, ctx }: { aid: number | string; ctx: RenderCtx }): JSX.
   if (String(aid) === '0') return <span style={{ color: theme.color.accent, fontWeight: 600 }}>Beam</span>;
   return (
     <Link
-      onClick={(e) => { e.preventDefault(); ctx.go({ type: 'asset', id: String(aid) }); }}
+      onClick={(e) => {
+        e.preventDefault();
+        ctx.go({ type: 'asset', id: String(aid) });
+      }}
       href="#"
       style={{ color: theme.color.purple }}
     >
-      Asset-{aid}
+      Asset-
+      {aid}
     </Link>
   );
 }
@@ -623,7 +856,9 @@ function BlockLink({ h, ctx }: { h: number | string; ctx: RenderCtx }): JSX.Elem
   });
   const tipText = loading
     ? 'Loading…'
-    : typeof ts === 'number' ? new Date(ts * 1000).toLocaleString() : 'timestamp unavailable';
+    : typeof ts === 'number'
+    ? new Date(ts * 1000).toLocaleString()
+    : 'timestamp unavailable';
   const onEnter = (): void => {
     const el = wrapRef.current;
     if (el) {
@@ -633,20 +868,21 @@ function BlockLink({ h, ctx }: { h: number | string; ctx: RenderCtx }): JSX.Elem
     setHovered(true);
   };
   return (
-    <BlockLinkWrap
-      ref={wrapRef}
-      onMouseEnter={onEnter}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <BlockLinkWrap ref={wrapRef} onMouseEnter={onEnter} onMouseLeave={() => setHovered(false)}>
       <Link
-        onClick={(e) => { e.preventDefault(); ctx.go({ type: 'block', height: String(h) }); }}
+        onClick={(e) => {
+          e.preventDefault();
+          ctx.go({ type: 'block', height: String(h) });
+        }}
         href="#"
         style={{ color: theme.color.info }}
       >
         {String(h)}
       </Link>
-      {hovered && valid && pos
-        && createPortal(<BlockHoverTip style={{ left: pos.x, top: pos.y - 8 }}>{tipText}</BlockHoverTip>, document.body)}
+      {hovered &&
+        valid &&
+        pos &&
+        createPortal(<BlockHoverTip style={{ left: pos.x, top: pos.y - 8 }}>{tipText}</BlockHoverTip>, document.body)}
     </BlockLinkWrap>
   );
 }
@@ -658,7 +894,10 @@ function CidLink({ cid, ctx }: { cid: string; ctx: RenderCtx }): JSX.Element {
   const short = cid.length > 16 ? `${cid.slice(0, 8)}…${cid.slice(-6)}` : cid;
   return (
     <Link
-      onClick={(e) => { e.preventDefault(); ctx.go({ type: 'contract', id: cid }); }}
+      onClick={(e) => {
+        e.preventDefault();
+        ctx.go({ type: 'contract', id: cid });
+      }}
       href="#"
       title={cid}
     >
@@ -684,7 +923,11 @@ function renderSpecial(obj: TypedCell, ctx: RenderCtx): JSX.Element | null {
     case 'cid':
       return <CidLink cid={String(obj.value)} ctx={ctx} />;
     case 'th':
-      return <strong style={{ color: theme.color.muted }}><RenderValue value={obj.value} ctx={ctx} /></strong>;
+      return (
+        <strong style={{ color: theme.color.muted }}>
+          <RenderValue value={obj.value} ctx={ctx} />
+        </strong>
+      );
     case 'amount':
       return <AmountClr amount={String(obj.value)} />;
     case 'aid':
@@ -697,9 +940,7 @@ function renderSpecial(obj: TypedCell, ctx: RenderCtx): JSX.Element | null {
       return Number(obj.value) > 0 ? <Pos>yes</Pos> : <Neg>no</Neg>;
     case 'time':
       return (
-        <span title={`UTC: ${formatTimestamp(Number(obj.value))}`}>
-          {formatTimestamp(Number(obj.value), 'local')}
-        </span>
+        <span title={`UTC: ${formatTimestamp(Number(obj.value))}`}>{formatTimestamp(Number(obj.value), 'local')}</span>
       );
     case 'table': {
       const rows = Array.isArray(obj.value) ? (obj.value as unknown[]) : [];
@@ -718,7 +959,11 @@ function RenderValue({ value, ctx }: { value: unknown; ctx: RenderCtx }): JSX.El
   if (Array.isArray(value)) {
     return (
       <ul style={{ margin: 0, paddingLeft: 18 }}>
-        {value.map((v, i) => <li key={i}><RenderValue value={v} ctx={ctx} /></li>)}
+        {value.map((v, i) => (
+          <li key={i}>
+            <RenderValue value={v} ctx={ctx} />
+          </li>
+        ))}
       </ul>
     );
   }
@@ -854,7 +1099,9 @@ const FilterInput = styled.input`
   border: 1px solid ${theme.color.border};
   border-radius: 4px;
   color: ${theme.color.text};
-  &::placeholder { color: ${theme.color.muted}; }
+  &::placeholder {
+    color: ${theme.color.muted};
+  }
 `;
 
 const FilterToggle = styled.button`
@@ -867,11 +1114,16 @@ const FilterToggle = styled.button`
   cursor: pointer;
   padding: 4px 0;
   margin-bottom: 4px;
-  &:hover { color: ${theme.color.accent}; }
+  &:hover {
+    color: ${theme.color.accent};
+  }
 `;
 
 function FilterTable<T>({
-  columns, rows, renderRow, initialTerms,
+  columns,
+  rows,
+  renderRow,
+  initialTerms,
 }: {
   columns: FilterColumn<T>[];
   rows: T[];
@@ -905,11 +1157,13 @@ function FilterTable<T>({
     let out = rows;
     const active = Object.entries(terms).filter(([, v]) => v.trim() !== '');
     if (active.length > 0) {
-      out = out.filter((row) => active.every(([ci, term]) => {
-        const col = columns[Number(ci)];
-        if (!col?.text) return true;
-        return col.text(row).toLowerCase().includes(term.trim().toLowerCase());
-      }));
+      out = out.filter((row) =>
+        active.every(([ci, term]) => {
+          const col = columns[Number(ci)];
+          if (!col?.text) return true;
+          return col.text(row).toLowerCase().includes(term.trim().toLowerCase());
+        }),
+      );
     }
     if (sort) {
       const col = columns[sort.col];
@@ -929,24 +1183,23 @@ function FilterTable<T>({
     return out;
   }, [enabled, rows, terms, sort, columns]);
 
-  const toggleSort = useCallback((ci: number) => {
-    if (!columns[ci]?.sortKey) return;
-    // Cycle: ascending → descending → off.
-    setSort((prev) => {
-      if (!prev || prev.col !== ci) return { col: ci, dir: 1 };
-      if (prev.dir === 1) return { col: ci, dir: -1 };
-      return null;
-    });
-  }, [columns]);
+  const toggleSort = useCallback(
+    (ci: number) => {
+      if (!columns[ci]?.sortKey) return;
+      // Cycle: ascending → descending → off.
+      setSort((prev) => {
+        if (!prev || prev.col !== ci) return { col: ci, dir: 1 };
+        if (prev.dir === 1) return { col: ci, dir: -1 };
+        return null;
+      });
+    },
+    [columns],
+  );
 
   return (
     <>
       {enabled && (
-        <FilterToggle
-          type="button"
-          onClick={() => setShowFilters((s) => !s)}
-          title="Show per-column search boxes"
-        >
+        <FilterToggle type="button" onClick={() => setShowFilters((s) => !s)} title="Show per-column search boxes">
           {showFilters ? '▾ Hide filters' : '▸ Filter / sort'}
           {visible.length !== rows.length ? ` · ${visible.length}/${rows.length}` : ''}
         </FilterToggle>
@@ -966,7 +1219,8 @@ function FilterTable<T>({
                     onClick={sortable ? () => toggleSort(ci) : undefined}
                     title={sortable ? 'Sort column' : undefined}
                   >
-                    {c.header}{arrow}
+                    {c.header}
+                    {arrow}
                   </th>
                 );
               })}
@@ -990,9 +1244,7 @@ function FilterTable<T>({
               </tr>
             )}
           </thead>
-          <tbody>
-            {visible.map((row, i) => renderRow(row, i))}
-          </tbody>
+          <tbody>{visible.map((row, i) => renderRow(row, i))}</tbody>
         </DataTable>
       </ScrollX>
     </>
@@ -1003,20 +1255,27 @@ function FilterTable<T>({
 // View renderers
 // ---------------------------------------------------------------------------
 
-function FundsTable(
-  { funds, ctx }: { funds: unknown[] | null | undefined; ctx: RenderCtx },
-): JSX.Element | null {
+function FundsTable({ funds, ctx }: { funds: unknown[] | null | undefined; ctx: RenderCtx }): JSX.Element | null {
   if (!funds || !Array.isArray(funds) || funds.length === 0) return null;
   return (
     <DataTable>
-      <thead><tr><th>Asset</th><th className="right">Amount</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th className="right">Amount</th>
+        </tr>
+      </thead>
       <tbody>
         {funds.map((fr, i) => {
           const row = fr as TypedCell[];
           return (
             <tr key={i}>
-              <td><AssetLink aid={row[0]?.value as string} ctx={ctx} /></td>
-              <td className="right"><AmountClr amount={String(row[1]?.value ?? '')} /></td>
+              <td>
+                <AssetLink aid={row[0]?.value as string} ctx={ctx} />
+              </td>
+              <td className="right">
+                <AmountClr amount={String(row[1]?.value ?? '')} />
+              </td>
             </tr>
           );
         })}
@@ -1033,13 +1292,16 @@ function FundsTable(
 function stripHeaderRow(input: unknown): unknown[] {
   const rows = Array.isArray(input)
     ? input
-    : (input && typeof input === 'object' && Array.isArray((input as { value?: unknown }).value))
-      ? ((input as { value: unknown[] }).value)
-      : [];
+    : input && typeof input === 'object' && Array.isArray((input as { value?: unknown }).value)
+    ? (input as { value: unknown[] }).value
+    : [];
   if (rows.length === 0) return rows;
   const first = rows[0];
-  if (Array.isArray(first) && first.length > 0
-    && first.every((c) => c && typeof c === 'object' && (c as { type?: string }).type === 'th')) {
+  if (
+    Array.isArray(first) &&
+    first.length > 0 &&
+    first.every((c) => c && typeof c === 'object' && (c as { type?: string }).type === 'th')
+  ) {
     return rows.slice(1);
   }
   return rows;
@@ -1062,33 +1324,56 @@ const InlineDetails = styled.details`
     user-select: none;
     list-style: none;
   }
-  & > summary::-webkit-details-marker { display: none; }
+  & > summary::-webkit-details-marker {
+    display: none;
+  }
   & > summary::before {
     content: '\\25B8\\00a0';
     display: inline-block;
     width: 12px;
     color: ${theme.color.muted};
   }
-  &[open] > summary::before { content: '\\25BE\\00a0'; }
-  & > summary:hover { color: ${theme.color.purple}; }
-  & > .body { margin-top: 4px; }
+  &[open] > summary::before {
+    content: '\\25BE\\00a0';
+  }
+  & > summary:hover {
+    color: ${theme.color.purple};
+  }
+  & > .body {
+    margin-top: 4px;
+  }
 `;
 
-function LockedFundsWidget(
-  { funds, ctx, maxRows = 5 }: { funds: unknown; ctx: RenderCtx; maxRows?: number },
-): JSX.Element | null {
+function LockedFundsWidget({
+  funds,
+  ctx,
+  maxRows = 5,
+}: {
+  funds: unknown;
+  ctx: RenderCtx;
+  maxRows?: number;
+}): JSX.Element | null {
   const rows = stripHeaderRow(funds);
   if (rows.length === 0) return null;
   const table = (
     <DataTable>
-      <thead><tr><th>Asset</th><th className="right">Amount</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th className="right">Amount</th>
+        </tr>
+      </thead>
       <tbody>
         {rows.map((fr, i) => {
           const row = (Array.isArray(fr) ? fr : []) as TypedCell[];
           return (
             <tr key={i}>
-              <td><AssetLink aid={row[0]?.value as string} ctx={ctx} /></td>
-              <td className="right"><AmountClr amount={String(row[1]?.value ?? '')} /></td>
+              <td>
+                <AssetLink aid={row[0]?.value as string} ctx={ctx} />
+              </td>
+              <td className="right">
+                <AmountClr amount={String(row[1]?.value ?? '')} />
+              </td>
             </tr>
           );
         })}
@@ -1098,7 +1383,10 @@ function LockedFundsWidget(
   if (rows.length < maxRows) return table;
   return (
     <InlineDetails>
-      <summary title="Toggle">{rows.length}&nbsp;assets</summary>
+      <summary title="Toggle">
+        {rows.length}
+        &nbsp;assets
+      </summary>
       <div className="body">{table}</div>
     </InlineDetails>
   );
@@ -1109,24 +1397,42 @@ function LockedFundsWidget(
  * with [Asset, Description, Amount] columns, collapsed behind "N owned" once
  * it crosses the row-count threshold.
  */
-function OwnedAssetsWidget(
-  { owned, ctx, maxRows = 5 }: { owned: unknown; ctx: RenderCtx; maxRows?: number },
-): JSX.Element | null {
+function OwnedAssetsWidget({
+  owned,
+  ctx,
+  maxRows = 5,
+}: {
+  owned: unknown;
+  ctx: RenderCtx;
+  maxRows?: number;
+}): JSX.Element | null {
   const rows = stripHeaderRow(owned);
   if (rows.length === 0) return null;
   const table = (
     <DataTable>
-      <thead><tr>
-        <th>Asset</th><th>Description</th><th className="right">Amount</th>
-      </tr></thead>
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th>Description</th>
+          <th className="right">Amount</th>
+        </tr>
+      </thead>
       <tbody>
         {rows.map((fr, i) => {
           const row = (Array.isArray(fr) ? fr : []) as any[];
           return (
             <tr key={i}>
-              <td><AssetLink aid={row[0]?.value as string} ctx={ctx} /></td>
-              <td><Mono style={{ color: theme.color.purple }} title={String(row[1] ?? '')}>{String(row[1] ?? '')}</Mono></td>
-              <td className="right"><AmountClr amount={String(row[2]?.value ?? '')} /></td>
+              <td>
+                <AssetLink aid={row[0]?.value as string} ctx={ctx} />
+              </td>
+              <td>
+                <Mono style={{ color: theme.color.purple }} title={String(row[1] ?? '')}>
+                  {String(row[1] ?? '')}
+                </Mono>
+              </td>
+              <td className="right">
+                <AmountClr amount={String(row[2]?.value ?? '')} />
+              </td>
             </tr>
           );
         })}
@@ -1136,7 +1442,10 @@ function OwnedAssetsWidget(
   if (rows.length < maxRows) return table;
   return (
     <InlineDetails>
-      <summary title="Toggle">{rows.length}&nbsp;owned</summary>
+      <summary title="Toggle">
+        {rows.length}
+        &nbsp;owned
+      </summary>
       <div className="body">{table}</div>
     </InlineDetails>
   );
@@ -1151,7 +1460,10 @@ function StatusView({ data, ctx }: { data: unknown; ctx: RenderCtx }): JSX.Eleme
       </Card>
       <H3>
         <Link
-          onClick={(e) => { e.preventDefault(); ctx.go({ type: 'peers' }); }}
+          onClick={(e) => {
+            e.preventDefault();
+            ctx.go({ type: 'peers' });
+          }}
           href="#"
         >
           Connected Peers
@@ -1159,24 +1471,22 @@ function StatusView({ data, ctx }: { data: unknown; ctx: RenderCtx }): JSX.Eleme
       </H3>
       <Card>
         <p>
-          Interactive display of the data returned by a Beam explorer node. The network and node currently queried
-          are: <b>{ctx.network}</b>{' '}
-          <Pill>{explorerNodes[ctx.network]?.description}</Pill> at <Mono>{getNodeUrl(ctx.network)}</Mono>.
+          Interactive display of the data returned by a Beam explorer node. The network and node currently queried are:{' '}
+          <b>{ctx.network}</b> <Pill>{explorerNodes[ctx.network]?.description}</Pill> at
+          <Mono>{getNodeUrl(ctx.network)}</Mono>.
         </p>
         <p>
           Beam is a privacy-centric blockchain with native confidential assets and smart contracts, powered by
           Mimblewimble and Lelantus. Although amounts are concealed and addresses are not stored onchain, the explorer
-          shows the commitments of all inputs &amp; outputs of each block, together with kernel ids, contract calls,
-          and confidential-asset mint/burn history.
+          shows the commitments of all inputs &amp; outputs of each block, together with kernel ids, contract calls, and
+          confidential-asset mint/burn history.
         </p>
       </Card>
     </>
   );
 }
 
-function TxoTable(
-  { rows, isInp, ctx }: { rows: any[]; isInp: boolean; ctx: RenderCtx },
-): JSX.Element {
+function TxoTable({ rows, isInp, ctx }: { rows: any[]; isInp: boolean; ctx: RenderCtx }): JSX.Element {
   const heightCell = (r: any): any => (isInp ? r.height : r.spent);
   const extraText = (r: any): string => {
     const extras: string[] = [];
@@ -1187,8 +1497,18 @@ function TxoTable(
   };
   const columns: FilterColumn<any>[] = [
     { header: 'Commitment', text: (r) => String(r.commitment ?? ''), sortKey: (r) => String(r.commitment ?? '') },
-    { header: isInp ? 'Height' : 'Spent', className: 'right', text: (r) => cellText(heightCell(r)), sortKey: (r) => cellSort(heightCell(r)) },
-    { header: 'Maturity', className: 'right', text: (r) => cellText(r.Maturity), sortKey: (r) => cellSort(r.Maturity) },
+    {
+      header: isInp ? 'Height' : 'Spent',
+      className: 'right',
+      text: (r) => cellText(heightCell(r)),
+      sortKey: (r) => cellSort(heightCell(r)),
+    },
+    {
+      header: 'Maturity',
+      className: 'right',
+      text: (r) => cellText(r.Maturity),
+      sortKey: (r) => cellSort(r.Maturity),
+    },
     { header: 'Extra', text: extraText, sortKey: extraText },
   ];
   return (
@@ -1197,13 +1517,11 @@ function TxoTable(
       rows={rows}
       renderRow={(r, i) => (
         <tr key={i}>
-          <td><Mono title={r.commitment}>{r.commitment}</Mono></td>
-          <td className="right">
-            {heightCell(r) != null ? <BlockLink h={heightCell(r)} ctx={ctx} /> : ''}
+          <td>
+            <Mono title={r.commitment}>{r.commitment}</Mono>
           </td>
-          <td className="right">
-            {r.Maturity != null ? <RenderValue value={r.Maturity} ctx={ctx} /> : ''}
-          </td>
+          <td className="right">{heightCell(r) != null ? <BlockLink h={heightCell(r)} ctx={ctx} /> : ''}</td>
+          <td className="right">{r.Maturity != null ? <RenderValue value={r.Maturity} ctx={ctx} /> : ''}</td>
           <td>{extraText(r)}</td>
         </tr>
       )}
@@ -1211,17 +1529,25 @@ function TxoTable(
   );
 }
 
-function AssetsTable(
-  { data, ctx, ownerFilter }: { data: any; ctx: RenderCtx; ownerFilter?: string },
-): JSX.Element {
+function AssetsTable({ data, ctx, ownerFilter }: { data: any; ctx: RenderCtx; ownerFilter?: string }): JSX.Element {
   const rawRows = data?.value;
   const allRows: any[][] = Array.isArray(rawRows) ? rawRows : [];
   const rows: any[][] = allRows.slice(1).map((row) => (Array.isArray(row) ? row : []));
   const columns: FilterColumn<any[]>[] = [
     { header: 'Id', text: (r) => cellText(r[0]), sortKey: (r) => cellSort(r[0]) },
     { header: 'Owner', text: (r) => cellText(r[1]), sortKey: (r) => cellSort(r[1]) },
-    { header: 'Deposit', className: 'right', text: (r) => cellText(r[2]), sortKey: (r) => cellSort(r[2]) },
-    { header: 'Supply', className: 'right', text: (r) => cellText(r[3]), sortKey: (r) => cellSort(r[3]) },
+    {
+      header: 'Deposit',
+      className: 'right',
+      text: (r) => cellText(r[2]),
+      sortKey: (r) => cellSort(r[2]),
+    },
+    {
+      header: 'Supply',
+      className: 'right',
+      text: (r) => cellText(r[3]),
+      sortKey: (r) => cellSort(r[3]),
+    },
     { header: 'Lock Height', text: (r) => cellText(r[4]), sortKey: (r) => cellSort(r[4]) },
     { header: 'Metadata', text: (r) => cellText(r[5]), sortKey: (r) => cellSort(r[5]) },
   ];
@@ -1232,36 +1558,48 @@ function AssetsTable(
       initialTerms={ownerFilter ? { 1: ownerFilter } : undefined}
       renderRow={(r, i) => (
         <tr key={i}>
-          <td><AssetLink aid={r[0]?.value} ctx={ctx} /></td>
-          <td><RenderValue value={r[1]} ctx={ctx} /></td>
-          <td className="right"><AmountClr amount={String(r[2]?.value ?? '')} /></td>
-          <td className="right"><AmountClr amount={String(r[3]?.value ?? '')} /></td>
+          <td>
+            <AssetLink aid={r[0]?.value} ctx={ctx} />
+          </td>
+          <td>
+            <RenderValue value={r[1]} ctx={ctx} />
+          </td>
+          <td className="right">
+            <AmountClr amount={String(r[2]?.value ?? '')} />
+          </td>
+          <td className="right">
+            <AmountClr amount={String(r[3]?.value ?? '')} />
+          </td>
           <td>{r[4] != null ? <RenderValue value={r[4]} ctx={ctx} /> : ''}</td>
-          <td><Mono style={{ color: theme.color.purple }}>{String(r[5] ?? '')}</Mono></td>
+          <td>
+            <Mono style={{ color: theme.color.purple }}>{String(r[5] ?? '')}</Mono>
+          </td>
         </tr>
       )}
     />
   );
 }
 
-function BlockView(
-  { data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx },
-): JSX.Element {
+function BlockView({ data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx }): JSX.Element {
   const isTreasury = view.type === 'treasury' || view.height === '0';
   if (data?.found === false || (data?.info === undefined && !isTreasury)) {
     return <ErrorBox>Block not found.</ErrorBox>;
   }
-  const heightStr = data?.h != null ? String(data.h) : (view.height ?? '');
+  const heightStr = data?.h != null ? String(data.h) : view.height ?? '';
   const height = Number(heightStr);
   const kernelId = view.kernel;
 
   return (
     <>
       <H2>
-        {isTreasury
-          ? 'Treasury'
-          : <>Block <span style={{ color: theme.color.accent }}>{heightStr}</span></>}
-        {' '}
+        {isTreasury ? (
+          'Treasury'
+        ) : (
+          <>
+            Block
+            <span style={{ color: theme.color.accent }}>{heightStr}</span>
+          </>
+        )}{' '}
         <Btn
           data-variant="ghost"
           onClick={() => ctx.go({ type: 'hdrs', hMax: String(height) })}
@@ -1306,8 +1644,17 @@ function BlockView(
             <FilterTable
               columns={[
                 { header: 'ID', text: (k) => String(k.id ?? ''), sortKey: (k) => String(k.id ?? '') },
-                { header: 'Fee', className: 'right', text: (k) => cellText(k.fee), sortKey: (k) => cellSort(k.fee) },
-                { header: 'Height', text: (k) => `${cellText(k.minHeight)} ${cellText(k.maxHeight)}`, sortKey: (k) => cellSort(k.minHeight) },
+                {
+                  header: 'Fee',
+                  className: 'right',
+                  text: (k) => cellText(k.fee),
+                  sortKey: (k) => cellSort(k.fee),
+                },
+                {
+                  header: 'Height',
+                  text: (k) => `${cellText(k.minHeight)} ${cellText(k.maxHeight)}`,
+                  sortKey: (k) => cellSort(k.minHeight),
+                },
                 { header: 'Extra' },
               ]}
               rows={data.kernels as any[]}
@@ -1322,10 +1669,18 @@ function BlockView(
                 const highlighted = kernelId && k.id === kernelId;
                 return (
                   <tr key={i} style={highlighted ? { background: 'rgba(240, 165, 0, 0.12)' } : undefined}>
-                    <td><Mono title={k.id}>{k.id}</Mono></td>
-                    <td className="right"><RenderValue value={k.fee} ctx={ctx} /></td>
-                    <td>{mh}-{xh}</td>
-                    <td><RenderValue value={rest} ctx={ctx} /></td>
+                    <td>
+                      <Mono title={k.id}>{k.id}</Mono>
+                    </td>
+                    <td className="right">
+                      <RenderValue value={k.fee} ctx={ctx} />
+                    </td>
+                    <td>
+                      {mh}-{xh}
+                    </td>
+                    <td>
+                      <RenderValue value={rest} ctx={ctx} />
+                    </td>
                   </tr>
                 );
               }}
@@ -1377,12 +1732,17 @@ function ContractsView({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Elemen
   // on the number was the source of the "undefined" rendering).
   const heightVal = (r: any[]): unknown => {
     const c = r[2];
-    return (c !== null && typeof c === 'object') ? (c as { value?: unknown }).value : c;
+    return c !== null && typeof c === 'object' ? (c as { value?: unknown }).value : c;
   };
   const columns: FilterColumn<any[]>[] = [
     { header: L(0, 'Cid'), text: (r) => cellText(r[0]), sortKey: (r) => cellSort(r[0]) },
     { header: L(1, 'Kind'), text: (r) => cellText(r[1]), sortKey: (r) => cellSort(r[1]) },
-    { header: L(2, 'Deploy Height'), className: 'right', text: (r) => cellText(heightVal(r)), sortKey: (r) => cellSort(heightVal(r)) },
+    {
+      header: L(2, 'Deploy Height'),
+      className: 'right',
+      text: (r) => cellText(heightVal(r)),
+      sortKey: (r) => cellSort(heightVal(r)),
+    },
     // Locked Funds / Owned Assets are interactive widgets — neither searchable
     // nor sortable.
     { header: L(3, 'Locked Funds') },
@@ -1399,15 +1759,23 @@ function ContractsView({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Elemen
           const height = heightVal(r);
           return (
             <tr key={i}>
-              <td><CidLink cid={String(cid ?? '')} ctx={ctx} /></td>
-              <td><RenderValue value={r[1]} ctx={ctx} /></td>
-              <td className="right">
-                {height !== undefined && height !== null && height !== ''
-                  ? <BlockLink h={String(height)} ctx={ctx} />
-                  : null}
+              <td>
+                <CidLink cid={String(cid ?? '')} ctx={ctx} />
               </td>
-              <td><LockedFundsWidget funds={r[3]} ctx={ctx} /></td>
-              <td><OwnedAssetsWidget owned={r[4]} ctx={ctx} /></td>
+              <td>
+                <RenderValue value={r[1]} ctx={ctx} />
+              </td>
+              <td className="right">
+                {height !== undefined && height !== null && height !== '' ? (
+                  <BlockLink h={String(height)} ctx={ctx} />
+                ) : null}
+              </td>
+              <td>
+                <LockedFundsWidget funds={r[3]} ctx={ctx} />
+              </td>
+              <td>
+                <OwnedAssetsWidget owned={r[4]} ctx={ctx} />
+              </td>
             </tr>
           );
         }}
@@ -1416,46 +1784,67 @@ function ContractsView({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Elemen
   );
 }
 
-function MoreLink(
-  { obj, ctx, view }: { obj: any; ctx: RenderCtx; view: ViewState },
-): JSX.Element | null {
+function MoreLink({ obj, ctx, view }: { obj: any; ctx: RenderCtx; view: ViewState }): JSX.Element | null {
   const more = obj?.more;
   if (!more || typeof more !== 'object') return null;
   return (
     <Pager>
-      <Btn data-variant="ghost" onClick={() => ctx.go({ ...view, ...more })}>← Older</Btn>
+      <Btn data-variant="ghost" onClick={() => ctx.go({ ...view, ...more })}>
+        ← Older
+      </Btn>
     </Pager>
   );
 }
 
-function AssetView(
-  { data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx },
-): JSX.Element {
+function AssetView({ data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx }): JSX.Element {
   const histObj = data?.['Asset history'];
   const histRowsRaw = histObj?.value;
   const histRows: any[][] = Array.isArray(histRowsRaw) ? histRowsRaw : [];
   const dist = data?.['Asset distribution'];
   return (
     <>
-      <H2>Status of Asset {view.id}</H2>
+      <H2>
+        Status of Asset
+        {view.id}
+      </H2>
       <Collapsible open>
         <summary>Asset History</summary>
         <FilterTable
           columns={[
             { header: 'Height', text: (r) => cellText(r[0]), sortKey: (r) => cellSort(r[0]) },
             { header: 'Event', text: (r) => cellText(r[1]), sortKey: (r) => cellSort(r[1]) },
-            { header: 'Amount', className: 'right', text: (r) => cellText(r[2]), sortKey: (r) => cellSort(r[2]) },
-            { header: 'Total Amount', className: 'right', text: (r) => cellText(r[3]), sortKey: (r) => cellSort(r[3]) },
+            {
+              header: 'Amount',
+              className: 'right',
+              text: (r) => cellText(r[2]),
+              sortKey: (r) => cellSort(r[2]),
+            },
+            {
+              header: 'Total Amount',
+              className: 'right',
+              text: (r) => cellText(r[3]),
+              sortKey: (r) => cellSort(r[3]),
+            },
             { header: 'Extra', text: (r) => cellText(r[4]), sortKey: (r) => cellSort(r[4]) },
           ]}
           rows={histRows.slice(1).map((row) => (Array.isArray(row) ? row : []) as any[])}
           renderRow={(r, i) => (
             <tr key={i}>
-              <td><BlockLink h={cellHeight(r[0])} ctx={ctx} /></td>
-              <td><RenderValue value={r[1]} ctx={ctx} /></td>
-              <td className="right"><RenderValue value={r[2]} ctx={ctx} /></td>
-              <td className="right"><RenderValue value={r[3]} ctx={ctx} /></td>
-              <td><RenderValue value={r[4]} ctx={ctx} /></td>
+              <td>
+                <BlockLink h={cellHeight(r[0])} ctx={ctx} />
+              </td>
+              <td>
+                <RenderValue value={r[1]} ctx={ctx} />
+              </td>
+              <td className="right">
+                <RenderValue value={r[2]} ctx={ctx} />
+              </td>
+              <td className="right">
+                <RenderValue value={r[3]} ctx={ctx} />
+              </td>
+              <td>
+                <RenderValue value={r[4]} ctx={ctx} />
+              </td>
             </tr>
           )}
         />
@@ -1471,23 +1860,24 @@ function AssetView(
   );
 }
 
-function AssetsView(
-  { data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx },
-): JSX.Element {
+function AssetsView({ data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx }): JSX.Element {
   const h = Number(view.height || 0);
   return (
     <>
       <H2>
-        {view.height
-          ? <>Confidential Assets at block <BlockLink h={view.height} ctx={ctx} /></>
-          : 'Current Confidential Assets'}
-        {' '}
+        {view.height ? (
+          <>
+            Confidential Assets at block
+            <BlockLink h={view.height} ctx={ctx} />
+          </>
+        ) : (
+          'Current Confidential Assets'
+        )}{' '}
         {h > 1 && (
           <Btn data-variant="ghost" onClick={() => ctx.go({ type: 'assets', height: String(h - 1) })}>
             ← Prev block
           </Btn>
-        )}
-        {' '}
+        )}{' '}
         <Btn data-variant="ghost" onClick={() => ctx.go({ type: 'assets', height: String((h || 0) + 1) })}>
           Next block →
         </Btn>
@@ -1497,9 +1887,7 @@ function AssetsView(
   );
 }
 
-function ContractStateView(
-  { data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx },
-): JSX.Element {
+function ContractStateView({ data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx }): JSX.Element {
   const callsObj = data?.['Calls history'];
   const callsRowsRaw = callsObj?.value;
   const callsRows: any[] = Array.isArray(callsRowsRaw) ? callsRowsRaw : [];
@@ -1541,7 +1929,10 @@ function ContractStateView(
 
   return (
     <>
-      <H2>Contract <Mono style={{ color: theme.color.accent }}>{view.id}</Mono></H2>
+      <H2>
+        Contract
+        <Mono style={{ color: theme.color.accent }}>{view.id}</Mono>
+      </H2>
       <Collapsible open>
         <summary>Call history</summary>
         <FilterTable
@@ -1550,7 +1941,7 @@ function ContractStateView(
           renderRow={(r, i) => {
             const expanded = expandGroup(r);
             return expanded.map((e, j) => {
-              const row = e.row;
+              const { row } = e;
               const n = colCount || row.length;
               return (
                 <tr key={`${i}-${j}`}>
@@ -1560,9 +1951,7 @@ function ContractStateView(
                     if (ci === 0) {
                       return (
                         <td key={ci}>
-                          {e.depth === 0
-                            ? <BlockLink h={cellHeight(cell)} ctx={ctx} />
-                            : <Muted>↳</Muted>}
+                          {e.depth === 0 ? <BlockLink h={cellHeight(cell)} ctx={ctx} /> : <Muted>↳</Muted>}
                         </td>
                       );
                     }
@@ -1574,10 +1963,7 @@ function ContractStateView(
                       const fundsRaw = (cell as TypedCell).value;
                       return (
                         <td key={ci}>
-                          <FundsTable
-                            funds={Array.isArray(fundsRaw) ? (fundsRaw as unknown[]) : null}
-                            ctx={ctx}
-                          />
+                          <FundsTable funds={Array.isArray(fundsRaw) ? (fundsRaw as unknown[]) : null} ctx={ctx} />
                         </td>
                       );
                     }
@@ -1640,7 +2026,11 @@ function parseHdrsNumber(cell: unknown): number | null {
   return null;
 }
 
-interface HdrsRow { height: number; ts: number | null; cols: Record<string, number | null> }
+interface HdrsRow {
+  height: number;
+  ts: number | null;
+  cols: Record<string, number | null>;
+}
 
 function extractHdrsRows(data: any, colCodes: string): HdrsRow[] {
   if (!data || typeof data !== 'object' || data.type !== 'table' || !Array.isArray(data.value)) return [];
@@ -1669,10 +2059,12 @@ function extractHdrsRows(data: any, colCodes: string): HdrsRow[] {
 const HdrsTableWrap = styled.div`
   /* Vertical column separators for the hdrs data grid, scoped so other
      explorer pages keep their borderless look. */
-  table th, table td {
+  table th,
+  table td {
     border-right: 1px solid rgba(255, 255, 255, 0.06);
   }
-  table th:last-child, table td:last-child {
+  table th:last-child,
+  table td:last-child {
     border-right: none;
   }
 `;
@@ -1687,7 +2079,9 @@ const ColumnGrid = styled.div`
 const ColumnChip = styled.label`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   font-size: 12px;
   cursor: pointer;
   user-select: none;
@@ -1695,10 +2089,20 @@ const ColumnChip = styled.label`
   border-radius: 4px;
   color: ${theme.color.muted};
 
-  &:hover { color: ${theme.color.text}; background: rgba(255, 255, 255, 0.03); }
-  & > input { margin: 0; cursor: pointer; }
-  & > input:disabled { cursor: default; }
-  &[data-active="true"] { color: ${theme.color.text}; }
+  &:hover {
+    color: ${theme.color.text};
+    background: rgba(255, 255, 255, 0.03);
+  }
+  & > input {
+    margin: 0;
+    cursor: pointer;
+  }
+  & > input:disabled {
+    cursor: default;
+  }
+  &[data-active='true'] {
+    color: ${theme.color.text};
+  }
 `;
 
 const ColorSwatch = styled.span<{ color?: string }>`
@@ -1712,7 +2116,9 @@ const ColorSwatch = styled.span<{ color?: string }>`
 
 const ColumnPresets = styled.div`
   display: flex;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   align-items: center;
   font-size: 12px;
   color: ${theme.color.muted};
@@ -1724,7 +2130,9 @@ const PresetLink = styled.a`
   cursor: pointer;
   color: ${theme.color.accent};
   text-decoration: none;
-  &:hover { text-decoration: underline; }
+  &:hover {
+    text-decoration: underline;
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -1741,14 +2149,30 @@ const PresetLink = styled.a`
 
 // "Nice" axis ticks within [min,max] (port of defineNiceTicks): primary steps
 // follow a 1/2/5/10 pattern; we round min/max outward to the step.
-function niceTicks(rawMin: number, rawMax: number, targetTicks = 5): {
-  values: number[]; min: number; max: number;
+function niceTicks(
+  rawMin: number,
+  rawMax: number,
+  targetTicks = 5,
+): {
+  values: number[];
+  min: number;
+  max: number;
 } {
   let min = rawMin;
   let max = rawMax;
-  if (!Number.isFinite(min) || !Number.isFinite(max)) { min = 0; max = 1; }
-  if (min === max) { min -= 1; max += 1; }
-  if (min > max) { const t = min; min = max; max = t; }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    min = 0;
+    max = 1;
+  }
+  if (min === max) {
+    min -= 1;
+    max += 1;
+  }
+  if (min > max) {
+    const t = min;
+    min = max;
+    max = t;
+  }
   const rawStep = (max - min) / targetTicks;
   const exponent = Math.floor(Math.log10(rawStep));
   const magnitude = 10 ** exponent;
@@ -1769,14 +2193,30 @@ function niceTicks(rawMin: number, rawMax: number, targetTicks = 5): {
 // "Nice" tick values for a timestamp axis (seconds since epoch). A trimmed port
 // of defineNiceTimeTicks: pick a unit (minute…year), snap the min down to that
 // unit boundary, then step up by the unit until past max.
-function niceTimeTicks(rawMin: number, rawMax: number, targetTicks = 5): {
-  values: number[]; min: number; max: number;
+function niceTimeTicks(
+  rawMin: number,
+  rawMax: number,
+  targetTicks = 5,
+): {
+  values: number[];
+  min: number;
+  max: number;
 } {
   let min = rawMin;
   let max = rawMax;
-  if (!Number.isFinite(min) || !Number.isFinite(max)) { min = 0; max = 60; }
-  if (min === max) { min -= 60; max += 60; }
-  if (min > max) { const t = min; min = max; max = t; }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    min = 0;
+    max = 60;
+  }
+  if (min === max) {
+    min -= 60;
+    max += 60;
+  }
+  if (min > max) {
+    const t = min;
+    min = max;
+    max = t;
+  }
   const MIN = 60;
   const HOUR = 3600;
   const DAY = 86400;
@@ -1788,14 +2228,38 @@ function niceTimeTicks(rawMin: number, rawMax: number, targetTicks = 5): {
   // about `targetTicks` ticks. Sub-hour steps keep short windows (minutes–hours)
   // from collapsing to a single hour-boundary label.
   const STEPS = [
-    MIN, 2 * MIN, 5 * MIN, 10 * MIN, 15 * MIN, 20 * MIN, 30 * MIN,
-    HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR,
-    DAY, 2 * DAY, WEEK, 2 * WEEK, MONTH, 2 * MONTH, 3 * MONTH, 6 * MONTH,
-    YEAR, 2 * YEAR, 5 * YEAR,
+    MIN,
+    2 * MIN,
+    5 * MIN,
+    10 * MIN,
+    15 * MIN,
+    20 * MIN,
+    30 * MIN,
+    HOUR,
+    2 * HOUR,
+    3 * HOUR,
+    6 * HOUR,
+    12 * HOUR,
+    DAY,
+    2 * DAY,
+    WEEK,
+    2 * WEEK,
+    MONTH,
+    2 * MONTH,
+    3 * MONTH,
+    6 * MONTH,
+    YEAR,
+    2 * YEAR,
+    5 * YEAR,
   ];
   const ideal = range / Math.max(1, targetTicks);
   let primaryStep = STEPS[STEPS.length - 1]!;
-  for (const s of STEPS) { if (s >= ideal) { primaryStep = s; break; } }
+  for (const s of STEPS) {
+    if (s >= ideal) {
+      primaryStep = s;
+      break;
+    }
+  }
   // Snap niceMin DOWN to a boundary aligned to the step (local calendar for
   // day+ steps; arithmetic flooring within the hour/day for sub-day steps).
   const d = new Date(min * 1000);
@@ -1847,7 +2311,10 @@ function fmtBytesAxis(v: number, decimals = 2): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   let n = Math.abs(v);
   let i = 0;
-  while (n >= 1000 && i < units.length - 1) { n /= 1000; i += 1; }
+  while (n >= 1000 && i < units.length - 1) {
+    n /= 1000;
+    i += 1;
+  }
   const s = `${i === 0 ? n.toFixed(0) : n.toFixed(decimals).replace(/\.?0+$/, '')} ${units[i]}`;
   return v < 0 ? `-${s}` : s;
 }
@@ -1881,9 +2348,12 @@ function fmtDuration(sec: number): string {
   const sign = sec < 0 ? '-' : '';
   const s = Math.abs(sec);
   if (s < 90) return `${sign}${Math.round(s)}s`;
-  const m = s / 60; if (m < 90) return `${sign}${Math.round(m)}m`;
-  const h = s / 3600; if (h < 36) return `${sign}${h.toFixed(h < 10 ? 1 : 0)}h`;
-  const d = s / 86400; return `${sign}${d.toFixed(d < 10 ? 1 : 0)}d`;
+  const m = s / 60;
+  if (m < 90) return `${sign}${Math.round(m)}m`;
+  const h = s / 3600;
+  if (h < 36) return `${sign}${h.toFixed(h < 10 ? 1 : 0)}h`;
+  const d = s / 86400;
+  return `${sign}${d.toFixed(d < 10 ? 1 : 0)}d`;
 }
 
 // <input type="color"> only accepts a #rrggbb value. Series colors are already
@@ -1913,7 +2383,9 @@ const ChartCard = styled.div`
 const ChartToolbar = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 10px; }
+  & > * + * {
+    margin-left: 10px;
+  }
   margin-bottom: 6px;
   font-size: 11px;
   color: ${theme.color.muted};
@@ -1929,8 +2401,14 @@ const ChartIconBtn = styled.button`
   font-size: 12px;
   line-height: 1;
   padding: 4px 8px;
-  &:hover { color: ${theme.color.text}; border-color: ${theme.color.text}; }
-  &:disabled { opacity: 0.4; cursor: default; }
+  &:hover {
+    color: ${theme.color.text};
+    border-color: ${theme.color.text};
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
 `;
 
 const ChartLegend = styled.div`
@@ -1962,8 +2440,13 @@ const LegendColorPicker = styled.input`
   background: none;
   cursor: pointer;
   vertical-align: middle;
-  &::-webkit-color-swatch-wrapper { padding: 0; }
-  &::-webkit-color-swatch { border: none; border-radius: 2px; }
+  &::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  &::-webkit-color-swatch {
+    border: none;
+    border-radius: 2px;
+  }
 `;
 
 // Plot geometry. The plot uses a fixed viewBox stretched to the container via
@@ -1990,7 +2473,13 @@ interface ChartSeries {
 }
 
 function HdrsChart({
-  rows, plotted, colors, onReset, onSetColor, embedded, pointsApi,
+  rows,
+  plotted,
+  colors,
+  onReset,
+  onSetColor,
+  embedded,
+  pointsApi,
 }: {
   rows: HdrsRow[];
   plotted: string[];
@@ -2036,7 +2525,11 @@ function HdrsChart({
       }
       const ticks = isTime ? niceTimeTicks(min, max, 5) : niceTicks(min, max, 5);
       out.push({
-        code, color: colors[code] ?? columnHeaders[code]?.color ?? '#00f6d2', isTime, raw, ticks,
+        code,
+        color: colors[code] ?? columnHeaders[code]?.color ?? '#00f6d2',
+        isTime,
+        raw,
+        ticks,
       });
     }
     return out;
@@ -2065,7 +2558,10 @@ function HdrsChart({
     // still lands monotonically and never produces NaN.
     let last = 0;
     return ordered.map((r) => {
-      if (typeof r.ts === 'number' && Number.isFinite(r.ts)) { last = r.ts; return r.ts; }
+      if (typeof r.ts === 'number' && Number.isFinite(r.ts)) {
+        last = r.ts;
+        return r.ts;
+      }
       return last;
     });
   }, [activeXSource, ordered]);
@@ -2091,14 +2587,17 @@ function HdrsChart({
   // X position (in viewBox units) for a given row index, from the source value
   // normalized over [min,max]: padding + width*(x-min)/(max-min) (the reference
   // xsvg formula). Degenerate (min===max / single point) → centre.
-  const xAt = useCallback((idx: number): number => {
-    if (n <= 1) return PLOT_W / 2;
-    const { min, max } = xMinMax;
-    const span = max - min;
-    if (!(span > 0)) return PLOT_W / 2;
-    const v = xValues[idx] ?? min;
-    return PAD_X + (PLOT_W - 2 * PAD_X) * ((v - min) / span);
-  }, [n, xMinMax, xValues]);
+  const xAt = useCallback(
+    (idx: number): number => {
+      if (n <= 1) return PLOT_W / 2;
+      const { min, max } = xMinMax;
+      const span = max - min;
+      if (!(span > 0)) return PLOT_W / 2;
+      const v = xValues[idx] ?? min;
+      return PAD_X + (PLOT_W - 2 * PAD_X) * ((v - min) / span);
+    },
+    [n, xMinMax, xValues],
+  );
 
   // Y position (viewBox units, top=0) for a real value on a series' scale.
   // Flat series (min===max after nice-rounding) draw at the vertical middle.
@@ -2126,70 +2625,100 @@ function HdrsChart({
   const closeModal = useCallback(() => setExpanded(false), []);
 
   // Nearest sample row index for a clientX (shared by hover + add).
-  const nearestIndex = useCallback((clientX: number): number | null => {
-    const el = plotRef.current;
-    if (!el || n === 0) return null;
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0) return null;
-    if (n === 1) return 0;
-    const xUnits = ((clientX - rect.left) / rect.width) * PLOT_W;
-    let best = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < n; i += 1) {
-      const d = Math.abs(xUnits - xAt(i));
-      if (d < bestDist) { bestDist = d; best = i; }
-    }
-    return best;
-  }, [n, xAt]);
+  const nearestIndex = useCallback(
+    (clientX: number): number | null => {
+      const el = plotRef.current;
+      if (!el || n === 0) return null;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0) return null;
+      if (n === 1) return 0;
+      const xUnits = ((clientX - rect.left) / rect.width) * PLOT_W;
+      let best = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < n; i += 1) {
+        const d = Math.abs(xUnits - xAt(i));
+        if (d < bestDist) {
+          bestDist = d;
+          best = i;
+        }
+      }
+      return best;
+    },
+    [n, xAt],
+  );
 
   const [dragIdx, setDragIdx] = useState<number | null>(null); // raw pts.keys index being dragged
 
   // Sample row index of a point whose line is within DRAG_HIT_PX of clientX (else null).
-  const pointNear = useCallback((clientX: number): number | null => {
-    const el = plotRef.current;
-    if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0) return null;
-    const xUnits = ((clientX - rect.left) / rect.width) * PLOT_W;
-    let best: number | null = null;
-    let bestDist = DRAG_HIT_PX;
-    pts.keys.forEach((idx) => {
-      const d = Math.abs(xUnits - xAt(idx));
-      if (d <= bestDist) { bestDist = d; best = idx; }
-    });
-    return best;
-  }, [pts.keys, xAt]);
+  const pointNear = useCallback(
+    (clientX: number): number | null => {
+      const el = plotRef.current;
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0) return null;
+      const xUnits = ((clientX - rect.left) / rect.width) * PLOT_W;
+      let best: number | null = null;
+      let bestDist = DRAG_HIT_PX;
+      pts.keys.forEach((idx) => {
+        const d = Math.abs(xUnits - xAt(idx));
+        if (d <= bestDist) {
+          bestDist = d;
+          best = idx;
+        }
+      });
+      return best;
+    },
+    [pts.keys, xAt],
+  );
 
-  const onMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
-    if (e.button !== 0) return; // left only
-    const near = pointNear(e.clientX);
-    if (near !== null) {
-      const rawIdx = pts.keys.indexOf(near);
-      if (rawIdx !== -1) setDragIdx(rawIdx);
-    }
-  }, [pointNear, pts.keys]);
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>): void => {
+      if (e.button !== 0) return; // left only
+      const near = pointNear(e.clientX);
+      if (near !== null) {
+        const rawIdx = pts.keys.indexOf(near);
+        if (rawIdx !== -1) setDragIdx(rawIdx);
+      }
+    },
+    [pointNear, pts.keys],
+  );
 
   const onMouseUp = useCallback(() => setDragIdx(null), []);
 
-  const onContextMenu = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
-    const near = pointNear(e.clientX);
-    if (near !== null) { e.preventDefault(); pts.remove(near); }
-  }, [pointNear, pts]);
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>): void => {
+      const near = pointNear(e.clientX);
+      if (near !== null) {
+        e.preventDefault();
+        pts.remove(near);
+      }
+    },
+    [pointNear, pts],
+  );
 
-  const onMove = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
-    const i = nearestIndex(e.clientX);
-    if (i === null) return;
-    if (dragIdx !== null) { pts.move(dragIdx, i); return; }
-    setCursor(i);
-  }, [nearestIndex, dragIdx, pts]);
+  const onMove = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>): void => {
+      const i = nearestIndex(e.clientX);
+      if (i === null) return;
+      if (dragIdx !== null) {
+        pts.move(dragIdx, i);
+        return;
+      }
+      setCursor(i);
+    },
+    [nearestIndex, dragIdx, pts],
+  );
 
   // Click drops a comparison point at the hovered sample (skip if clicking an existing point).
-  const onPlotClick = useCallback((e: React.MouseEvent<SVGSVGElement>): void => {
-    if (n < 2) return; // need ≥2 samples for points/deltas to mean anything
-    if (pointNear(e.clientX) !== null) return; // clicking on an existing point = no add
-    const i = cursor ?? nearestIndex(e.clientX);
-    if (i !== null) pts.add(i);
-  }, [n, pointNear, cursor, nearestIndex, pts]);
+  const onPlotClick = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>): void => {
+      if (n < 2) return; // need ≥2 samples for points/deltas to mean anything
+      if (pointNear(e.clientX) !== null) return; // clicking on an existing point = no add
+      const i = cursor ?? nearestIndex(e.clientX);
+      if (i !== null) pts.add(i);
+    },
+    [n, pointNear, cursor, nearestIndex, pts],
+  );
 
   const clearCursor = useCallback(() => setCursor(null), []);
 
@@ -2208,7 +2737,9 @@ function HdrsChart({
   // window keydown. (In the modal, points are cleared via the "Clear points" button.)
   useEffect(() => {
     if (expanded || embedded) return undefined;
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') pts.clear(); };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') pts.clear();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [pts.clear, expanded, embedded]);
@@ -2229,7 +2760,9 @@ function HdrsChart({
     const root = axisRef.current;
     if (!root) return undefined;
     const measure = (): void => {
-      const pills = Array.from(root.querySelectorAll<HTMLElement>('[data-xpill]')).map((p) => p.getBoundingClientRect());
+      const pills = Array.from(root.querySelectorAll<HTMLElement>('[data-xpill]')).map((p) =>
+        p.getBoundingClientRect(),
+      );
       root.querySelectorAll<HTMLElement>('[data-xtick]').forEach((t) => {
         t.style.visibility = '';
         const r = t.getBoundingClientRect();
@@ -2240,14 +2773,6 @@ function HdrsChart({
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, [pts.keys, activeXSource, n, series]);
-
-  if (n === 0) {
-    return (
-      <ChartCard>
-        <ChartHint>No block-header rows to chart.</ChartHint>
-      </ChartCard>
-    );
-  }
 
   const cursorX = cursor !== null ? xAt(cursor) : null;
 
@@ -2310,48 +2835,70 @@ function HdrsChart({
   const pointIdx = useMemo(() => [...pts.keys].sort((a, b) => a - b), [pts.keys]);
   const todayIdx = n - 1;
 
-  const seriesDesc = useMemo<SeriesDescriptor[]>(() => series.map((s) => ({
-    id: s.code,
-    label: columnHeaders[s.code]?.title ?? s.code,
-    color: s.color,
-    format: (v: number) => fmtSeriesValCursor(s.code, s.isTime, v),
-    formatDelta: (dv: number) => (s.isTime
-      ? fmtDuration(dv)
-      : `${dv >= 0 ? '+' : '-'}${fmtSeriesValCursor(s.code, s.isTime, Math.abs(dv))}`),
-    percentable: !s.isTime,
-  })), [series]);
+  const seriesDesc = useMemo<SeriesDescriptor[]>(
+    () =>
+      series.map((s) => ({
+        id: s.code,
+        label: columnHeaders[s.code]?.title ?? s.code,
+        color: s.color,
+        format: (v: number) => fmtSeriesValCursor(s.code, s.isTime, v),
+        formatDelta: (dv: number) =>
+          s.isTime ? fmtDuration(dv) : `${dv >= 0 ? '+' : '-'}${fmtSeriesValCursor(s.code, s.isTime, Math.abs(dv))}`,
+        percentable: !s.isTime,
+      })),
+    [series],
+  );
 
-  const resolveAt = useCallback((idx: number): ResolvedPoint => ({
-    xValue: xValues[idx] ?? 0,
-    xLabel: fmtXLabel(xValues[idx] ?? 0),
-    values: Object.fromEntries(series.map((s) => [s.code, s.raw[idx] ?? 0])),
-  }), [xValues, series]);
+  const resolveAt = useCallback(
+    (idx: number): ResolvedPoint => ({
+      xValue: xValues[idx] ?? 0,
+      xLabel: fmtXLabel(xValues[idx] ?? 0),
+      values: Object.fromEntries(series.map((s) => [s.code, s.raw[idx] ?? 0])),
+    }),
+    [xValues, series],
+  );
 
   const deltaModel = useMemo(
     () => computeDeltas(pointIdx.map(resolveAt), resolveAt(todayIdx), seriesDesc, pts.mode, pts.baselineIndex),
     [pointIdx, resolveAt, todayIdx, seriesDesc, pts.mode, pts.baselineIndex],
   );
 
+  // Empty-data return lives BELOW every hook: n can flip between 0 and >0 on a
+  // refetch while mounted, and an early return above the hooks would change
+  // the hook order between renders and crash the chart.
+  if (n === 0) {
+    return (
+      <ChartCard>
+        <ChartHint>No block-header rows to chart.</ChartHint>
+      </ChartCard>
+    );
+  }
+
   // x-delta label for a top pill spanning samples a→b.
   const xDeltaLabel = (a: number, b: number): string => {
     const dv = (xValues[b] ?? 0) - (xValues[a] ?? 0);
-    const main = isXTime ? `~${fmtDuration(dv)}`
-      : activeXSource === 'h' ? `+${intFmt.format(dv)} blk`
+    const main = isXTime
+      ? `~${fmtDuration(dv)}`
+      : activeXSource === 'h'
+      ? `+${intFmt.format(dv)} blk`
       : `+${intFmt.format(dv)} rows`;
     const aTs = ordered[a]?.ts;
     const bTs = ordered[b]?.ts;
-    const dur = (!isXTime && typeof aTs === 'number' && typeof bTs === 'number')
-      ? ` · ~${fmtDuration(bTs - aTs)}` : '';
+    const dur = !isXTime && typeof aTs === 'number' && typeof bTs === 'number' ? ` · ~${fmtDuration(bTs - aTs)}` : '';
     return main + dur;
   };
 
   // Pill segments: between adjacent points, then last point → today.
-  const pillSeq = pointIdx.length === 0
-    ? []
-    : (pointIdx[pointIdx.length - 1] === todayIdx ? pointIdx : [...pointIdx, todayIdx]);
+  const pillSeq =
+    pointIdx.length === 0 ? [] : pointIdx[pointIdx.length - 1] === todayIdx ? pointIdx : [...pointIdx, todayIdx];
   const pills = pillSeq.slice(0, -1).map((a, i) => {
     const b = pillSeq[i + 1]!;
-    return { a, b, midX: (xAt(a) + xAt(b)) / 2, text: xDeltaLabel(a, b) };
+    return {
+      a,
+      b,
+      midX: (xAt(a) + xAt(b)) / 2,
+      text: xDeltaLabel(a, b),
+    };
   });
 
   // Hide x-axis tick labels that would collide with a comparison-point date pill
@@ -2384,9 +2931,12 @@ function HdrsChart({
     series: series.map((s) => ({
       label: columnHeaders[s.code]?.title ?? s.code,
       color: s.color,
-      path: n < 2 ? '' : ordered
-        .map((_, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${yFor(s, s.raw[i]!).toFixed(1)}`)
-        .join(' '),
+      path:
+        n < 2
+          ? ''
+          : ordered
+              .map((_, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${yFor(s, s.raw[i]!).toFixed(1)}`)
+              .join(' '),
       // Per-series value-axis ticks, same scale/formatter as the live right-edge axes.
       axis: s.ticks.values
         .map((tv) => ({ y: yFor(s, tv), label: fmtSeriesVal(s.code, s.isTime, tv) }))
@@ -2422,12 +2972,23 @@ function HdrsChart({
           >
             <option value="row">Row index</option>
             <option value="h">Height</option>
-            <option value="T" disabled={!tsAvailable}>Timestamp</option>
+            <option value="T" disabled={!tsAvailable}>
+              Timestamp
+            </option>
           </Select>
         </label>
         {!embedded && (
           <ChartIconBtn type="button" title="Expand chart" aria-label="Expand chart" onClick={() => setExpanded(true)}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <polyline points="7 1 11 1 11 5" />
               <polyline points="5 11 1 11 1 7" />
               <line x1="11" y1="1" x2="7" y2="5" />
@@ -2444,8 +3005,8 @@ function HdrsChart({
           {pts.keys.length >= 4
             ? 'max 4 comparison points · right-click a point to remove'
             : embedded
-              ? 'click plot to add a comparison point · drag to move · right-click to remove'
-              : 'check columns in the table below to plot them · click plot to add a comparison point'}
+            ? 'click plot to add a comparison point · drag to move · right-click to remove'
+            : 'check columns in the table below to plot them · click plot to add a comparison point'}
         </span>
       </ChartToolbar>
 
@@ -2461,10 +3022,20 @@ function HdrsChart({
               <span
                 key={`pill-${i}`}
                 style={{
-                  position: 'absolute', top: 0, left: `${(p.midX / PLOT_W) * 100}%`,
-                  transform: 'translateX(-50%)', background: theme.color.accent, color: '#04222f',
-                  borderRadius: 3, padding: '1px 5px', fontSize: 10, fontWeight: 600,
-                  fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 2,
+                  position: 'absolute',
+                  top: 0,
+                  left: `${(p.midX / PLOT_W) * 100}%`,
+                  transform: 'translateX(-50%)',
+                  background: theme.color.accent,
+                  color: '#04222f',
+                  borderRadius: 3,
+                  padding: '1px 5px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums',
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                  zIndex: 2,
                 }}
               >
                 {p.text}
@@ -2541,29 +3112,40 @@ function HdrsChart({
               {pointIdx.map((idx) => (
                 <line
                   key={`pt-${idx}`}
-                  x1={xAt(idx)} x2={xAt(idx)} y1={PAD_Y} y2={PLOT_H - PAD_Y}
-                  stroke={theme.color.accent} strokeWidth={1.2} vectorEffect="non-scaling-stroke"
+                  x1={xAt(idx)}
+                  x2={xAt(idx)}
+                  y1={PAD_Y}
+                  y2={PLOT_H - PAD_Y}
+                  stroke={theme.color.accent}
+                  strokeWidth={1.2}
+                  vectorEffect="non-scaling-stroke"
                 />
               ))}
               {pointIdx.length > 0 && !pointIdx.includes(todayIdx) && (
                 <line
-                  x1={xAt(todayIdx)} x2={xAt(todayIdx)} y1={PAD_Y} y2={PLOT_H - PAD_Y}
-                  stroke="rgba(255,255,255,0.35)" strokeWidth={1} strokeDasharray="2 3"
+                  x1={xAt(todayIdx)}
+                  x2={xAt(todayIdx)}
+                  y1={PAD_Y}
+                  y2={PLOT_H - PAD_Y}
+                  stroke="rgba(255,255,255,0.35)"
+                  strokeWidth={1}
+                  strokeDasharray="2 3"
                   vectorEffect="non-scaling-stroke"
                 />
               )}
 
               {/* Hover cursor: per-series dot at the hovered point. */}
-              {cursor !== null && series.map((s) => (
-                <circle
-                  key={`dot-${s.code}`}
-                  cx={xAt(cursor)}
-                  cy={yFor(s, s.raw[cursor]!)}
-                  r={2.5}
-                  fill={s.color}
-                  vectorEffect="non-scaling-stroke"
-                />
-              ))}
+              {cursor !== null &&
+                series.map((s) => (
+                  <circle
+                    key={`dot-${s.code}`}
+                    cx={xAt(cursor)}
+                    cy={yFor(s, s.raw[cursor]!)}
+                    r={2.5}
+                    fill={s.color}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
             </svg>
 
             {/* Bottom x-axis: source-aware ticks + boxed cursor X value. Ticks
@@ -2662,7 +3244,12 @@ function HdrsChart({
             return (
               <div
                 key={`axis-${s.code}`}
-                style={{ width: w, flex: `0 0 ${w}px`, position: 'relative', height: PLOT_H }}
+                style={{
+                  width: w,
+                  flex: `0 0 ${w}px`,
+                  position: 'relative',
+                  height: PLOT_H,
+                }}
                 title={columnHeaders[s.code]?.description}
               >
                 <svg width={w} height={PLOT_H} style={{ display: 'block', overflow: 'visible' }}>
@@ -2676,14 +3263,7 @@ function HdrsChart({
                     return (
                       <g key={ti}>
                         <line x1={0} x2={5} y1={y} y2={y} stroke={s.color} strokeWidth={1.5} />
-                        <text
-                          x={7}
-                          y={y}
-                          fill={s.color}
-                          fontSize={10}
-                          textAnchor="start"
-                          dominantBaseline="middle"
-                        >
+                        <text x={7} y={y} fill={s.color} fontSize={10} textAnchor="start" dominantBaseline="middle">
                           {fmtSeriesVal(s.code, s.isTime, tv)}
                         </text>
                       </g>
@@ -2720,12 +3300,7 @@ function HdrsChart({
       )}
 
       {pointIdx.length > 0 && (
-        <DeltaPanel
-          model={deltaModel}
-          mode={pts.mode}
-          onModeChange={pts.setMode}
-          onBaselineChange={pts.setBaseline}
-        />
+        <DeltaPanel model={deltaModel} mode={pts.mode} onModeChange={pts.setMode} onBaselineChange={pts.setBaseline} />
       )}
 
       {/* Legend: each enabled series' swatch is a per-series <input type="color">
@@ -2737,7 +3312,11 @@ function HdrsChart({
             <label
               key={`leg-${s.code}`}
               style={{
-                display: 'inline-flex', alignItems: 'center', marginRight: 16, color: s.color, cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                marginRight: 16,
+                color: s.color,
+                cursor: 'pointer',
               }}
               title="Click the swatch to change this series' color"
             >
@@ -2756,15 +3335,29 @@ function HdrsChart({
       {expanded && !embedded && (
         <ChartModal
           onClose={closeModal}
-          toolbar={(
+          toolbar={
             <>
-              <ChartIconBtn type="button" onClick={exportCsv} title="Download data as CSV">CSV</ChartIconBtn>
-              <ChartIconBtn type="button" onClick={exportPng} title="Download chart as PNG">PNG</ChartIconBtn>
-              <ChartIconBtn type="button" onClick={exportSvg} title="Download chart as SVG">SVG</ChartIconBtn>
+              <ChartIconBtn type="button" onClick={exportCsv} title="Download data as CSV">
+                CSV
+              </ChartIconBtn>
+              <ChartIconBtn type="button" onClick={exportPng} title="Download chart as PNG">
+                PNG
+              </ChartIconBtn>
+              <ChartIconBtn type="button" onClick={exportSvg} title="Download chart as SVG">
+                SVG
+              </ChartIconBtn>
             </>
-          )}
+          }
         >
-          <HdrsChart rows={rows} plotted={plotted} colors={colors} onReset={onReset} onSetColor={onSetColor} embedded pointsApi={pts} />
+          <HdrsChart
+            rows={rows}
+            plotted={plotted}
+            colors={colors}
+            onReset={onReset}
+            onSetColor={onSetColor}
+            embedded
+            pointsApi={pts}
+          />
         </ChartModal>
       )}
     </ChartCard>
@@ -2782,8 +3375,25 @@ const GraphCheckbox = styled.input`
   accent-color: ${theme.color.accent};
 `;
 
+const HdrsPager = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 2px 0;
+  font-size: 11px;
+  color: ${theme.color.muted};
+  & > * + * {
+    margin-left: 8px;
+  }
+`;
+
 function HdrsTable({
-  data, colCodes, plotted, colors, onTogglePlot, ctx,
+  data,
+  colCodes,
+  plotted,
+  colors,
+  onTogglePlot,
+  ctx,
 }: {
   data: any;
   colCodes: string;
@@ -2792,16 +3402,24 @@ function HdrsTable({
   onTogglePlot: (code: string) => void;
   ctx: RenderCtx;
 }): JSX.Element {
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setPage(0);
+  }, [data]);
   const isTable = data && typeof data === 'object' && data.type === 'table' && Array.isArray(data.value);
-  const allRows: unknown[][] = isTable ? (data.value as unknown[]).filter(Array.isArray) as unknown[][] : [];
+  const allRows: unknown[][] = isTable ? ((data.value as unknown[]).filter(Array.isArray) as unknown[][]) : [];
   if (allRows.length === 0) {
     // Fall back to the generic renderer for unexpected shapes.
     return <RenderValue value={data} ctx={ctx} />;
   }
   const headerRow = allRows[0]!;
   const dataRows = allRows.slice(1);
+  const pageCount = Math.max(1, Math.ceil(dataRows.length / HDRS_RENDER_CAP));
+  const safePage = Math.min(page, pageCount - 1);
+  const visible =
+    pageCount > 1 ? dataRows.slice(safePage * HDRS_RENDER_CAP, (safePage + 1) * HDRS_RENDER_CAP) : dataRows;
   // Column 0 is always Height; the rest follow `colCodes` in order.
-  const codeForCol = (col: number): string | null => (col === 0 ? 'h' : (colCodes[col - 1] ?? null));
+  const codeForCol = (col: number): string | null => (col === 0 ? 'h' : colCodes[col - 1] ?? null);
 
   return (
     <ScrollX>
@@ -2810,12 +3428,10 @@ function HdrsTable({
           <tr>
             {headerRow.map((cell, ci) => {
               const code = codeForCol(ci);
-              const graphable = code !== null && code !== 'h'
-                && CHARTABLE_COLS.includes(code) && columnHeaders[code] !== undefined;
+              const graphable =
+                code !== null && code !== 'h' && CHARTABLE_COLS.includes(code) && columnHeaders[code] !== undefined;
               const on = code !== null && plotted.includes(code);
-              const color = code !== null
-                ? (colors[code] ?? columnHeaders[code]?.color ?? undefined)
-                : undefined;
+              const color = code !== null ? colors[code] ?? columnHeaders[code]?.color ?? undefined : undefined;
               return (
                 <th key={ci} className="right">
                   <span title={code ? columnHeaders[code]?.description : undefined}>
@@ -2836,7 +3452,7 @@ function HdrsTable({
           </tr>
         </thead>
         <tbody>
-          {dataRows.map((row, ri) => (
+          {visible.map((row, ri) => (
             <tr key={ri}>
               {(Array.isArray(row) ? row : []).map((cell, ci) => (
                 <td key={ci} className="right">
@@ -2847,6 +3463,21 @@ function HdrsTable({
           ))}
         </tbody>
       </DataTable>
+      {pageCount > 1 && (
+        <HdrsPager>
+          <Btn type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+            ‹ Prev
+          </Btn>
+          <span>
+            Rows {safePage * HDRS_RENDER_CAP + 1}–{Math.min((safePage + 1) * HDRS_RENDER_CAP, dataRows.length)}
+            {' of '}
+            {dataRows.length} — the chart and CSV export use the full set
+          </span>
+          <Btn type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>
+            Next ›
+          </Btn>
+        </HdrsPager>
+      )}
     </ScrollX>
   );
 }
@@ -2867,8 +3498,13 @@ const SegToggle = styled.div`
     padding: 6px 10px;
     cursor: pointer;
   }
-  & button[data-active='true'] { background: ${theme.color.accent}; color: ${theme.color.bg}; }
-  & button + button { border-left: 1px solid ${theme.color.border}; }
+  & button[data-active='true'] {
+    background: ${theme.color.accent};
+    color: ${theme.color.bg};
+  }
+  & button + button {
+    border-left: 1px solid ${theme.color.border};
+  }
 `;
 
 // Single-field combobox: a free-text input plus a themed dropdown that opens on
@@ -2882,7 +3518,11 @@ const ComboWrap = styled.div`
 const ComboInput = styled(Input)`
   width: 100%;
   padding-right: 26px;
-  &::-webkit-outer-spin-button, &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  &::-webkit-outer-spin-button,
+  &::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
 `;
 const ComboCaret = styled.span`
   position: absolute;
@@ -2912,15 +3552,24 @@ const ComboOption = styled.div`
   align-items: baseline;
   justify-content: space-between;
   /* Owl margins, not gap — flex gap is unsupported in the wallet's Chrome 83. */
-  & > * + * { margin-left: 14px; }
+  & > * + * {
+    margin-left: 14px;
+  }
   padding: 7px 11px;
   font-family: ${theme.font.mono};
   font-size: 13px;
   color: ${theme.color.text};
   cursor: pointer;
-  &:hover { background: ${theme.color.surface}; }
-  &[data-active='true'] { color: ${theme.color.accent}; }
-  & small { color: ${theme.color.muted}; font-size: 11px; }
+  &:hover {
+    background: ${theme.color.surface};
+  }
+  &[data-active='true'] {
+    color: ${theme.color.accent};
+  }
+  & small {
+    color: ${theme.color.muted};
+    font-size: 11px;
+  }
 `;
 
 // Inline control group in the "Table options" row. Owl margins, not gap —
@@ -2928,11 +3577,22 @@ const ComboOption = styled.div`
 const TableOptsGroup = styled.span`
   display: inline-flex;
   align-items: center;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
 `;
 
 function ComboField({
-  value, onChange, onEnter, options, type = 'text', width = 150, min, max, placeholder, title,
+  value,
+  onChange,
+  onEnter,
+  options,
+  type = 'text',
+  width = 150,
+  min,
+  max,
+  placeholder,
+  title,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -2970,11 +3630,21 @@ function ComboField({
         onFocus={() => setOpen(true)}
         onClick={() => setOpen(true)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') { setOpen(false); onEnter?.(); }
-          else if (e.key === 'Escape') setOpen(false);
+          if (e.key === 'Enter') {
+            setOpen(false);
+            onEnter?.();
+          } else if (e.key === 'Escape') setOpen(false);
         }}
       />
-      <ComboCaret aria-hidden onMouseDown={(e) => { e.preventDefault(); setOpen((o) => !o); }}>▾</ComboCaret>
+      <ComboCaret
+        aria-hidden
+        onMouseDown={(e) => {
+          e.preventDefault();
+          setOpen((o) => !o);
+        }}
+      >
+        ▾
+      </ComboCaret>
       {open && options.length > 0 && (
         <ComboList>
           {options.map((o) => (
@@ -2982,7 +3652,11 @@ function ComboField({
               key={o.value}
               data-active={o.value === value}
               // mousedown fires before the input's blur so the pick lands.
-              onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(o.value);
+                setOpen(false);
+              }}
             >
               <span>{o.value}</span>
               {o.hint && <small>{o.hint}</small>}
@@ -2994,9 +3668,7 @@ function ComboField({
   );
 }
 
-function HdrsView(
-  { data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx },
-): JSX.Element {
+function HdrsView({ data, view, ctx }: { data: any; view: ViewState; ctx: RenderCtx }): JSX.Element {
   const [colsDraft, setColsDraft] = useState(view.cols || COLUMN_DEFAULT_DISPLAY);
   const [nMaxDraft, setNMaxDraft] = useState(view.nMax || '100');
   const [hMaxDraft, setHMaxDraft] = useState(view.hMax || '');
@@ -3064,10 +3736,10 @@ function HdrsView(
       if (sizeMode !== 'timeframe' || overrides?.nMax) {
         ctx.go({
           type: 'hdrs',
-          cols:  overrides?.cols  ?? colsDraft,
-          nMax:  overrides?.nMax  ?? nMaxDraft,
-          hMax: (overrides?.hMax  ?? hMaxDraft) || undefined,
-          dh:   (overrides?.dh    ?? dhDraft) || '1',
+          cols: overrides?.cols ?? colsDraft,
+          nMax: overrides?.nMax ?? nMaxDraft,
+          hMax: (overrides?.hMax ?? hMaxDraft) || undefined,
+          dh: (overrides?.dh ?? dhDraft) || '1',
         });
         return;
       }
@@ -3083,15 +3755,29 @@ function HdrsView(
         .then((res) => {
           if (controller.signal.aborted) return;
           const out = res ?? { hMax: hMaxDraft || undefined, nMax: tfEstimate() };
-          ctx.go({ type: 'hdrs', cols: colsDraft, nMax: out.nMax, hMax: out.hMax, dh });
+          ctx.go({
+            type: 'hdrs',
+            cols: colsDraft,
+            nMax: out.nMax,
+            hMax: out.hMax,
+            dh,
+          });
         })
         .catch(() => {
           // Anchoring failed (network/abort) — fall back to the estimate so
           // Apply still does something useful.
           if (controller.signal.aborted) return;
-          ctx.go({ type: 'hdrs', cols: colsDraft, nMax: tfEstimate(), hMax: hMaxDraft || undefined, dh });
+          ctx.go({
+            type: 'hdrs',
+            cols: colsDraft,
+            nMax: tfEstimate(),
+            hMax: hMaxDraft || undefined,
+            dh,
+          });
         })
-        .finally(() => { if (!controller.signal.aborted) setResolving(false); });
+        .finally(() => {
+          if (!controller.signal.aborted) setResolving(false);
+        });
     },
     [ctx, view, colsDraft, nMaxDraft, hMaxDraft, dhDraft, sizeMode, tfDraft],
   );
@@ -3109,19 +3795,23 @@ function HdrsView(
     });
   }, []);
 
-  const setPreset = useCallback((preset: 'current' | 'default' | 'all') => {
-    let next = colsDraft;
-    if (preset === 'current') next = view.cols || COLUMN_DEFAULT_DISPLAY;
-    else if (preset === 'default') next = COLUMN_DEFAULT_DISPLAY.replace(/h/g, '');
-    else if (preset === 'all') next = Object.keys(columnHeaders).filter((k) => k !== 'h').join('');
-    setColsDraft(next); // draft only — applied on Apply
-  }, [colsDraft, view.cols]);
+  const setPreset = useCallback(
+    (preset: 'current' | 'default' | 'all') => {
+      let next = colsDraft;
+      if (preset === 'current') next = view.cols || COLUMN_DEFAULT_DISPLAY;
+      else if (preset === 'default') next = COLUMN_DEFAULT_DISPLAY.replace(/h/g, '');
+      else if (preset === 'all')
+        next = Object.keys(columnHeaders)
+          .filter((k) => k !== 'h')
+          .join('');
+      setColsDraft(next); // draft only — applied on Apply
+    },
+    [colsDraft, view.cols],
+  );
 
   const olderMore = data?.more;
   const appliedNMax = Number(view.nMax) || 100;
-  const newerHMax = olderMore?.hMax !== undefined
-    ? String(Number(olderMore.hMax) + appliedNMax * 2)
-    : null;
+  const newerHMax = olderMore?.hMax !== undefined ? String(Number(olderMore.hMax) + appliedNMax * 2) : null;
 
   // Combobox presets. 2,048 is the server's per-request cap; any larger value
   // (typed, or a long timeframe) is satisfied by chaining (fetchHdrsPaginated).
@@ -3136,15 +3826,18 @@ function HdrsView(
     return { value: t, hint: b ? `${b.toLocaleString('en-US')} rows` : undefined };
   });
   const DH_PRESETS: Array<[string, string]> = [
-    ['1', '1 (block)'], ['60', '60 (~hour)'], ['1440', '1,440 (~day)'],
-    ['10080', '10,080 (~week)'], ['43200', '43,200 (~month)'],
+    ['1', '1 (block)'],
+    ['60', '60 (~hour)'],
+    ['1440', '1,440 (~day)'],
+    ['10080', '10,080 (~week)'],
+    ['43200', '43,200 (~month)'],
   ];
-  const dhOptions = DH_PRESETS.some(([v]) => v === dhDraft) ? DH_PRESETS : [[dhDraft, dhDraft] as [string, string], ...DH_PRESETS];
+  const dhOptions = DH_PRESETS.some(([v]) => v === dhDraft)
+    ? DH_PRESETS
+    : [[dhDraft, dhDraft] as [string, string], ...DH_PRESETS];
 
   // Effective row count → number of chained requests, for the inline hint.
-  const effectiveNMax = isTf
-    ? (timeframeToBlocks(tfDraft) ?? 0)
-    : (Math.floor(Number(nMaxDraft)) || 0);
+  const effectiveNMax = isTf ? timeframeToBlocks(tfDraft) ?? 0 : Math.floor(Number(nMaxDraft)) || 0;
   const cappedNMax = Math.min(effectiveNMax, HDRS_MAX_PER_REQUEST * HDRS_MAX_PAGES);
   const pageCount = effectiveNMax > 0 ? Math.ceil(cappedNMax / HDRS_MAX_PER_REQUEST) : 0;
 
@@ -3152,22 +3845,35 @@ function HdrsView(
     <>
       <H2>
         Block headers{' '}
-        {olderMore && <Btn data-variant="ghost" onClick={() => ctx.go({ ...view, ...olderMore })}>« Older</Btn>}{' '}
+        {olderMore && (
+          <Btn data-variant="ghost" onClick={() => ctx.go({ ...view, ...olderMore })}>
+            « Older
+          </Btn>
+        )}{' '}
         {newerHMax !== null && (
-          <Btn data-variant="ghost" onClick={() => ctx.go({ ...view, hMax: newerHMax })}>Newer »</Btn>
+          <Btn data-variant="ghost" onClick={() => ctx.go({ ...view, hMax: newerHMax })}>
+            Newer »
+          </Btn>
         )}
       </H2>
       <Collapsible>
         <summary>Table options</summary>
         <div
           style={{
-            display: 'flex', flexWrap: 'wrap', alignItems: 'center', margin: '8px 0',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            margin: '8px 0',
           }}
         >
           <TableOptsGroup>
             <SegToggle>
-              <button type="button" data-active={!isTf} onClick={() => setSizeMode('rows')}>Rows</button>
-              <button type="button" data-active={isTf} onClick={() => setSizeMode('timeframe')}>Timeframe</button>
+              <button type="button" data-active={!isTf} onClick={() => setSizeMode('rows')}>
+                Rows
+              </button>
+              <button type="button" data-active={isTf} onClick={() => setSizeMode('timeframe')}>
+                Timeframe
+              </button>
             </SegToggle>
             {isTf ? (
               <ComboField
@@ -3191,12 +3897,15 @@ function HdrsView(
                 min={1}
                 max={HDRS_MAX_PER_REQUEST * HDRS_MAX_PAGES}
                 placeholder="rows"
-                title={`Rows to fetch. Above ${HDRS_MAX_PER_REQUEST.toLocaleString('en-US')} the client chains multiple requests.`}
+                title={`Rows to fetch. Above ${HDRS_MAX_PER_REQUEST.toLocaleString(
+                  'en-US',
+                )} the client chains multiple requests.`}
               />
             )}
             {effectiveNMax > 0 && (pageCount > 1 || isTf) && (
               <Muted style={{ fontStyle: 'normal', whiteSpace: 'nowrap' }}>
-                {isTf ? `${effectiveNMax.toLocaleString('en-US')} rows · ` : ''}≈ {pageCount} request{pageCount === 1 ? '' : 's'}
+                {isTf ? `${effectiveNMax.toLocaleString('en-US')} rows · ` : ''}≈{pageCount} request
+                {pageCount === 1 ? '' : 's'}
               </Muted>
             )}
           </TableOptsGroup>
@@ -3209,7 +3918,9 @@ function HdrsView(
               title="Blocks between sampled rows (Δh)"
             >
               {dhOptions.map(([v, label]) => (
-                <option key={v} value={v}>{label}</option>
+                <option key={v} value={v}>
+                  {label}
+                </option>
               ))}
             </Select>
           </label>
@@ -3230,16 +3941,24 @@ function HdrsView(
 
         <ColumnPresets>
           <span>Columns:</span>
-          <PresetLink onClick={() => setPreset('current')} title="Reset to the URL's columns">current</PresetLink>
+          <PresetLink onClick={() => setPreset('current')} title="Reset to the URL's columns">
+            current
+          </PresetLink>
           <span>|</span>
-          <PresetLink onClick={() => setPreset('default')} title="Default column set">default</PresetLink>
+          <PresetLink onClick={() => setPreset('default')} title="Default column set">
+            default
+          </PresetLink>
           <span>|</span>
-          <PresetLink onClick={() => setPreset('all')} title="Show every column">all</PresetLink>
+          <PresetLink onClick={() => setPreset('all')} title="Show every column">
+            all
+          </PresetLink>
           <Input
             value={colsDraft}
             onChange={(e) => setColsDraft(e.target.value)}
             onBlur={() => apply()}
-            onKeyDown={(e) => { if (e.key === 'Enter') apply(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') apply();
+            }}
             style={{ width: 200, display: 'inline-block', marginLeft: 8 }}
             title="Raw cols code string"
           />
@@ -3249,17 +3968,8 @@ function HdrsView(
           {Object.keys(columnHeaders).map((k) => {
             const checked = colsDraft.includes(k) || k === 'h';
             return (
-              <ColumnChip
-                key={k}
-                data-active={checked ? 'true' : 'false'}
-                title={columnHeaders[k]!.description}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={k === 'h'}
-                  onChange={() => toggleColumn(k)}
-                />
+              <ColumnChip key={k} data-active={checked ? 'true' : 'false'} title={columnHeaders[k]!.description}>
+                <input type="checkbox" checked={checked} disabled={k === 'h'} onChange={() => toggleColumn(k)} />
                 <ColorSwatch color={columnHeaders[k]!.color ?? undefined} />
                 <span>{columnHeaders[k]!.title}</span>
               </ColumnChip>
@@ -3267,12 +3977,11 @@ function HdrsView(
           })}
         </ColumnGrid>
       </Collapsible>
-      <ChartCollapsible
-        open={chartOpen}
-        onToggle={(e) => setChartOpen((e.currentTarget as HTMLDetailsElement).open)}
-      >
+      <ChartCollapsible open={chartOpen} onToggle={(e) => setChartOpen((e.currentTarget as HTMLDetailsElement).open)}>
         <summary>
-          <span aria-hidden style={{ marginRight: 6, fontWeight: 700 }}>{chartOpen ? '−' : '+'}</span>
+          <span aria-hidden style={{ marginRight: 6, fontWeight: 700 }}>
+            {chartOpen ? '−' : '+'}
+          </span>
           Chart
         </summary>
         {/* Mount the chart only while expanded: its fixed-viewBox SVG measures
@@ -3306,7 +4015,7 @@ function HdrsView(
 
 function PeersView({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Element {
   const peers: any[] = Array.isArray(data) ? data : [];
-  const peerIp = (p: any): string => (typeof p === 'string' ? p : (p?.ip ?? JSON.stringify(p)));
+  const peerIp = (p: any): string => (typeof p === 'string' ? p : p?.ip ?? JSON.stringify(p));
   return (
     <>
       <H2>Connected Peers ({peers.length})</H2>
@@ -3316,8 +4025,19 @@ function PeersView({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Element {
       {peers.length === 0 ? (
         <ScrollX>
           <DataTable>
-            <thead><tr><th>#</th><th>Peer IP</th></tr></thead>
-            <tbody><tr><td colSpan={2}><Muted>No peers connected</Muted></td></tr></tbody>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Peer IP</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colSpan={2}>
+                  <Muted>No peers connected</Muted>
+                </td>
+              </tr>
+            </tbody>
           </DataTable>
         </ScrollX>
       ) : (
@@ -3330,7 +4050,9 @@ function PeersView({ data, ctx }: { data: any; ctx: RenderCtx }): JSX.Element {
           renderRow={(p, i) => (
             <tr key={i}>
               <td className="right">{i + 1}</td>
-              <td><Mono>{peerIp(p)}</Mono></td>
+              <td>
+                <Mono>{peerIp(p)}</Mono>
+              </td>
             </tr>
           )}
         />
@@ -3345,17 +4067,25 @@ function HistoricalView({ ctx }: { ctx: RenderCtx }): JSX.Element {
       <H2>Special historical blocks in Beam&apos;s mainnet</H2>
       <ScrollX>
         <DataTable>
-          <thead><tr><th className="right">Height</th><th>Description</th></tr></thead>
+          <thead>
+            <tr>
+              <th className="right">Height</th>
+              <th>Description</th>
+            </tr>
+          </thead>
           <tbody>
             {specialBlocks.map((b, i) => (
               <tr key={i}>
                 <td className="right">
                   {b.block_list?.map((h) => (
-                    <div key={h}><BlockLink h={h} ctx={ctx} /></div>
+                    <div key={h}>
+                      <BlockLink h={h} ctx={ctx} />
+                    </div>
                   ))}
                   {b.block_range && (
                     <div>
-                      <BlockLink h={b.block_range[0]} ctx={ctx} /><br />
+                      <BlockLink h={b.block_range[0]} ctx={ctx} />
+                      <br />
                       to <BlockLink h={b.block_range[1]} ctx={ctx} />
                     </div>
                   )}
@@ -3369,7 +4099,9 @@ function HistoricalView({ ctx }: { ctx: RenderCtx }): JSX.Element {
                         {b.links.map((l, j) => (
                           <li key={j}>
                             {l[0]}:{' '}
-                            <a href={l[1]} target="_blank" rel="noreferrer" style={{ color: theme.color.accent }}>{l[1]}</a>
+                            <a href={l[1]} target="_blank" rel="noreferrer" style={{ color: theme.color.accent }}>
+                              {l[1]}
+                            </a>
                           </li>
                         ))}
                       </ul>
@@ -3385,6 +4117,31 @@ function HistoricalView({ ctx }: { ctx: RenderCtx }): JSX.Element {
   );
 }
 
+// Owns the input state so typing re-renders only this small form — the
+// explorer root may be showing a multi-thousand-row table at the time.
+function KernelSearch({ onSearch }: { onSearch: (q: string) => void }): JSX.Element {
+  const [search, setSearch] = useState('');
+  const submit = (e: React.FormEvent): void => {
+    e.preventDefault();
+    const q = search.trim();
+    if (q) onSearch(q);
+  };
+  return (
+    <SearchForm onSubmit={submit}>
+      <Input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search kernel id or block height"
+        title="Enter a kernel id (hex) or a block height"
+        style={{ fontSize: 12, padding: '4px 8px' }}
+      />
+      <Btn type="submit" style={{ padding: '4px 10px', fontSize: 11 }}>
+        Search
+      </Btn>
+    </SearchForm>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -3396,43 +4153,53 @@ export const BeamExplorer: React.FC = () => {
   // For a chained hdrs fetch: which request we're on out of how many planned.
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
   const reqId = useRef(0);
 
   // The URL is the single source of truth for the view; navigating just
   // rewrites the query string and the render follows.
   const view = useMemo(() => parseView(searchParams), [searchParams]);
 
-  const setView = useCallback((next: ViewState): void => {
-    setSearchParams(serializeView(next));
-    if (typeof window !== 'undefined') {
-      window.scrollTo({ top: 0, behavior: 'auto' });
-    }
-  }, [setSearchParams]);
+  const setView = useCallback(
+    (next: ViewState): void => {
+      setSearchParams(serializeView(next));
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      }
+    },
+    [setSearchParams],
+  );
 
-  const go = useCallback((patch: Partial<ViewState>): void => {
-    const next: ViewState = { ...view, ...patch };
-    if (patch.type && patch.type !== view.type) {
-      if (patch.type !== 'block') { next.kernel = undefined; next.adj = undefined; }
-      if (patch.type !== 'asset' && patch.type !== 'contract') { next.hMin = undefined; }
-      if (patch.type !== 'assets') next.q = undefined; // owner filter only applies to the assets list
-    }
-    setView(next);
-  }, [view, setView]);
+  const go = useCallback(
+    (patch: Partial<ViewState>): void => {
+      const next: ViewState = { ...view, ...patch };
+      if (patch.type && patch.type !== view.type) {
+        if (patch.type !== 'block') {
+          next.kernel = undefined;
+          next.adj = undefined;
+        }
+        if (patch.type !== 'asset' && patch.type !== 'contract') {
+          next.hMin = undefined;
+        }
+        if (patch.type !== 'assets') next.q = undefined; // owner filter only applies to the assets list
+      }
+      setView(next);
+    },
+    [view, setView],
+  );
 
   useEffect(() => {
     if (view.type === 'historical') {
       setData(null);
       setError(null);
       setLoading(false);
-      return;
+      return undefined;
     }
     const url = buildRequestUrl(view);
     if (!url) {
       if (view.type === 'asset' && view.id === '0') {
         go({ type: 'assets', id: undefined });
       }
-      return;
+      return undefined;
     }
     setLoading(true);
     setError(null);
@@ -3452,9 +4219,9 @@ export const BeamExplorer: React.FC = () => {
     const run = paginate
       ? fetchHdrsPaginated(view, controller.signal, onProgress)
       : fetch(url, { signal: controller.signal }).then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        });
 
     run
       .then((j) => {
@@ -3478,92 +4245,101 @@ export const BeamExplorer: React.FC = () => {
     [go, view.network, view.type],
   );
 
-  const submitSearch = (e: React.FormEvent): void => {
-    e.preventDefault();
-    const q = search.trim();
-    if (!q) return;
-    // Tolerate copy-pasted block heights with thousands separators (e.g.
-    // "3,863,512" as rendered elsewhere in the terminal); kernel ids are hex
-    // and never contain these, so strip them only for the numeric test.
-    const cleaned = q.replace(/[\s,_]/g, '');
-    if (cleaned.length < 10 && /^\d+$/.test(cleaned)) {
-      go({ type: 'block', height: cleaned, kernel: undefined });
-    } else {
-      go({ type: 'block', kernel: q, height: undefined });
-    }
-  };
+  const onSearch = useCallback(
+    (q: string): void => {
+      // Tolerate copy-pasted block heights with thousands separators (e.g.
+      // "3,863,512" as rendered elsewhere in the terminal); kernel ids are hex
+      // and never contain these, so strip them only for the numeric test.
+      const cleaned = q.replace(/[\s,_]/g, '');
+      if (cleaned.length < 10 && /^\d+$/.test(cleaned)) {
+        go({ type: 'block', height: cleaned, kernel: undefined });
+      } else {
+        go({ type: 'block', kernel: q, height: undefined });
+      }
+    },
+    [go],
+  );
 
   const networkType = readNetworkType(view.network);
 
   return (
     <Page>
       <DensePage>
-      <ExplorerHeader>
-        <H1>Beam Smart Explorer</H1>
-        <Row>
-          <Select
-            value={view.network}
-            onChange={(e) => setView({ network: e.target.value, type: 'status' })}
-            title="Change network"
+        <ExplorerHeader>
+          <H1>Beam Smart Explorer</H1>
+          <Row>
+            <Select
+              value={view.network}
+              onChange={(e) => setView({ network: e.target.value, type: 'status' })}
+              title="Change network"
+            >
+              {Object.keys(explorerNodes).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+            <TinyPill data-tone={networkType === 'PoS' ? 'purple' : 'info'}>{networkType}</TinyPill>
+            <KernelSearch onSearch={onSearch} />
+          </Row>
+        </ExplorerHeader>
+
+        <NavTabs>
+          <NavTab data-active={view.type === 'status' ? 'true' : 'false'} onClick={() => go({ type: 'status' })}>
+            Status
+          </NavTab>
+          <NavTab data-active={view.type === 'hdrs' ? 'true' : 'false'} onClick={() => go({ type: 'hdrs' })}>
+            Headers
+          </NavTab>
+          <NavTab data-active={view.type === 'contracts' ? 'true' : 'false'} onClick={() => go({ type: 'contracts' })}>
+            Contracts
+          </NavTab>
+          <NavTab
+            data-active={view.type === 'assets' ? 'true' : 'false'}
+            onClick={() => go({ type: 'assets', height: undefined })}
           >
-            {Object.keys(explorerNodes).map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </Select>
-          <TinyPill data-tone={networkType === 'PoS' ? 'purple' : 'info'}>{networkType}</TinyPill>
-          <SearchForm onSubmit={submitSearch}>
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search kernel id or block height"
-              title="Enter a kernel id (hex) or a block height"
-              style={{ fontSize: 12, padding: '4px 8px' }}
-            />
-            <Btn type="submit" style={{ padding: '4px 10px', fontSize: 11 }}>Search</Btn>
-          </SearchForm>
-        </Row>
-      </ExplorerHeader>
+            Assets
+          </NavTab>
+          <NavTab data-active={view.type === 'peers' ? 'true' : 'false'} onClick={() => go({ type: 'peers' })}>
+            Peers
+          </NavTab>
+          <NavTab data-active={view.type === 'treasury' ? 'true' : 'false'} onClick={() => go({ type: 'treasury' })}>
+            Treasury
+          </NavTab>
+          <NavTab
+            data-active={view.type === 'historical' ? 'true' : 'false'}
+            onClick={() => go({ type: 'historical' })}
+          >
+            Historical
+          </NavTab>
+        </NavTabs>
 
-      <NavTabs>
-        <NavTab data-active={view.type === 'status' ? 'true' : 'false'} onClick={() => go({ type: 'status' })}>Status</NavTab>
-        <NavTab data-active={view.type === 'hdrs' ? 'true' : 'false'} onClick={() => go({ type: 'hdrs' })}>Headers</NavTab>
-        <NavTab data-active={view.type === 'contracts' ? 'true' : 'false'} onClick={() => go({ type: 'contracts' })}>Contracts</NavTab>
-        <NavTab
-          data-active={view.type === 'assets' ? 'true' : 'false'}
-          onClick={() => go({ type: 'assets', height: undefined })}
-        >
-          Assets
-        </NavTab>
-        <NavTab data-active={view.type === 'peers' ? 'true' : 'false'} onClick={() => go({ type: 'peers' })}>Peers</NavTab>
-        <NavTab data-active={view.type === 'treasury' ? 'true' : 'false'} onClick={() => go({ type: 'treasury' })}>Treasury</NavTab>
-        <NavTab data-active={view.type === 'historical' ? 'true' : 'false'} onClick={() => go({ type: 'historical' })}>Historical</NavTab>
-      </NavTabs>
+        {loading && (
+          <CenteredNote pad="24px" size={16}>
+            Loading…
+            {progress && progress.total > 1 && ` (request ${progress.done}/${progress.total})`}
+          </CenteredNote>
+        )}
+        {error && (
+          <ErrorBox>
+            Failed to load:
+            {error}
+          </ErrorBox>
+        )}
 
-      {loading && (
-        <Loading>
-          Loading…
-          {progress && progress.total > 1 && ` (request ${progress.done}/${progress.total})`}
-        </Loading>
-      )}
-      {error && <ErrorBox>Failed to load: {error}</ErrorBox>}
-
-      {!loading && !error && (
-        <>
-          {view.type === 'status' && <StatusView data={data} ctx={ctx} />}
-          {(view.type === 'block' || view.type === 'treasury') && (
-            <BlockView data={data} view={view} ctx={ctx} />
-          )}
-          {view.type === 'contracts' && <ContractsView data={data} ctx={ctx} />}
-          {view.type === 'contract' && (
-            <ContractStateView data={data} view={view} ctx={ctx} />
-          )}
-          {view.type === 'asset' && <AssetView data={data} view={view} ctx={ctx} />}
-          {view.type === 'assets' && <AssetsView data={data} view={view} ctx={ctx} />}
-          {view.type === 'hdrs' && <HdrsView data={data} view={view} ctx={ctx} />}
-          {view.type === 'peers' && <PeersView data={data} ctx={ctx} />}
-          {view.type === 'historical' && <HistoricalView ctx={ctx} />}
-        </>
-      )}
+        {!loading && !error && (
+          <>
+            {view.type === 'status' && <StatusView data={data} ctx={ctx} />}
+            {(view.type === 'block' || view.type === 'treasury') && <BlockView data={data} view={view} ctx={ctx} />}
+            {view.type === 'contracts' && <ContractsView data={data} ctx={ctx} />}
+            {view.type === 'contract' && <ContractStateView data={data} view={view} ctx={ctx} />}
+            {view.type === 'asset' && <AssetView data={data} view={view} ctx={ctx} />}
+            {view.type === 'assets' && <AssetsView data={data} view={view} ctx={ctx} />}
+            {view.type === 'hdrs' && <HdrsView data={data} view={view} ctx={ctx} />}
+            {view.type === 'peers' && <PeersView data={data} ctx={ctx} />}
+            {view.type === 'historical' && <HistoricalView ctx={ctx} />}
+          </>
+        )}
       </DensePage>
     </Page>
   );

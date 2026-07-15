@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { css } from '@linaria/core';
-import { Page, ExplorerHeader, H1, Subtitle, ErrorBox, theme } from '../shared';
 import { ROUTES } from '@app/shared/constants';
+import { Page, ExplorerHeader, H1, Subtitle, ErrorBox, theme } from '../shared';
+import { usePolled } from '../../../hooks';
 import { api } from '../../../api/client';
 import type { ApiDaoOverview } from '../../../api/types';
 import { fmtUsd } from './daoShared';
@@ -23,7 +24,9 @@ const hubCls = css`
   border-radius: ${theme.radius.lg};
   padding: 18px;
   transition: border-color 0.15s;
-  &:hover { border-color: ${theme.color.accent}; }
+  &:hover {
+    border-color: ${theme.color.accent};
+  }
 `;
 const CardLabel = styled.div`
   font-size: 11px;
@@ -49,31 +52,7 @@ const ViewLink = styled.div`
 `;
 
 export const DaoOverview: React.FC = () => {
-  const [d, setD] = useState<ApiDaoOverview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const load = (): void => {
-      api
-        .daoOverview()
-        .then((x) => {
-          if (alive) {
-            setD(x);
-            setError(null);
-          }
-        })
-        .catch((e: unknown) => {
-          if (alive) setError(e instanceof Error ? e.message : String(e));
-        });
-    };
-    load();
-    const id = setInterval(load, 60_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
+  const { data: d, error } = usePolled<ApiDaoOverview>(() => api.daoOverview(), [], 60_000);
 
   return (
     <Page>
@@ -84,7 +63,12 @@ export const DaoOverview: React.FC = () => {
         </div>
       </ExplorerHeader>
 
-      {error && <ErrorBox>Failed to load DAO overview: {error}</ErrorBox>}
+      {error && (
+        <ErrorBox>
+          Failed to load DAO overview:
+          {error}
+        </ErrorBox>
+      )}
 
       <Cards>
         <Link to={ROUTES.NAV.EXPLORER_DAO_TREASURY} className={hubCls}>

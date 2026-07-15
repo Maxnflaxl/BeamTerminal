@@ -4,42 +4,88 @@ import { css } from '@linaria/core';
 import { actions as sharedActions, selectors as sharedSelectors } from '@app/shared/store';
 import 'react-toastify/dist/ReactToastify.css';
 
-import {
-  Navigate, useLocation, useNavigate, useRoutes,
-} from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useRoutes } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { ToastContainer } from 'react-toastify';
 import { Scrollbars } from 'react-custom-scrollbars';
 
 import './styles';
-import {
-  PairsList,
-  PairDetail,
-  LiquidityPosition,
-  AssetsList,
-  AssetDetail,
-  NetworkCharts,
-  ExplorerLayout,
-  Countdown,
-  Supply,
-  BANS,
-  BridgeTracker,
-  Mining,
-  BeamExplorer,
-  AtomicSwaps,
-  AssetSwaps,
-  Dapps,
-  Privacy,
-  Footer,
-  AssetColorsProvider,
-} from '@app/containers/Screener';
-import { DaoLayout, DaoOverview, DaoTreasury, DaoRevenue, DaoGovernance, DaoProposal } from '@app/containers/Screener';
+// Landing surfaces plus the thin layout shells stay in the entry chunk; every
+// other page is a lazy route chunk. Direct file imports (not the Screener
+// barrel) so webpack can split them — the barrel would pull everything into
+// the entry, as no sideEffects config exists to shake it.
+import { PairsList } from '@app/containers/Screener/containers/PairsList';
+import { AssetsList } from '@app/containers/Screener/containers/AssetsList';
+import { ExplorerLayout } from '@app/containers/Screener/containers/ExplorerLayout';
+import { DaoLayout } from '@app/containers/Screener/containers/DaoLayout';
+import { Footer } from '@app/containers/Screener/components/Footer';
+import { AssetColorsProvider } from '@app/containers/Screener/assetColors';
 import { ROUTES } from '@app/shared/constants';
 import { Loader, TopNav } from '@app/shared/components';
 import ErrorBoundary from '@app/shared/components/ErrorBoundary';
 import BeamDappConnector from '@core/BeamDappConnector.js';
 import { selectIsLoaded } from '@app/shared/store/selectors';
+
+const PairDetail = React.lazy(() =>
+  import('@app/containers/Screener/containers/PairDetail').then((m) => ({ default: m.PairDetail })),
+);
+const LiquidityPosition = React.lazy(() =>
+  import('@app/containers/Screener/containers/LiquidityPosition/LiquidityPosition').then((m) => ({
+    default: m.LiquidityPosition,
+  })),
+);
+const AssetDetail = React.lazy(() =>
+  import('@app/containers/Screener/containers/AssetDetail').then((m) => ({ default: m.AssetDetail })),
+);
+const NetworkCharts = React.lazy(() =>
+  import('@app/containers/Screener/containers/NetworkCharts').then((m) => ({ default: m.NetworkCharts })),
+);
+const Countdown = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/Countdown').then((m) => ({ default: m.Countdown })),
+);
+const Supply = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/Supply').then((m) => ({ default: m.Supply })),
+);
+const BANS = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/BANS').then((m) => ({ default: m.BANS })),
+);
+const BridgeTracker = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/BridgeTracker').then((m) => ({ default: m.BridgeTracker })),
+);
+const Mining = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/Mining').then((m) => ({ default: m.Mining })),
+);
+const BeamExplorer = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/BeamExplorer').then((m) => ({ default: m.BeamExplorer })),
+);
+const AtomicSwaps = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/AtomicSwaps').then((m) => ({ default: m.AtomicSwaps })),
+);
+const AssetSwaps = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/AssetSwaps').then((m) => ({ default: m.AssetSwaps })),
+);
+const Dapps = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/Dapps').then((m) => ({ default: m.Dapps })),
+);
+const Privacy = React.lazy(() =>
+  import('@app/containers/Screener/containers/Privacy').then((m) => ({ default: m.Privacy })),
+);
+const DaoOverview = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/dao/DaoOverview').then((m) => ({ default: m.DaoOverview })),
+);
+const DaoTreasury = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/dao/DaoTreasury').then((m) => ({ default: m.DaoTreasury })),
+);
+const DaoRevenue = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/dao/DaoRevenue').then((m) => ({ default: m.DaoRevenue })),
+);
+const DaoGovernance = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/dao/DaoGovernance').then((m) => ({ default: m.DaoGovernance })),
+);
+const DaoProposal = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/dao/DaoProposal').then((m) => ({ default: m.DaoProposal })),
+);
 
 const trackStyle = css`
   z-index: 999;
@@ -69,13 +115,13 @@ const routes = [
     element: <ExplorerLayout />,
     children: [
       { index: true, element: <Navigate to={ROUTES.NAV.EXPLORER_CHARTS} replace /> },
-      { path: 'charts',    element: <NetworkCharts /> },
-      { path: 'beam',      element: <BeamExplorer /> },
-      { path: 'bans',      element: <BANS /> },
+      { path: 'charts', element: <NetworkCharts /> },
+      { path: 'beam', element: <BeamExplorer /> },
+      { path: 'bans', element: <BANS /> },
       { path: 'countdown', element: <Countdown /> },
-      { path: 'supply',    element: <Supply /> },
-      { path: 'bridge',    element: <BridgeTracker /> },
-      { path: 'mining',   element: <Mining /> },
+      { path: 'supply', element: <Supply /> },
+      { path: 'bridge', element: <BridgeTracker /> },
+      { path: 'mining', element: <Mining /> },
       {
         path: 'dao',
         element: <DaoLayout />,
@@ -123,12 +169,17 @@ const App = () => {
   }, [isLoaded]);
 
   useEffect(() => {
-    // Activates the `body.web` / `body.mobile` rule in styles.ts so the page
-    // shell gets the dark-blue background outside the desktop wallet, which
-    // would otherwise show through as plain white.
+    // Activates the host-specific shell rules in styles.ts: `body.web` /
+    // `body.mobile` paint the dark-blue page background, while `html.desktop`
+    // clears the dark first-paint background inlined in index.html so the
+    // desktop wallet can supply its own backdrop.
     const cls = BeamDappConnector.isMobile() ? 'mobile' : isWeb ? 'web' : 'desktop';
     document.body.classList.add(cls);
-    return () => document.body.classList.remove(cls);
+    document.documentElement.classList.add(cls);
+    return () => {
+      document.body.classList.remove(cls);
+      document.documentElement.classList.remove(cls);
+    };
   }, [isWeb]);
 
   useEffect(() => {
@@ -165,7 +216,17 @@ const App = () => {
           <div ref={scrollContentRef}>
             <TopNav />
             <AssetColorsProvider>
-              <ErrorBoundary>{content}</ErrorBoundary>
+              <ErrorBoundary>
+                <React.Suspense
+                  fallback={
+                    <div style={{ textAlign: 'center', padding: '60px 20px', color: 'rgba(255, 255, 255, 0.5)' }}>
+                      Loading…
+                    </div>
+                  }
+                >
+                  {content}
+                </React.Suspense>
+              </ErrorBoundary>
             </AssetColorsProvider>
             <Footer />
           </div>
@@ -191,7 +252,9 @@ const App = () => {
             }}
           />
         </Scrollbars>
-      ) : <Loader />}
+      ) : (
+        <Loader />
+      )}
     </>
   );
 };

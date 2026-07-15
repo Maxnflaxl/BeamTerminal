@@ -1,7 +1,5 @@
 import connector from '@core/connector';
-import {
-  IAddLiquidity, ICreatePool, ITrade, IWithdraw,
-} from '@core/types';
+import { IAddLiquidity, ICreatePool, ITrade, IWithdraw } from '@core/types';
 import { CID } from '@app/shared/constants';
 import { ShaderRuntimeConfig } from '@app/core/shaderRegistry';
 
@@ -10,8 +8,9 @@ function isWalletLockedError(error: unknown): boolean {
 }
 
 function isUserCanceledError(error: unknown): boolean {
-  return error instanceof Error
-    && (error.message === 'Wallet is locked' || error.message === 'Request canceled by user');
+  return (
+    error instanceof Error && (error.message === 'Wallet is locked' || error.message === 'Request canceled by user')
+  );
 }
 
 async function callApiWithRecovery(method: string, params: Record<string, any>) {
@@ -84,7 +83,7 @@ async function makeTx(rawData: any[]): Promise<string | undefined> {
 
 export async function LoadAssetsList<T = any>(): Promise<T> {
   const result = await connector.callApi('assets_list', { refresh: true });
-  const assets = Array.isArray(result) ? result : (result?.assets ?? []);
+  const assets = Array.isArray(result) ? result : result?.assets ?? [];
   return assets as unknown as T;
 }
 
@@ -107,18 +106,14 @@ export async function CreatePoolApi<T = any>(
   return { txid } as unknown as T;
 }
 
-export async function AddLiquidityApi<T = any>({
-  aid1,
-  aid2,
-  kind,
-  val1,
-  val2,
-  bPredictOnly = 1,
-}: IAddLiquidity, config?: ContractCallConfig): Promise<T> {
+export async function AddLiquidityApi<T = any>(
+  { aid1, aid2, kind, val1, val2, bPredictOnly = 1 }: IAddLiquidity,
+  config?: ContractCallConfig,
+): Promise<T> {
   const { cid, contractBytes } = resolveCallConfig(config);
   const { shaderResult, rawData } = await invokeRaw(
-    `action=pool_add_liquidity,aid1=${aid1},aid2=${aid2},kind=${kind},`
-    + `val1=${val1},val2=${val2},bPredictOnly=${bPredictOnly},cid=${cid}`,
+    `action=pool_add_liquidity,aid1=${aid1},aid2=${aid2},kind=${kind},` +
+      `val1=${val1},val2=${val2},bPredictOnly=${bPredictOnly},cid=${cid}`,
     contractBytes,
   );
   if (rawData?.length) {
@@ -128,13 +123,14 @@ export async function AddLiquidityApi<T = any>({
   return (shaderResult ?? {}) as unknown as T;
 }
 
-export async function TradePoolApi<T = any>({
-  aid1, aid2, kind, val1_buy, val2_pay, bPredictOnly = 1,
-}: ITrade, config?: ContractCallConfig): Promise<T> {
+export async function TradePoolApi<T = any>(
+  { aid1, aid2, kind, val1_buy, val2_pay, bPredictOnly = 1 }: ITrade,
+  config?: ContractCallConfig,
+): Promise<T> {
   const { cid, contractBytes } = resolveCallConfig(config);
   const { shaderResult, rawData } = await invokeRaw(
-    `action=pool_trade,aid1=${aid1},aid2=${aid2},kind=${kind},val1_buy=${val1_buy || 0},`
-    + ` val2_pay=${val2_pay || 0},bPredictOnly=${bPredictOnly},cid=${cid}`,
+    `action=pool_trade,aid1=${aid1},aid2=${aid2},kind=${kind},val1_buy=${val1_buy || 0},` +
+      ` val2_pay=${val2_pay || 0},bPredictOnly=${bPredictOnly},cid=${cid}`,
     contractBytes,
   );
   if (bPredictOnly === 0 && rawData?.length) {
@@ -144,9 +140,10 @@ export async function TradePoolApi<T = any>({
   return (shaderResult ?? {}) as unknown as T;
 }
 
-export async function WithdrawApi<T = any>({
-  aid1, aid2, kind, ctl, bPredictOnly = 1,
-}: IWithdraw, config?: ContractCallConfig): Promise<T> {
+export async function WithdrawApi<T = any>(
+  { aid1, aid2, kind, ctl, bPredictOnly = 1 }: IWithdraw,
+  config?: ContractCallConfig,
+): Promise<T> {
   const { cid, contractBytes } = resolveCallConfig(config);
   const { shaderResult, rawData } = await invokeRaw(
     `action=pool_withdraw,aid1=${aid1},aid2=${aid2},kind=${kind},ctl=${ctl},bPredictOnly=${bPredictOnly},cid=${cid}`,

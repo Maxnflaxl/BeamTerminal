@@ -1,6 +1,6 @@
 // Shared UI primitives for /explorer/* pages. Mirrors the look of TRADE /
 // ASSETS (Pairs/Assets lists) rather than inventing a separate theme:
-//   - root font:  'SFProDisplay', monospace
+//   - root font:  var(--font-mono)
 //   - accent:     var(--color-green) #00f6d2
 //   - bg:         var(--color-dark-blue) #042548 (page) + white-alpha surfaces
 //   - text:       white + rgba(255,255,255,0.4–0.8) muted variants
@@ -52,7 +52,9 @@ export const ExplorerHeader = styled.header`
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  & > * + * { margin-left: 16px; }
+  & > * + * {
+    margin-left: 16px;
+  }
   margin: 4px 0 20px;
   padding-bottom: 16px;
   border-bottom: 1px solid ${theme.color.divider};
@@ -136,7 +138,9 @@ export const StatCard = styled.div`
   border-radius: ${theme.radius.lg};
   padding: 14px 16px;
   transition: border-color 0.15s;
-  &:hover { border-color: ${theme.color.border}; }
+  &:hover {
+    border-color: ${theme.color.border};
+  }
 `;
 
 export const Label = styled.div`
@@ -175,8 +179,13 @@ export const Btn = styled.button`
   border-radius: ${theme.radius.md};
   cursor: pointer;
   transition: background 0.15s;
-  &:hover { background: rgba(0, 246, 210, 0.22); }
-  &:disabled { opacity: 0.4; cursor: not-allowed; }
+  &:hover {
+    background: rgba(0, 246, 210, 0.22);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 
   &[data-variant='ghost'] {
     background: transparent;
@@ -203,7 +212,10 @@ export const TabBtn = styled.button`
   cursor: pointer;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  &:hover { color: ${theme.color.text}; border-color: ${theme.color.accent}; }
+  &:hover {
+    color: ${theme.color.text};
+    border-color: ${theme.color.accent};
+  }
   &[data-active='true'] {
     background: ${theme.color.accent};
     border-color: ${theme.color.accent};
@@ -222,8 +234,12 @@ export const Input = styled.input`
   border-radius: ${theme.radius.md};
   width: 100%;
   outline: none;
-  &:focus { border-color: ${theme.color.accent}; }
-  &::placeholder { color: ${theme.color.muted}; }
+  &:focus {
+    border-color: ${theme.color.accent};
+  }
+  &::placeholder {
+    color: ${theme.color.muted};
+  }
 `;
 
 export const Select = styled.select`
@@ -237,8 +253,13 @@ export const Select = styled.select`
   border-radius: ${theme.radius.md};
   cursor: pointer;
   outline: none;
-  &:focus { border-color: ${theme.color.accent}; }
-  & option { background: ${theme.color.bg}; color: ${theme.color.text}; }
+  &:focus {
+    border-color: ${theme.color.accent};
+  }
+  & option {
+    background: ${theme.color.bg};
+    color: ${theme.color.text};
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -256,12 +277,30 @@ export const Pill = styled.span`
   background: rgba(255, 255, 255, 0.06);
   color: ${theme.color.text};
 
-  &[data-tone='accent']  { background: rgba(0, 246, 210, 0.14); color: ${theme.color.accent}; }
-  &[data-tone='success'] { background: rgba(0, 246, 210, 0.14); color: ${theme.color.accent}; }
-  &[data-tone='warn']    { background: rgba(244, 206, 74, 0.16); color: ${theme.color.warn}; }
-  &[data-tone='danger']  { background: rgba(242, 95, 91, 0.18); color: ${theme.color.danger}; }
-  &[data-tone='info']    { background: rgba(11, 204, 247, 0.16); color: ${theme.color.info}; }
-  &[data-tone='purple']  { background: rgba(218, 104, 245, 0.16); color: ${theme.color.purple}; }
+  &[data-tone='accent'] {
+    background: rgba(0, 246, 210, 0.14);
+    color: ${theme.color.accent};
+  }
+  &[data-tone='success'] {
+    background: rgba(0, 246, 210, 0.14);
+    color: ${theme.color.accent};
+  }
+  &[data-tone='warn'] {
+    background: rgba(244, 206, 74, 0.16);
+    color: ${theme.color.warn};
+  }
+  &[data-tone='danger'] {
+    background: rgba(242, 95, 91, 0.18);
+    color: ${theme.color.danger};
+  }
+  &[data-tone='info'] {
+    background: rgba(11, 204, 247, 0.16);
+    color: ${theme.color.info};
+  }
+  &[data-tone='purple'] {
+    background: rgba(218, 104, 245, 0.16);
+    color: ${theme.color.purple};
+  }
 `;
 
 export const Dot = styled.span`
@@ -270,10 +309,19 @@ export const Dot = styled.span`
   height: 7px;
   border-radius: 50%;
   background: ${theme.color.muted};
-  &[data-kind='live']  { background: ${theme.color.accent}; box-shadow: 0 0 8px ${theme.color.accentGlow}; }
-  &[data-kind='error'] { background: ${theme.color.danger}; }
-  &[data-kind='warn']  { background: ${theme.color.warn}; }
-  &[data-kind='idle']  { background: ${theme.color.muted}; }
+  &[data-kind='live'] {
+    background: ${theme.color.accent};
+    box-shadow: 0 0 8px ${theme.color.accentGlow};
+  }
+  &[data-kind='error'] {
+    background: ${theme.color.danger};
+  }
+  &[data-kind='warn'] {
+    background: ${theme.color.warn};
+  }
+  &[data-kind='idle'] {
+    background: ${theme.color.muted};
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -286,7 +334,8 @@ export const DataTable = styled.table`
   font-family: ${theme.font.mono};
   font-size: 13px;
 
-  th, td {
+  th,
+  td {
     text-align: left;
     padding: 10px 12px;
     border-bottom: 1px solid ${theme.color.divider};
@@ -300,15 +349,37 @@ export const DataTable = styled.table`
     user-select: none;
     border-bottom: 1px solid ${theme.color.border};
   }
-  th[data-sortable] { cursor: pointer; }
-  th[data-sortable]:hover { color: ${theme.color.text}; }
-  td.mono   { font-family: ${theme.font.mono}; word-break: break-all; }
-  td.muted  { color: ${theme.color.muted}; }
-  td.danger { color: ${theme.color.danger}; }
-  td.right, th.right { text-align: right; font-variant-numeric: tabular-nums; }
-  a { color: ${theme.color.accent}; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  tbody tr:hover { background: ${theme.color.rowHover}; }
+  th[data-sortable] {
+    cursor: pointer;
+  }
+  th[data-sortable]:hover {
+    color: ${theme.color.text};
+  }
+  td.mono {
+    font-family: ${theme.font.mono};
+    word-break: break-all;
+  }
+  td.muted {
+    color: ${theme.color.muted};
+  }
+  td.danger {
+    color: ${theme.color.danger};
+  }
+  td.right,
+  th.right {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  a {
+    color: ${theme.color.accent};
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  tbody tr:hover {
+    background: ${theme.color.rowHover};
+  }
 `;
 
 export const ScrollX = styled.div`
@@ -346,16 +417,23 @@ export const WarnBox = styled.div`
 const NodeSelectorBox = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   background: ${theme.color.surface};
   border: 1px solid ${theme.color.borderDim};
   border-radius: ${theme.radius.md};
   padding: 4px 8px;
   font-size: 11px;
-  & > .lbl { color: ${theme.color.muted}; }
+  & > .lbl {
+    color: ${theme.color.muted};
+  }
 `;
 
-export interface NodeOption { value: string; label: string }
+export interface NodeOption {
+  value: string;
+  label: string;
+}
 
 export const NodeSelector: React.FC<{
   options: ReadonlyArray<NodeOption>;
@@ -366,7 +444,11 @@ export const NodeSelector: React.FC<{
   <NodeSelectorBox>
     <span className="lbl">{label}</span>
     <Select value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
     </Select>
   </NodeSelectorBox>
 );
@@ -378,7 +460,9 @@ export const NodeSelector: React.FC<{
 export const Row = styled.div`
   display: flex;
   flex-wrap: wrap;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
   align-items: center;
   margin-bottom: 10px;
 `;
@@ -387,7 +471,9 @@ export const Grid2 = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-gap: 16px;
-  @media (max-width: 900px) { grid-template-columns: 1fr; }
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 export const Spacer = styled.div`

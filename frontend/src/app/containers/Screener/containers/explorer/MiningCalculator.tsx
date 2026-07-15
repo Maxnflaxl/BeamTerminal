@@ -4,12 +4,10 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
+import { fmtGrouped } from '../../components/format';
 import { api } from '../../api/client';
 import { blockRewardAtHeight } from './supplyMath';
-import {
-  StatGrid, StatCard, Label, Value, SubValue,
-  Input, theme,
-} from './shared';
+import { StatGrid, StatCard, Label, Value, SubValue, Input, theme, fmtHashrate as fmtHashrateShared } from './shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -22,21 +20,17 @@ function safeNum(v: string): number {
 
 function fmtUsd(n: number): string {
   if (!Number.isFinite(n)) return '—';
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `$${fmtGrouped(n, 2)}`;
 }
 
 function fmtUsdLong(n: number): string {
   if (!Number.isFinite(n)) return '—';
-  return '$' + n.toFixed(4);
+  return `$${n.toFixed(4)}`;
 }
 
 function fmtHashrate(solPerSec: number): string {
-  if (!Number.isFinite(solPerSec) || solPerSec <= 0) return '—';
-  const units = ['Sol/s', 'KSol/s', 'MSol/s', 'GSol/s'];
-  let v = solPerSec;
-  let i = 0;
-  while (v >= 1000 && i < units.length - 1) { v /= 1000; i++; }
-  return v.toFixed(2) + ' ' + units[i];
+  // Local zero-handling on top of the shared formatter: sliders start at 0.
+  return Number.isFinite(solPerSec) && solPerSec > 0 ? fmtHashrateShared(solPerSec) : '—';
 }
 
 function fmtDuration(secs: number): string {
@@ -46,10 +40,10 @@ function fmtDuration(secs: number): string {
   const m = Math.floor((secs % 3600) / 60);
   const s = Math.floor(secs % 60);
   const parts: string[] = [];
-  if (d > 0) parts.push(d + 'd');
-  if (h > 0) parts.push(h + 'h');
-  if (m > 0) parts.push(m + 'm');
-  if (s > 0 || parts.length === 0) parts.push(s + 's');
+  if (d > 0) parts.push(`${d}d`);
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0) parts.push(`${m}m`);
+  if (s > 0 || parts.length === 0) parts.push(`${s}s`);
   return parts.join(' ');
 }
 
@@ -58,13 +52,13 @@ function fmtDuration(secs: number): string {
 // ---------------------------------------------------------------------------
 
 interface CalcInputs {
-  netHash: number;   // Sol/s
-  reward: number;    // BEAM per block
-  price: number;     // USD per BEAM
-  blockMin: number;  // minutes per block
-  yourHash: number;  // Sol/s
-  watts: number;     // power consumption W
-  kwh: number;       // electricity cost USD/kWh
+  netHash: number; // Sol/s
+  reward: number; // BEAM per block
+  price: number; // USD per BEAM
+  blockMin: number; // minutes per block
+  yourHash: number; // Sol/s
+  watts: number; // power consumption W
+  kwh: number; // electricity cost USD/kWh
 }
 
 interface CalcResult {
@@ -87,19 +81,30 @@ function calc(inputs: CalcInputs): CalcResult {
   const blockMinSafe = Math.max(blockMin, 1e-9);
   const blocksPerDay = 1440 / blockMinSafe;
   const networkCoinsPerDay = blocksPerDay * reward;
-  const yourShare = (yourHash > 0 && netHash > 0) ? yourHash / netHash : 0;
+  const yourShare = yourHash > 0 && netHash > 0 ? yourHash / netHash : 0;
   const yourCoinsPerDay = networkCoinsPerDay * yourShare;
   const yourValuePerDay = yourCoinsPerDay * price;
   const dailyPowerCost = (watts / 1000) * kwh * 24;
   const dailyProfit = yourValuePerDay - dailyPowerCost;
-  const margin = yourValuePerDay > 0 ? 100 * dailyProfit / yourValuePerDay : 0;
-  const timeToBlockSecs = (yourHash > 0 && netHash > 0) ? (netHash / yourHash) * blockMin * 60 : Infinity;
-  const bePriceUsd = (yourCoinsPerDay > 0) ? dailyPowerCost / yourCoinsPerDay : 0;
-  const beKwh = (watts > 0) ? yourValuePerDay / ((watts / 1000) * 24) : 0;
-  const beNetHash = (price > 0 && dailyPowerCost > 0)
-    ? (yourHash * networkCoinsPerDay * price) / dailyPowerCost
-    : 0;
-  return { blocksPerDay, networkCoinsPerDay, yourShare, yourCoinsPerDay, yourValuePerDay, dailyPowerCost, dailyProfit, margin, timeToBlockSecs, bePriceUsd, beKwh, beNetHash };
+  const margin = yourValuePerDay > 0 ? (100 * dailyProfit) / yourValuePerDay : 0;
+  const timeToBlockSecs = yourHash > 0 && netHash > 0 ? (netHash / yourHash) * blockMin * 60 : Infinity;
+  const bePriceUsd = yourCoinsPerDay > 0 ? dailyPowerCost / yourCoinsPerDay : 0;
+  const beKwh = watts > 0 ? yourValuePerDay / ((watts / 1000) * 24) : 0;
+  const beNetHash = price > 0 && dailyPowerCost > 0 ? (yourHash * networkCoinsPerDay * price) / dailyPowerCost : 0;
+  return {
+    blocksPerDay,
+    networkCoinsPerDay,
+    yourShare,
+    yourCoinsPerDay,
+    yourValuePerDay,
+    dailyPowerCost,
+    dailyProfit,
+    margin,
+    timeToBlockSecs,
+    bePriceUsd,
+    beKwh,
+    beNetHash,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +118,12 @@ interface ChartProps {
 
 const SVG_W = 560;
 const SVG_H = 220;
-const PAD = { top: 18, right: 20, bottom: 38, left: 68 };
+const PAD = {
+  top: 18,
+  right: 20,
+  bottom: 38,
+  left: 68,
+};
 
 const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
   const { reward, price, blockMin, yourHash, watts, kwh } = inputs;
@@ -127,7 +137,15 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
   const pts: Array<{ x: number; y: number }> = [];
   for (let i = 0; i < POINTS; i++) {
     const nh = xMin + i * xStep;
-    const r = calc({ netHash: nh, reward, price, blockMin, yourHash, watts, kwh });
+    const r = calc({
+      netHash: nh,
+      reward,
+      price,
+      blockMin,
+      yourHash,
+      watts,
+      kwh,
+    });
     pts.push({ x: nh, y: r.dailyProfit });
   }
 
@@ -143,7 +161,7 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
   const toSvgY = (profit: number) => PAD.top + (1 - (profit - yMin) / yRange) * plotH;
 
   const pathD = pts
-    .map((p, i) => (i === 0 ? 'M' : 'L') + ' ' + toSvgX(p.x).toFixed(1) + ' ' + toSvgY(p.y).toFixed(1))
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${toSvgX(p.x).toFixed(1)} ${toSvgY(p.y).toFixed(1)}`)
     .join(' ');
 
   // y=0 line
@@ -160,28 +178,27 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
 
   function fmtAxisY(v: number) {
     if (Math.abs(v) < 0.01 && v !== 0) return v.toFixed(4);
-    return (v >= 0 ? '' : '-') + '$' + Math.abs(v).toFixed(2);
+    return `${v >= 0 ? '' : '-'}$${Math.abs(v).toFixed(2)}`;
   }
 
   function fmtAxisX(v: number) {
-    if (v >= 1e9) return (v / 1e9).toFixed(1) + 'G Sol/s';
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M Sol/s';
-    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K Sol/s';
-    return v.toFixed(0) + ' Sol/s';
+    if (v >= 1e9) return `${(v / 1e9).toFixed(1)}G Sol/s`;
+    if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M Sol/s`;
+    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K Sol/s`;
+    return `${v.toFixed(0)} Sol/s`;
   }
 
   return (
-    <svg
-      viewBox={'0 0 ' + SVG_W + ' ' + SVG_H}
-      style={{ width: '100%', height: 'auto', display: 'block' }}
-    >
+    <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
       {/* Y axis ticks */}
       {yTicks.map((v, i) => {
         const sy = toSvgY(v);
         return (
           <g key={i}>
             <line x1={PAD.left - 4} y1={sy} x2={PAD.left} y2={sy} stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
-            <text x={PAD.left - 7} y={sy + 4} textAnchor="end" fontSize="9" fill="rgba(255,255,255,0.5)">{fmtAxisY(v)}</text>
+            <text x={PAD.left - 7} y={sy + 4} textAnchor="end" fontSize="9" fill="rgba(255,255,255,0.5)">
+              {fmtAxisY(v)}
+            </text>
           </g>
         );
       })}
@@ -190,22 +207,66 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
         const sx = toSvgX(v);
         return (
           <g key={i}>
-            <line x1={sx} y1={PAD.top + plotH} x2={sx} y2={PAD.top + plotH + 4} stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
-            <text x={sx} y={PAD.top + plotH + 14} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.5)">{fmtAxisX(v)}</text>
+            <line
+              x1={sx}
+              y1={PAD.top + plotH}
+              x2={sx}
+              y2={PAD.top + plotH + 4}
+              stroke="rgba(255,255,255,0.3)"
+              strokeWidth="1"
+            />
+            <text x={sx} y={PAD.top + plotH + 14} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.5)">
+              {fmtAxisX(v)}
+            </text>
           </g>
         );
       })}
       {/* Axis labels */}
-      <text x={PAD.left + plotW / 2} y={SVG_H - 2} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.4)">Network hashrate (Sol/s)</text>
-      <text x={10} y={PAD.top + plotH / 2} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.4)" transform={'rotate(-90,' + 10 + ',' + (PAD.top + plotH / 2) + ')'}>Profit/day (USD)</text>
+      <text x={PAD.left + plotW / 2} y={SVG_H - 2} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.4)">
+        Network hashrate (Sol/s)
+      </text>
+      <text
+        x={10}
+        y={PAD.top + plotH / 2}
+        textAnchor="middle"
+        fontSize="9"
+        fill="rgba(255,255,255,0.4)"
+        transform={`rotate(-90,${10},${PAD.top + plotH / 2})`}
+      >
+        Profit/day (USD)
+      </text>
       {/* Plot border */}
-      <rect x={PAD.left} y={PAD.top} width={plotW} height={plotH} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+      <rect
+        x={PAD.left}
+        y={PAD.top}
+        width={plotW}
+        height={plotH}
+        fill="none"
+        stroke="rgba(255,255,255,0.08)"
+        strokeWidth="1"
+      />
       {/* y=0 dashed line */}
       {showZeroLine && (
-        <line x1={PAD.left} y1={y0} x2={PAD.left + plotW} y2={y0} stroke="rgba(255,255,255,0.35)" strokeWidth="1" strokeDasharray="4 4" />
+        <line
+          x1={PAD.left}
+          y1={y0}
+          x2={PAD.left + plotW}
+          y2={y0}
+          stroke="rgba(255,255,255,0.35)"
+          strokeWidth="1"
+          strokeDasharray="4 4"
+        />
       )}
       {/* Current effectiveNetHash vertical dashed line */}
-      <line x1={xNetHash} y1={PAD.top} x2={xNetHash} y2={PAD.top + plotH} stroke="#00f6d2" strokeWidth="1" strokeDasharray="4 4" />
+      <line
+        x1={xNetHash}
+        y1={PAD.top}
+        x2={xNetHash}
+        y2={PAD.top + plotH}
+        stroke="#00f6d2"
+        strokeWidth="1"
+        strokeDasharray="4 4"
+      />
       {/* Curve */}
       <path d={pathD} fill="none" stroke="#00f6d2" strokeWidth="2" strokeLinejoin="round" />
     </svg>
@@ -221,7 +282,9 @@ const FormGrid = styled.div`
   grid-template-columns: 1fr 1fr;
   grid-gap: 12px;
   margin-bottom: 16px;
-  @media (max-width: 600px) { grid-template-columns: 1fr; }
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const FieldWrap = styled.div`
@@ -256,9 +319,7 @@ const ResultValue = styled.div<{ tone?: 'profit' | 'loss' | 'normal' }>`
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: ${(props: { tone?: 'profit' | 'loss' | 'normal' }) =>
-    props.tone === 'profit' ? theme.color.success
-    : props.tone === 'loss' ? theme.color.danger
-    : theme.color.text};
+    props.tone === 'profit' ? theme.color.success : props.tone === 'loss' ? theme.color.danger : theme.color.text};
 `;
 
 const ChartWrap = styled.div`
@@ -291,7 +352,9 @@ const SliderGrid = styled.div`
   grid-template-columns: 1fr 1fr 1fr;
   grid-gap: 12px;
   margin-bottom: 4px;
-  @media (max-width: 600px) { grid-template-columns: 1fr; }
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const SliderWrap = styled.div`
@@ -343,7 +406,9 @@ const ResetBtn = styled.button`
   margin-left: 6px;
   line-height: 1;
   text-decoration: underline;
-  &:hover { color: ${theme.color.text}; }
+  &:hover {
+    color: ${theme.color.text};
+  }
 `;
 
 const SliderInput = styled.input`
@@ -375,47 +440,58 @@ export const MiningCalculator: React.FC = () => {
   // Fetch live data on mount — parallel calls to /api/mining/pools and /api/stats
   useEffect(() => {
     let alive = true;
-    Promise.all([api.miningPools(), api.stats()]).then(([pools, stats]) => {
-      if (!alive) return;
-      if (pools.network_hashrate != null && Number.isFinite(pools.network_hashrate)) {
-        setNetHashStr(String(Math.round(pools.network_hashrate)));
-      }
-      if (pools.block_height != null && pools.block_height > 0) {
-        const r = blockRewardAtHeight(pools.block_height);
-        if (Number.isFinite(r) && r > 0) setRewardStr(String(r));
-      }
-      if (stats.beam_usd != null && Number.isFinite(stats.beam_usd)) {
-        setPriceStr(stats.beam_usd.toFixed(4));
-      }
-    }).catch(() => {
-      // silent — leave fields blank/editable
-    }).finally(() => {
-      if (alive) setLoading(false);
-    });
-    return () => { alive = false; };
+    Promise.all([api.miningPools(), api.stats()])
+      .then(([pools, stats]) => {
+        if (!alive) return;
+        if (pools.network_hashrate != null && Number.isFinite(pools.network_hashrate)) {
+          setNetHashStr(String(Math.round(pools.network_hashrate)));
+        }
+        if (pools.block_height != null && pools.block_height > 0) {
+          const r = blockRewardAtHeight(pools.block_height);
+          if (Number.isFinite(r) && r > 0) setRewardStr(String(r));
+        }
+        if (stats.beam_usd != null && Number.isFinite(stats.beam_usd)) {
+          setPriceStr(stats.beam_usd.toFixed(4));
+        }
+      })
+      .catch(() => {
+        // silent — leave fields blank/editable
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const baseInputs: CalcInputs = useMemo(() => ({
-    netHash: safeNum(netHashStr),
-    reward: safeNum(rewardStr),
-    price: safeNum(priceStr),
-    blockMin: safeNum(blockMinStr) || 1.0,
-    yourHash: safeNum(yourHashStr),
-    watts: safeNum(wattsStr),
-    kwh: safeNum(kwhStr),
-  }), [netHashStr, rewardStr, priceStr, blockMinStr, yourHashStr, wattsStr, kwhStr]);
+  const baseInputs: CalcInputs = useMemo(
+    () => ({
+      netHash: safeNum(netHashStr),
+      reward: safeNum(rewardStr),
+      price: safeNum(priceStr),
+      blockMin: safeNum(blockMinStr) || 1.0,
+      yourHash: safeNum(yourHashStr),
+      watts: safeNum(wattsStr),
+      kwh: safeNum(kwhStr),
+    }),
+    [netHashStr, rewardStr, priceStr, blockMinStr, yourHashStr, wattsStr, kwhStr],
+  );
 
   // Effective (multiplied) values fed into the formulas
   const effectiveNetHash = useMemo(() => baseInputs.netHash * sliderNet, [baseInputs.netHash, sliderNet]);
-  const effectivePrice   = useMemo(() => baseInputs.price   * sliderPrice, [baseInputs.price, sliderPrice]);
-  const effectiveKwh     = useMemo(() => baseInputs.kwh     * sliderKwh, [baseInputs.kwh, sliderKwh]);
+  const effectivePrice = useMemo(() => baseInputs.price * sliderPrice, [baseInputs.price, sliderPrice]);
+  const effectiveKwh = useMemo(() => baseInputs.kwh * sliderKwh, [baseInputs.kwh, sliderKwh]);
 
-  const inputs: CalcInputs = useMemo(() => ({
-    ...baseInputs,
-    netHash: effectiveNetHash,
-    price:   effectivePrice,
-    kwh:     effectiveKwh,
-  }), [baseInputs, effectiveNetHash, effectivePrice, effectiveKwh]);
+  const inputs: CalcInputs = useMemo(
+    () => ({
+      ...baseInputs,
+      netHash: effectiveNetHash,
+      price: effectivePrice,
+      kwh: effectiveKwh,
+    }),
+    [baseInputs, effectiveNetHash, effectivePrice, effectiveKwh],
+  );
 
   const result = useMemo(() => {
     const { netHash, reward, price, yourHash } = inputs;
@@ -423,9 +499,12 @@ export const MiningCalculator: React.FC = () => {
     return calc(inputs);
   }, [inputs]);
 
-  const profitTone = !result ? 'normal'
-    : result.dailyProfit > 0 ? 'profit'
-    : result.dailyProfit < 0 ? 'loss'
+  const profitTone = !result
+    ? 'normal'
+    : result.dailyProfit > 0
+    ? 'profit'
+    : result.dailyProfit < 0
+    ? 'loss'
     : 'normal';
 
   return (
@@ -546,7 +625,9 @@ export const MiningCalculator: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <SliderMultiplier>×{sliderNet.toFixed(2)}</SliderMultiplier>
               {sliderNet !== 1.0 && (
-                <ResetBtn type="button" onClick={() => setSliderNet(1.0)}>reset</ResetBtn>
+                <ResetBtn type="button" onClick={() => setSliderNet(1.0)}>
+                  reset
+                </ResetBtn>
               )}
             </div>
           </SliderHeader>
@@ -558,9 +639,7 @@ export const MiningCalculator: React.FC = () => {
             value={sliderNet}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSliderNet(parseFloat(e.target.value))}
           />
-          {baseInputs.netHash > 0 && (
-            <SliderEffective>= {fmtHashrate(effectiveNetHash)}</SliderEffective>
-          )}
+          {baseInputs.netHash > 0 && <SliderEffective>={fmtHashrate(effectiveNetHash)}</SliderEffective>}
         </SliderWrap>
 
         {/* BEAM price slider */}
@@ -570,7 +649,9 @@ export const MiningCalculator: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <SliderMultiplier>×{sliderPrice.toFixed(2)}</SliderMultiplier>
               {sliderPrice !== 1.0 && (
-                <ResetBtn type="button" onClick={() => setSliderPrice(1.0)}>reset</ResetBtn>
+                <ResetBtn type="button" onClick={() => setSliderPrice(1.0)}>
+                  reset
+                </ResetBtn>
               )}
             </div>
           </SliderHeader>
@@ -582,9 +663,7 @@ export const MiningCalculator: React.FC = () => {
             value={sliderPrice}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSliderPrice(parseFloat(e.target.value))}
           />
-          {baseInputs.price > 0 && (
-            <SliderEffective>= {fmtUsdLong(effectivePrice)}</SliderEffective>
-          )}
+          {baseInputs.price > 0 && <SliderEffective>={fmtUsdLong(effectivePrice)}</SliderEffective>}
         </SliderWrap>
 
         {/* Electricity cost slider */}
@@ -594,7 +673,9 @@ export const MiningCalculator: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <SliderMultiplier>×{sliderKwh.toFixed(2)}</SliderMultiplier>
               {sliderKwh !== 1.0 && (
-                <ResetBtn type="button" onClick={() => setSliderKwh(1.0)}>reset</ResetBtn>
+                <ResetBtn type="button" onClick={() => setSliderKwh(1.0)}>
+                  reset
+                </ResetBtn>
               )}
             </div>
           </SliderHeader>
@@ -607,7 +688,10 @@ export const MiningCalculator: React.FC = () => {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSliderKwh(parseFloat(e.target.value))}
           />
           {baseInputs.kwh > 0 && (
-            <SliderEffective>= {fmtUsdLong(effectiveKwh)}/kWh</SliderEffective>
+            <SliderEffective>
+              ={fmtUsdLong(effectiveKwh)}
+              /kWh
+            </SliderEffective>
           )}
         </SliderWrap>
       </SliderGrid>
@@ -620,11 +704,7 @@ export const MiningCalculator: React.FC = () => {
             <StatCard>
               <Label>Your BEAM / day</Label>
               <Value>{result.yourCoinsPerDay > 0 ? result.yourCoinsPerDay.toFixed(4) : '—'}</Value>
-              <SubValue>
-                {result.yourShare > 0
-                  ? (result.yourShare * 100).toFixed(4) + '% of network'
-                  : ''}
-              </SubValue>
+              <SubValue>{result.yourShare > 0 ? `${(result.yourShare * 100).toFixed(4)}% of network` : ''}</SubValue>
             </StatCard>
             <StatCard>
               <Label>Revenue / day</Label>
@@ -641,7 +721,7 @@ export const MiningCalculator: React.FC = () => {
               </ResultValue>
               <SubValue>
                 {Number.isFinite(result.margin) && result.yourValuePerDay > 0
-                  ? result.margin.toFixed(1) + '% margin'
+                  ? `${result.margin.toFixed(1)}% margin`
                   : ''}
               </SubValue>
             </StatCard>
@@ -657,23 +737,17 @@ export const MiningCalculator: React.FC = () => {
             </StatCard>
             <StatCard>
               <Label>Break-even BEAM price</Label>
-              <Value style={{ fontSize: 14 }}>
-                {result.bePriceUsd > 0 ? fmtUsd(result.bePriceUsd) : '—'}
-              </Value>
+              <Value style={{ fontSize: 14 }}>{result.bePriceUsd > 0 ? fmtUsd(result.bePriceUsd) : '—'}</Value>
               <SubValue>at your power cost</SubValue>
             </StatCard>
             <StatCard>
               <Label>Break-even kWh price</Label>
-              <Value style={{ fontSize: 14 }}>
-                {result.beKwh > 0 ? fmtUsd(result.beKwh) : '—'}
-              </Value>
+              <Value style={{ fontSize: 14 }}>{result.beKwh > 0 ? fmtUsd(result.beKwh) : '—'}</Value>
               <SubValue>at current BEAM price</SubValue>
             </StatCard>
             <StatCard>
               <Label>Break-even network HR</Label>
-              <Value style={{ fontSize: 14 }}>
-                {result.beNetHash > 0 ? fmtHashrate(result.beNetHash) : '—'}
-              </Value>
+              <Value style={{ fontSize: 14 }}>{result.beNetHash > 0 ? fmtHashrate(result.beNetHash) : '—'}</Value>
               <SubValue>max network to break even</SubValue>
             </StatCard>
           </StatGrid>
@@ -682,10 +756,20 @@ export const MiningCalculator: React.FC = () => {
           <ChartWrap>
             <ChartTitle>Profit / day vs Network Hashrate</ChartTitle>
             <ProfitChart inputs={inputs} effectiveNetHash={effectiveNetHash} />
-            <div style={{ fontSize: 9, color: theme.color.muted, marginTop: 4, textAlign: 'center' }}>
-              <span style={{ color: '#00f6d2', marginRight: 4 }}>—</span>profit curve
-              <span style={{ marginLeft: 12, color: '#00f6d2', marginRight: 4 }}>- -</span>current network HR
-              <span style={{ marginLeft: 12, color: 'rgba(255,255,255,0.35)', marginRight: 4 }}>- -</span>break-even ($0)
+            <div
+              style={{
+                fontSize: 9,
+                color: theme.color.muted,
+                marginTop: 4,
+                textAlign: 'center',
+              }}
+            >
+              <span style={{ color: '#00f6d2', marginRight: 4 }}>—</span>
+              profit curve
+              <span style={{ marginLeft: 12, color: '#00f6d2', marginRight: 4 }}>- -</span>
+              current network HR
+              <span style={{ marginLeft: 12, color: 'rgba(255,255,255,0.35)', marginRight: 4 }}>- -</span>
+              break-even ($0)
             </div>
           </ChartWrap>
         </>

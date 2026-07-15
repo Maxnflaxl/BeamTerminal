@@ -18,8 +18,9 @@ yarn install
 yarn build:prod
 
 test -f html/index.html
-test -f html/index.js
-test -f html/styles.css
+# Bundle filenames carry a contenthash — glob instead of exact names.
+ls html/index.*.js > /dev/null
+ls html/styles.*.css > /dev/null
 # The DApp Store icon is the site favicon, which webpack copies into html/.
 test -f html/favicon.svg
 
@@ -28,6 +29,12 @@ test -f html/favicon.svg
 rm -rf "${DAPP_NAME}" "${DAPP_NAME}.dapp" "html/${DAPP_NAME}.dapp"
 mkdir -p "${DAPP_NAME}/app"
 cp -r html/* "${DAPP_NAME}/app/"
+
+# Inside the wallet the connector always uses the qwebchannel bridge — the
+# headless wasm client is unreachable there. Keep it in html/ for the website.
+rm -f "${DAPP_NAME}/app/wasm-client.js" \
+      "${DAPP_NAME}/app/wasm-client.wasm" \
+      "${DAPP_NAME}/app/wasm-client.worker.js"
 
 cat > "${DAPP_NAME}/manifest.json" <<EOF
 {

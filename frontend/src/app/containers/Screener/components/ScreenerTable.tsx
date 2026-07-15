@@ -27,10 +27,20 @@ export const ScreenerTable = styled.table`
   tbody tr {
     cursor: pointer;
     transition: background 0.15s;
-    &:hover { background: rgba(255, 255, 255, 0.03); }
+    &:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
   }
-  .mono { font-family: 'SFProDisplay', monospace; }
-  .positive { color: var(--color-green); }
-  .negative { color: var(--color-red); }
-  .neutral { color: rgba(255, 255, 255, 0.5); }
+  .mono {
+    font-family: var(--font-mono);
+  }
+  .positive {
+    color: var(--color-green);
+  }
+  .negative {
+    color: var(--color-red);
+  }
+  .neutral {
+    color: rgba(255, 255, 255, 0.5);
+  }
 `;

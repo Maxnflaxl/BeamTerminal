@@ -4,16 +4,41 @@ import type { IChartApi, ISeriesApi, LineData, UTCTimestamp } from 'lightweight-
 import { PriceScaleMode } from 'lightweight-charts';
 import type { ApiPoolLiquidityPoint } from '../api/types';
 import { fmtNum } from './format';
-import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend, clearChildren, makeSpan } from './chartTheme';
+import {
+  createBeamChart,
+  CHART_COLORS,
+  ChartWrap,
+  ChartInner,
+  ChartLegend,
+  clearChildren,
+  makeSpan,
+} from './chartTheme';
 
 const Legend = styled(ChartLegend)`
   display: flex;
   align-items: baseline;
-  & > * + * { margin-left: 14px; }
-  .item { display: flex; align-items: baseline; & > * + * { margin-left: 5px; } }
-  .swatch { width: 9px; height: 9px; border-radius: 2px; align-self: center; }
-  .lbl { color: rgba(255, 255, 255, 0.5); }
-  .val { color: #fff; }
+  & > * + * {
+    margin-left: 14px;
+  }
+  .item {
+    display: flex;
+    align-items: baseline;
+    & > * + * {
+      margin-left: 5px;
+    }
+  }
+  .swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    align-self: center;
+  }
+  .lbl {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .val {
+    color: #fff;
+  }
 `;
 
 // sym1 (aid1, e.g. BEAM) teal; sym2 (aid2) white — matches BeamAssets' Pooled
@@ -39,7 +64,14 @@ interface Props {
 /** Two-line history of pooled amounts (aid1 + aid2) over time. Modeled on the
  *  asset SupplyChart but with a second series and a dual-value legend. */
 export const PoolHistoryChart: React.FC<Props> = ({
-  series, decimals1, decimals2, sym1, sym2, visible, centerOn, logScale,
+  series,
+  decimals1,
+  decimals2,
+  sym1,
+  sym2,
+  visible,
+  centerOn,
+  logScale,
 }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
@@ -94,7 +126,11 @@ export const PoolHistoryChart: React.FC<Props> = ({
 
     chart.subscribeCrosshairMove((param) => {
       if (!nodes) return;
-      if (!param || !param.time) { nodes.v1.textContent = ''; nodes.v2.textContent = ''; return; }
+      if (!param || !param.time) {
+        nodes.v1.textContent = '';
+        nodes.v2.textContent = '';
+        return;
+      }
       const t = param.time as UTCTimestamp;
       const p1 = dataRef.current.d1.find((p) => p.time === t);
       const p2 = dataRef.current.d2.find((p) => p.time === t);
@@ -134,16 +170,17 @@ export const PoolHistoryChart: React.FC<Props> = ({
     if (centerOn == null) return;
     const chart = chartRef.current;
     if (!chart || series.length === 0) return;
-    const span = series.length >= 2
-      ? Math.max(1, (series[series.length - 1]!.ts - series[0]!.ts) / (series.length - 1))
-      : 86400;
+    const span =
+      series.length >= 2 ? Math.max(1, (series[series.length - 1]!.ts - series[0]!.ts) / (series.length - 1)) : 86400;
     const half = span * 30;
     try {
       chart.timeScale().setVisibleRange({
         from: (centerOn - half) as UTCTimestamp,
         to: (centerOn + half) as UTCTimestamp,
       });
-    } catch { /* out of range */ }
+    } catch {
+      /* out of range */
+    }
   }, [centerOn, series]);
 
   // Linear / logarithmic Y axis. Own effect so toggling never rebuilds the chart.

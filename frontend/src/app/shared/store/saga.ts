@@ -3,12 +3,7 @@ import { call, take } from 'redux-saga/effects';
 import { eventChannel, END } from 'redux-saga';
 import { setSystemState, setIsLoaded } from '@app/shared/store/actions';
 import { actions as mainActions } from '@app/containers/Pools/store/index';
-import {
-  buildShaderRuntimeMap,
-  getShaderDescriptor,
-  getShaderFeatures,
-  ShaderFeature,
-} from '@app/core/shaderRegistry';
+import { buildShaderRuntimeMap, getShaderDescriptor, getShaderFeatures, ShaderFeature } from '@app/core/shaderRegistry';
 
 import connector from '@core/connector';
 import { setTxStatus } from '@app/containers/Pools/store/actions';
@@ -35,7 +30,7 @@ export async function start() {
   });
 
   store.dispatch(mainActions.loadAppParams.request(buildShaderRuntimeMap(shaderBytesByFeature)));
-  store.dispatch(mainActions.loadPoolsList.request(null, null));
+  store.dispatch(mainActions.loadPoolsList.request());
 }
 
 export function remoteEventChannel() {
@@ -58,7 +53,8 @@ export function remoteEventChannel() {
     // plain browser the wallet stays disconnected until the user triggers a
     // wallet-requiring action.
     if (isInsideWallet()) {
-      connector.connect()
+      connector
+        .connect()
         .then(() => start())
         .catch(() => {});
     }

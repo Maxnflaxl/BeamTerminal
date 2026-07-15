@@ -1,5 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
+import AssetIcon, { useAssetColorResolver } from '@app/shared/components/AssetsIcon';
+import { BlockHeight } from '@app/shared/components';
+import { Overlay, useEscapeClose } from '../../../components/modalChrome';
+import { useAssetIndex } from '../../../hooks';
 import {
   Page,
   ExplorerHeader,
@@ -17,11 +21,9 @@ import {
   Donut,
 } from '../shared';
 import type { DonutSlice } from '../shared';
-import AssetIcon, { useAssetColorResolver } from '@app/shared/components/AssetsIcon';
-import { BlockHeight } from '@app/shared/components';
 import { fromGrothsStr } from '../../../components/format';
 import { api } from '../../../api/client';
-import type { ApiDaoTreasury, ApiDaoAssetHistory, ApiAssetListEntry } from '../../../api/types';
+import type { ApiDaoTreasury, ApiDaoAssetHistory } from '../../../api/types';
 import { TimeChart, fmtUsd, fmtCompact } from './daoShared';
 
 const FLOWS_PER_PAGE = 12;
@@ -99,18 +101,6 @@ const PageBtns = styled.div`
   & > * + * {
     margin-left: 6px;
   }
-`;
-const Overlay = styled.div`
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(2, 12, 24, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
 `;
 const Modal = styled.div`
   width: 92%;
@@ -221,15 +211,22 @@ const HistSummary = styled.div`
   font-size: 12px;
   display: flex;
   /* Owl margins, not gap — flex gap is unsupported in the wallet's Chrome 83. */
-  & > * + * { margin-left: 18px; }
+  & > * + * {
+    margin-left: 18px;
+  }
 `;
 
 export const DaoTreasury: React.FC = () => {
   const [d, setD] = useState<ApiDaoTreasury | null>(null);
-  const [meta, setMeta] = useState<Map<number, ApiAssetListEntry>>(new Map());
+  const meta = useAssetIndex();
   const [error, setError] = useState<string | null>(null);
   const [donut, setDonut] = useState(false);
   const [hist, setHist] = useState<{ aid: number; data: ApiDaoAssetHistory | null } | null>(null);
+  const closeHist = useCallback(() => setHist(null), []);
+  const closeDonut = useCallback(() => setDonut(false), []);
+  // The history modal stacks above the donut modal — it takes ESC precedence.
+  useEscapeClose(closeHist, hist !== null);
+  useEscapeClose(closeDonut, hist === null && donut);
   const [flowPage, setFlowPage] = useState(0);
   const [donutHoverKey, setDonutHoverKey] = useState<string | null>(null);
 
@@ -244,11 +241,10 @@ export const DaoTreasury: React.FC = () => {
         .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
     };
     load();
-    api
-      .assets()
-      .then((x) => alive && setMeta(new Map(x.assets.map((a) => [a.aid, a]))))
-      .catch(() => {});
-    const id = setInterval(load, 60_000);
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      void load();
+    }, 60_000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -326,7 +322,12 @@ export const DaoTreasury: React.FC = () => {
         </div>
       </ExplorerHeader>
 
-      {error && <ErrorBox>Failed to load treasury: {error}</ErrorBox>}
+      {error && (
+        <ErrorBox>
+          Failed to load treasury:
+          {error}
+        </ErrorBox>
+      )}
 
       <StatGrid>
         <StatCard>
@@ -422,7 +423,14 @@ export const DaoTreasury: React.FC = () => {
             </FlowRow>
           ))}
           {flows.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 22, color: theme.color.muted, fontSize: 12 }}>
+            <div
+              style={{
+                textAlign: 'center',
+                padding: 22,
+                color: theme.color.muted,
+                fontSize: 12,
+              }}
+            >
               No recent flows.
             </div>
           )}
@@ -430,7 +438,8 @@ export const DaoTreasury: React.FC = () => {
         {flows.length > FLOWS_PER_PAGE && (
           <Pagination>
             <PageInfo>
-              {flowStart + 1}–{Math.min(flowStart + FLOWS_PER_PAGE, flows.length)} of {flows.length}
+              {flowStart + 1}–{Math.min(flowStart + FLOWS_PER_PAGE, flows.length)} of
+              {flows.length}
             </PageInfo>
             <PageBtns>
               <Btn type="button" data-variant="ghost" disabled={safeFlowPage === 0} onClick={() => setFlowPage(0)}>
@@ -466,7 +475,7 @@ export const DaoTreasury: React.FC = () => {
       </Panel>
 
       {donut && (
-        <Overlay onClick={() => setDonut(false)}>
+        <Overlay z={50} backdrop="rgba(2, 12, 24, 0.8)" pad="0" onClick={closeDonut}>
           <Modal onClick={(e) => e.stopPropagation()}>
             <ModalHead>
               <ModalTitle>
@@ -497,7 +506,7 @@ export const DaoTreasury: React.FC = () => {
                 />
                 {restPct > 0.0001 && (
                   <DonutNote>
-                    <span style={{ color: theme.color.muted2 }}>■</span> Other = {donutRest.length} assets ·{' '}
+                    <span style={{ color: theme.color.muted2 }}>■</span> Other ={donutRest.length} assets ·{' '}
                     {restPct.toFixed(2)}%
                   </DonutNote>
                 )}
@@ -506,7 +515,10 @@ export const DaoTreasury: React.FC = () => {
                 {rankedPriced.map((h) => (
                   <DLegendRow
                     key={h.aid}
-                    onClick={() => (setDonut(false), openAsset(h.aid))}
+                    onClick={() => {
+                      setDonut(false);
+                      openAsset(h.aid);
+                    }}
                     onMouseEnter={() => setDonutHoverKey(sliceKeyForAid(h.aid))}
                     onMouseLeave={() => setDonutHoverKey(null)}
                   >
@@ -515,7 +527,7 @@ export const DaoTreasury: React.FC = () => {
                       <b>{symOf(h.aid)}</b>
                     </span>
                     <span className="r">
-                      {h.pct.toFixed(2)}% · {fmtAmt(h.amount, h.aid)} · {fmtUsd(h.value_usd)}
+                      {h.pct.toFixed(2)}% ·{fmtAmt(h.amount, h.aid)} ·{fmtUsd(h.value_usd)}
                     </span>
                   </DLegendRow>
                 ))}
@@ -526,7 +538,7 @@ export const DaoTreasury: React.FC = () => {
       )}
 
       {hist && (
-        <Overlay onClick={() => setHist(null)}>
+        <Overlay z={50} backdrop="rgba(2, 12, 24, 0.8)" pad="0" onClick={closeHist}>
           <Modal onClick={(e) => e.stopPropagation()}>
             <ModalHead>
               <span style={{ display: 'flex', alignItems: 'center' }}>

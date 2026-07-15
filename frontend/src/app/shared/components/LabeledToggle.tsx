@@ -18,7 +18,7 @@ const ContainerStyled = styled.button`
   border-radius: 16px;
   border: none;
   background-color: rgba(255, 255, 255, 0.1);
-  font-family: 'SFProDisplay', sans-serif;
+  font-family: var(--font-sans);
   color: var(--color-gray);
   cursor: pointer;
 `;
@@ -40,9 +40,7 @@ const SliderStyled = styled.div<{ active: boolean }>`
   color: var(--color-green);
 `;
 
-const LabeledToggle: React.FC<LabeledToggleProps> = ({
-  left = 'off', right = 'on', value, onChange,
-}) => {
+const LabeledToggle: React.FC<LabeledToggleProps> = ({ left = 'off', right = 'on', value, onChange }) => {
   const handleClick: React.MouseEventHandler = () => {
     const next = !value;
     onChange(next);

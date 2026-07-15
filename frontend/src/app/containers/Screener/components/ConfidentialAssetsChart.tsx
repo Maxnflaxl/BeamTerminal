@@ -1,6 +1,4 @@
-import React, {
-  useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState,
-} from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import type { IChartApi, UTCTimestamp } from 'lightweight-charts';
@@ -104,7 +102,16 @@ const MarkerChip = styled.div`
     height: 100% !important;
   }
 
-  &:hover,
+  /* Kept as two separate blocks: :focus-visible is Chrome 86+, and inside a
+     selector list it would invalidate the whole rule in the wallet (Chrome 83),
+     killing the :hover state too. */
+  &:hover {
+    --marker-scale: 1.18;
+    box-shadow: 0 0 0 1px rgba(0, 246, 210, 0.65), 0 2px 6px rgba(0, 0, 0, 0.7);
+    z-index: 5;
+    outline: none;
+  }
+
   &:focus-visible {
     --marker-scale: 1.18;
     box-shadow: 0 0 0 1px rgba(0, 246, 210, 0.65), 0 2px 6px rgba(0, 0, 0, 0.7);
@@ -122,7 +129,7 @@ const Popover = styled.div`
   border-radius: 8px;
   padding: 10px 12px;
   color: rgba(255, 255, 255, 0.92);
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
   pointer-events: auto;
@@ -134,7 +141,9 @@ const PopHeader = styled.div`
   justify-content: space-between;
   margin-bottom: 6px;
 
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
 `;
 
 const PopTitle = styled.div`
@@ -148,7 +157,9 @@ const PopTitle = styled.div`
     height: 20px;
     margin-right: 8px;
   }
-  & > .icon > * { margin: 0 !important; }
+  & > .icon > * {
+    margin: 0 !important;
+  }
 `;
 
 const PopName = styled.div`
@@ -198,7 +209,9 @@ const PopRow = styled.div`
   justify-content: space-between;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.65);
-  & + & { margin-top: 2px; }
+  & + & {
+    margin-top: 2px;
+  }
 `;
 
 const PopDesc = styled.div`
@@ -213,7 +226,16 @@ const PopDesc = styled.div`
 `;
 
 const ArrowIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <line x1="2" y1="6" x2="10" y2="6" />
     <polyline points="6 2 10 6 6 10" />
   </svg>
@@ -236,21 +258,19 @@ interface PlacedMarker {
 }
 
 export const ConfidentialAssetsChart: React.FC<Props> = ({
-  series, title, scale, formatter, logScale, showMarkers = false, hideAmml = true,
+  series,
+  title,
+  scale,
+  formatter,
+  logScale,
+  showMarkers = false,
+  hideAmml = true,
 }) => {
   // Bypass the entire overlay machinery when markers aren't wanted (grid cell)
   // — keeps that path a plain SimpleChart with no extra renders, no polling
   // of /api/assets, no event subscriptions.
   if (!showMarkers) {
-    return (
-      <SimpleChart
-        series={series}
-        title={title ?? ''}
-        scale={scale}
-        formatter={formatter}
-        logScale={logScale}
-      />
-    );
+    return <SimpleChart series={series} title={title ?? ''} scale={scale} formatter={formatter} logScale={logScale} />;
   }
   return (
     <ConfidentialAssetsChartWithMarkers
@@ -268,9 +288,7 @@ export const ConfidentialAssetsChart: React.FC<Props> = ({
 // allocated purely from the timestamp sequence (rather than from current
 // pixel positions), so they stay stable across pan/zoom — a marker doesn't
 // hop between lanes when the user moves the time scale.
-function assignLanesByTs(
-  assets: ReadonlyArray<ApiAssetListEntry>,
-): Array<{ asset: ApiAssetListEntry; lane: number }> {
+function assignLanesByTs(assets: ReadonlyArray<ApiAssetListEntry>): Array<{ asset: ApiAssetListEntry; lane: number }> {
   const sorted = assets.slice().sort((a, b) => (a.minted_at_ts ?? 0) - (b.minted_at_ts ?? 0));
   const laneLastTs: number[] = [];
   const out: Array<{ asset: ApiAssetListEntry; lane: number }> = [];
@@ -281,7 +299,10 @@ function assignLanesByTs(
     if (a.minted_at_ts == null) continue;
     let lane = -1;
     for (let i = 0; i < laneLastTs.length; i += 1) {
-      if (a.minted_at_ts - laneLastTs[i]! >= MIN_GAP_S) { lane = i; break; }
+      if (a.minted_at_ts - laneLastTs[i]! >= MIN_GAP_S) {
+        lane = i;
+        break;
+      }
     }
     if (lane === -1 && laneLastTs.length < MAX_LANES) {
       lane = laneLastTs.length;
@@ -301,7 +322,12 @@ function assignLanesByTs(
 }
 
 const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> = ({
-  series, title, scale, formatter, logScale, hideAmml = true,
+  series,
+  title,
+  scale,
+  formatter,
+  logScale,
+  hideAmml = true,
 }) => {
   const { data: assetsData } = useAssets();
   const navigate = useNavigate();
@@ -328,8 +354,7 @@ const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> =
   const placed = useMemo(() => {
     if (!assetsData) return [];
     const eligible = assetsData.assets.filter(
-      (a) => a.aid !== 0 && !a.is_imposter && a.minted_at_ts != null
-        && !(hideAmml && isAmmLpToken(a)),
+      (a) => a.aid !== 0 && !a.is_imposter && a.minted_at_ts != null && !(hideAmml && isAmmLpToken(a)),
     );
     return assignLanesByTs(eligible);
   }, [assetsData, hideAmml]);
@@ -369,7 +394,9 @@ const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> =
   // latest closure — otherwise the schedule would keep calling a stale
   // updatePositions that captured assetsData=null from the first render.
   const updatePositionsRef = useRef(updatePositions);
-  useEffect(() => { updatePositionsRef.current = updatePositions; }, [updatePositions]);
+  useEffect(() => {
+    updatePositionsRef.current = updatePositions;
+  }, [updatePositions]);
 
   const onChartReady = useCallback((c: IChartApi, el: HTMLDivElement): (() => void) => {
     chartRef.current = c;
@@ -413,9 +440,12 @@ const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> =
   const [hoverAid, setHoverAid] = useState<number | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
 
-  useEffect(() => () => {
-    if (hoverTimerRef.current != null) window.clearTimeout(hoverTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (hoverTimerRef.current != null) window.clearTimeout(hoverTimerRef.current);
+    },
+    [],
+  );
 
   const openHover = useCallback((aid: number): void => {
     if (hoverTimerRef.current != null) window.clearTimeout(hoverTimerRef.current);
@@ -426,16 +456,22 @@ const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> =
     hoverTimerRef.current = window.setTimeout(() => setHoverAid(null), 120);
   }, []);
 
-  const handleMarkerKey = useCallback((aid: number, e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      navigate(`/asset/${aid}`);
-    }
-  }, [navigate]);
+  const handleMarkerKey = useCallback(
+    (aid: number, e: React.KeyboardEvent): void => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        navigate(`/asset/${aid}`);
+      }
+    },
+    [navigate],
+  );
 
-  const handleMarkerClick = useCallback((aid: number): void => {
-    navigate(`/asset/${aid}`);
-  }, [navigate]);
+  const handleMarkerClick = useCallback(
+    (aid: number): void => {
+      navigate(`/asset/${aid}`);
+    },
+    [navigate],
+  );
 
   const setMarkerRef = useCallback((aid: number, el: HTMLDivElement | null): void => {
     if (el) markerNodes.current.set(aid, el);
@@ -496,12 +532,7 @@ const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> =
                 onClick={() => handleMarkerClick(asset.aid)}
                 onKeyDown={(e) => handleMarkerKey(asset.aid, e)}
               >
-                <AssetIcon
-                  asset_id={asset.aid}
-                  color={asset.color}
-                  logoUrl={asset.logo_url}
-                  size={ICON_PX}
-                />
+                <AssetIcon asset_id={asset.aid} color={asset.color} logoUrl={asset.logo_url} size={ICON_PX} />
               </MarkerChip>
             </MarkerAnchor>
           );
@@ -526,9 +557,7 @@ interface HoveredPopoverProps {
   onOpen: () => void;
 }
 
-const HoveredPopover: React.FC<HoveredPopoverProps> = ({
-  marker, onMouseEnter, onMouseLeave, onOpen,
-}) => {
+const HoveredPopover: React.FC<HoveredPopoverProps> = ({ marker, onMouseEnter, onMouseLeave, onOpen }) => {
   const { asset, x, lane } = marker;
   const popRef = useRef<HTMLDivElement | null>(null);
   // Pin the popover above the marker, centred on its x. Flip to left/right
@@ -559,7 +588,9 @@ const HoveredPopover: React.FC<HoveredPopoverProps> = ({
     asset.short_name,
     asset.unit_name && asset.unit_name !== asset.short_name ? asset.unit_name : null,
     `aid ${asset.aid}`,
-  ].filter(Boolean).join(' · ');
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <Popover
@@ -575,12 +606,7 @@ const HoveredPopover: React.FC<HoveredPopoverProps> = ({
       <PopHeader>
         <PopTitle>
           <span className="icon">
-            <AssetIcon
-              asset_id={asset.aid}
-              color={asset.color}
-              logoUrl={asset.logo_url}
-              size={20}
-            />
+            <AssetIcon asset_id={asset.aid} color={asset.color} logoUrl={asset.logo_url} size={20} />
           </span>
           <PopName>
             <PopNameMain>{asset.name ?? asset.short_name ?? `Asset #${asset.aid}`}</PopNameMain>
@@ -600,7 +626,10 @@ const HoveredPopover: React.FC<HoveredPopoverProps> = ({
       {asset.minted_at_height != null ? (
         <PopRow>
           <span>Block</span>
-          <span>#<BlockHeight height={asset.minted_at_height} ts={asset.minted_at_ts} tooltip={false} /></span>
+          <span>
+            #
+            <BlockHeight height={asset.minted_at_height} ts={asset.minted_at_ts} tooltip={false} />
+          </span>
         </PopRow>
       ) : null}
       <PopRow>

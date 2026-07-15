@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { styled } from '@linaria/react';
+import { PALLETE_ASSETS } from '@app/shared/constants';
+import { usePolled } from '../../../hooks';
 import {
   Page,
   ExplorerHeader,
@@ -17,7 +19,6 @@ import {
 } from '../shared';
 import { api } from '../../../api/client';
 import type { ApiDaoRevenue } from '../../../api/types';
-import { PALLETE_ASSETS } from '@app/shared/constants';
 import { tierColor } from '../../../components/KindBadge';
 import { TimeChart, fmtUsd } from './daoShared';
 
@@ -81,31 +82,7 @@ const HBar = styled.div`
 `;
 
 export const DaoRevenue: React.FC = () => {
-  const [d, setD] = useState<ApiDaoRevenue | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const load = (): void => {
-      api
-        .daoRevenue('source')
-        .then((x) => {
-          if (alive) {
-            setD(x);
-            setError(null);
-          }
-        })
-        .catch((e: unknown) => {
-          if (alive) setError(e instanceof Error ? e.message : String(e));
-        });
-    };
-    load();
-    const id = setInterval(load, 60_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
+  const { data: d, error } = usePolled<ApiDaoRevenue>(() => api.daoRevenue('source'), [], 60_000);
 
   const dailySeries = (d?.series ?? []).map((s) => ({
     label: s.day,
@@ -122,7 +99,12 @@ export const DaoRevenue: React.FC = () => {
         </div>
       </ExplorerHeader>
 
-      {error && <ErrorBox>Failed to load revenue: {error}</ErrorBox>}
+      {error && (
+        <ErrorBox>
+          Failed to load revenue:
+          {error}
+        </ErrorBox>
+      )}
 
       <StatGrid>
         <StatCard>
@@ -156,7 +138,7 @@ export const DaoRevenue: React.FC = () => {
                 <span className="fill" style={{ width: `${Math.max(2, s.pct)}%`, background: srcColor(s.source, i) }} />
               </span>
               <span className="val">
-                {s.pct.toFixed(2)}% · {fmtUsd(s.usd)}
+                {s.pct.toFixed(2)}% ·{fmtUsd(s.usd)}
               </span>
             </HBar>
           ))}

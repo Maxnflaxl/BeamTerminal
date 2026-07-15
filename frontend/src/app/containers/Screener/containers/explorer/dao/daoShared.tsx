@@ -1,7 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { styled } from '@linaria/react';
 import type { AreaData, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
 import { theme } from '../shared';
+import { Overlay, useEscapeClose } from '../../../components/modalChrome';
+import { fmtCompact } from '../../../components/format';
 import {
   createBeamChart,
   ChartWrap,
@@ -20,13 +22,7 @@ export function grothToBeamx(groth: string | number | null | undefined): number 
   return groth == null ? 0 : Number(groth) / 1e8;
 }
 
-export function fmtCompact(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1e9) return (n / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B';
-  if (abs >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
-  if (abs >= 1e3) return (n / 1e3).toFixed(1).replace(/\.?0+$/, '') + 'K';
-  return n.toFixed(abs > 0 && abs < 1 ? 2 : 0);
-}
+export { fmtCompact };
 
 export function fmtBeamx(groth: string | number | null | undefined): string {
   return `${fmtCompact(grothToBeamx(groth))} BEAMX`;
@@ -58,28 +54,6 @@ export const TallyBar: React.FC<{ tallies: ReadonlyArray<{ variant: number; pct:
     ))}
   </BarRoot>
 );
-
-export const Sparkline: React.FC<{ data: ReadonlyArray<number>; height?: number; color?: string }> = ({
-  data,
-  height = 48,
-  color = theme.color.accent,
-}) => {
-  if (data.length < 2) return null;
-  const w = 600;
-  const h = height;
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const pts = data.map((v, i) => [(i / (data.length - 1)) * w, h - ((v - min) / range) * (h - 4) - 2] as const);
-  const line = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-  const area = `${line} L${w},${h} L0,${h} Z`;
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
-      <path d={area} fill={color} opacity={0.15} />
-      <path d={line} fill="none" stroke={color} strokeWidth={1.5} />
-    </svg>
-  );
-};
 
 // "YYYY-MM-DD" (or "YYYY-MM") → unix-seconds at UTC midnight. lightweight-charts
 // wants a numeric UTCTimestamp; using a real timestamp (not an ordinal index)
@@ -238,18 +212,6 @@ export function outcomeLabel(status: string, outcome: string | null): string {
 // External link with a "you are leaving BeamTerminal" interstitial that shows
 // the full URL before opening it. Only http(s) is ever navigable (proposal
 // links are attacker-controlled); anything else renders as plain text.
-const ExtOverlay = styled.div`
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(2, 12, 24, 0.82);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 60;
-`;
 const ExtModal = styled.div`
   width: 90%;
   max-width: 440px;
@@ -286,7 +248,9 @@ const ExtActions = styled.div`
   display: flex;
   justify-content: flex-end;
   /* Owl margins, not gap — flex gap is unsupported in the wallet's Chrome 83. */
-  & > * + * { margin-left: 10px; }
+  & > * + * {
+    margin-left: 10px;
+  }
 `;
 const ExtCancel = styled.button`
   padding: 8px 16px;
@@ -325,6 +289,8 @@ export const ExternalLink: React.FC<{ href?: string; className?: string; childre
   children,
 }) => {
   const [open, setOpen] = useState(false);
+  const closeConfirm = useCallback(() => setOpen(false), []);
+  useEscapeClose(closeConfirm, open);
   if (!href || !/^https?:\/\//i.test(href)) return <>{children}</>;
   return (
     <>
@@ -339,7 +305,7 @@ export const ExternalLink: React.FC<{ href?: string; className?: string; childre
         {children}
       </a>
       {open && (
-        <ExtOverlay onClick={() => setOpen(false)}>
+        <Overlay z={60} backdrop="rgba(2, 12, 24, 0.82)" pad="0" onClick={closeConfirm}>
           <ExtModal onClick={(e) => e.stopPropagation()}>
             <ExtHead>You are leaving BeamTerminal</ExtHead>
             <ExtBody>
@@ -355,7 +321,7 @@ export const ExternalLink: React.FC<{ href?: string; className?: string; childre
               </ExtActions>
             </ExtBody>
           </ExtModal>
-        </ExtOverlay>
+        </Overlay>
       )}
     </>
   );

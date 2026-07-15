@@ -12,12 +12,7 @@ export function isInsideWallet(): boolean {
   const ua = navigator.userAgent || '';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const w = window as any;
-  return (
-    /QtWebEngine/i.test(ua)
-    || typeof w.qt !== 'undefined'
-    || !!w.BEAM
-    || /beam.*wallet/i.test(ua)
-  );
+  return /QtWebEngine/i.test(ua) || typeof w.qt !== 'undefined' || !!w.BEAM || /beam.*wallet/i.test(ua);
 }
 
 let connectPromise: Promise<boolean> | null = null;

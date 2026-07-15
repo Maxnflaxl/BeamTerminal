@@ -84,7 +84,7 @@ const InputAmountStyled = styled(InputGrayStyled)<{ pallete: string }>`
 
 const LabelStyled = styled.div<InputProps>`
   margin-top: 4px;
-  font-family: 'SFProDisplay', sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   font-style: italic;
   color: ${({ valid }) => (valid ? 'var(--color-gray)' : 'var(--color-red)')};
@@ -99,9 +99,7 @@ const menuEyeStyle = css`
 `;
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({
-    label, valid = true, variant = 'regular', margin = 'none', pallete, className, ...rest
-  }, ref) => {
+  ({ label, valid = true, variant = 'regular', margin = 'none', pallete, className, ...rest }, ref) => {
     const InputComponent = {
       regular: InputRegularStyled,
       gray: InputGrayStyled,

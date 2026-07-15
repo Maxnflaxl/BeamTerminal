@@ -1,10 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
-import { api, type ApiChartPoint, type ApiChartSeries, type ApiBlackholeBody, type ApiBlackholeSeries, type ChartRes } from '../api/client';
+import {
+  api,
+  type ApiChartPoint,
+  type ApiChartSeries,
+  type ApiBlackholeBody,
+  type ApiBlackholeSeries,
+  type ChartRes,
+} from '../api/client';
 import { SimpleChart } from '../components/SimpleChart';
+import { CenteredNote } from '../components/CenteredNote';
+import { Overlay, useEscapeClose } from '../components/modalChrome';
 import { ConfidentialAssetsChart } from '../components/ConfidentialAssetsChart';
-import { BlackholeChart, buildBlackholeColors, buildBlackholeLineStyles, LINE_STYLE_DASH } from '../components/BlackholeChart';
+import {
+  BlackholeChart,
+  buildBlackholeColors,
+  buildBlackholeLineStyles,
+  LINE_STYLE_DASH,
+} from '../components/BlackholeChart';
 import { downloadBlob, downloadSvgAsPng } from '../components/chart-compare/download';
 import { fmtHashrate } from './explorer/shared';
 import { LADDERS, MAX_POINTS, TILE_BUCKETS, type ZoomRes } from '../lib/zoomResolution';
@@ -14,25 +28,51 @@ import { LADDERS, MAX_POINTS, TILE_BUCKETS, type ZoomRes } from '../lib/zoomReso
 // whose LADDERS entry is daily-only) never leave the static `filterByTimeframe`
 // path — see `canZoom` in ExpandedChart.
 const RANGE_FETCHERS: Record<string, (a?: { res?: ZoomRes; from?: number; to?: number }) => Promise<ApiChartSeries>> = {
-  price: (a) => api.charts.price(a), tvl: (a) => api.charts.tvl(a), hashrate: (a) => api.charts.hashrate(a),
-  difficulty: (a) => api.charts.difficulty(a), blockTime: (a) => api.charts.blockTime(a), coinbase: (a) => api.charts.coinbase(a),
-  dexVolume: (a) => api.charts.dexVolume(a), assets: (a) => api.charts.assets(a),
-  transactionsDaily: (a) => api.charts.transactionsDaily(a), transactionsTotal: (a) => api.charts.transactionsTotal(a),
-  txosTotal: (a) => api.charts.txosTotal(a), utxosTotal: (a) => api.charts.utxosTotal(a),
-  sizeTotal: (a) => api.charts.sizeTotal(a), archiveTotal: (a) => api.charts.archiveTotal(a),
-  shieldedIns: (a) => api.charts.shieldedInsDaily(a), shieldedInsTotal: (a) => api.charts.shieldedInsTotal(a),
-  shieldedOuts: (a) => api.charts.shieldedOutsDaily(a), shieldedOutsTotal: (a) => api.charts.shieldedOutsTotal(a),
-  contractsTotal: (a) => api.charts.contractsTotal(a), feesDaily: (a) => api.charts.feesDaily(a),
-  feesTotal: (a) => api.charts.feesTotal(a), callsDaily: (a) => api.charts.contractCallsDaily(a),
+  price: (a) => api.charts.price(a),
+  tvl: (a) => api.charts.tvl(a),
+  hashrate: (a) => api.charts.hashrate(a),
+  difficulty: (a) => api.charts.difficulty(a),
+  blockTime: (a) => api.charts.blockTime(a),
+  coinbase: (a) => api.charts.coinbase(a),
+  dexVolume: (a) => api.charts.dexVolume(a),
+  assets: (a) => api.charts.assets(a),
+  transactionsDaily: (a) => api.charts.transactionsDaily(a),
+  transactionsTotal: (a) => api.charts.transactionsTotal(a),
+  txosTotal: (a) => api.charts.txosTotal(a),
+  utxosTotal: (a) => api.charts.utxosTotal(a),
+  sizeTotal: (a) => api.charts.sizeTotal(a),
+  archiveTotal: (a) => api.charts.archiveTotal(a),
+  shieldedIns: (a) => api.charts.shieldedInsDaily(a),
+  shieldedInsTotal: (a) => api.charts.shieldedInsTotal(a),
+  shieldedOuts: (a) => api.charts.shieldedOutsDaily(a),
+  shieldedOutsTotal: (a) => api.charts.shieldedOutsTotal(a),
+  contractsTotal: (a) => api.charts.contractsTotal(a),
+  feesDaily: (a) => api.charts.feesDaily(a),
+  feesTotal: (a) => api.charts.feesTotal(a),
+  callsDaily: (a) => api.charts.contractCallsDaily(a),
   callsTotal: (a) => api.charts.contractCallsTotal(a),
 };
 
 type Timeframe = '1D' | '1W' | '1M' | '3M' | 'YTD' | 'ALL';
 const TIMEFRAMES: ReadonlyArray<Timeframe> = ['1D', '1W', '1M', '3M', 'YTD', 'ALL'];
-const TIMEFRAME_DAYS: Record<Timeframe, number | null> = { '1D': 1, '1W': 7, '1M': 30, '3M': 90, YTD: -1, ALL: null };
+const TIMEFRAME_DAYS: Record<Timeframe, number | null> = {
+  '1D': 1,
+  '1W': 7,
+  '1M': 30,
+  '3M': 90,
+  YTD: -1,
+  ALL: null,
+};
 // Which server resolution each window pulls. Sub-daily windows use the bounded
 // hourly tier; longer windows use the full-history daily tier.
-const TIMEFRAME_RES: Record<Timeframe, ChartRes> = { '1D': '1h', '1W': '1h', '1M': '1h', '3M': '1d', YTD: '1d', ALL: '1d' };
+const TIMEFRAME_RES: Record<Timeframe, ChartRes> = {
+  '1D': '1h',
+  '1W': '1h',
+  '1M': '1h',
+  '3M': '1d',
+  YTD: '1d',
+  ALL: '1d',
+};
 
 function filterByTimeframe(series: ReadonlyArray<ApiChartPoint>, tf: Timeframe): ApiChartPoint[] {
   if (series.length === 0) return [];
@@ -76,9 +116,7 @@ function timeframeSpanSec(tf: Timeframe): number {
 // Intervals offered for a window: in the chart's ladder AND ≤ MAX_POINTS buckets,
 // with the coarsest ladder entry always allowed as a fallback.
 function validIntervals(spanSec: number, ladder: ZoomRes[]): ZoomRes[] {
-  const out = INTERVAL_ORDER.filter(
-    (iv) => ladder.includes(iv) && spanSec / INTERVAL_SEC[iv] <= MAX_POINTS,
-  );
+  const out = INTERVAL_ORDER.filter((iv) => ladder.includes(iv) && spanSec / INTERVAL_SEC[iv] <= MAX_POINTS);
   const coarsest = ladder[ladder.length - 1];
   if (coarsest && !out.includes(coarsest)) out.push(coarsest);
   return out;
@@ -99,11 +137,17 @@ function rangeBoundsFor(series: ReadonlyArray<ApiChartPoint>, tf: Timeframe): { 
 // Tile-align the visible window so mouse-zoom refetches share cache keys and the
 // key only changes when you cross a tile boundary (no refetch-per-pixel storm).
 // Clamped to the data's real [dataFrom, dataTo] — never epoch-0 (no 1970 axis).
-function alignFetchWindow(fromSec: number, toSec: number, res: ZoomRes, dataFrom: number, dataTo: number): { from: number; to: number } {
+function alignFetchWindow(
+  fromSec: number,
+  toSec: number,
+  res: ZoomRes,
+  dataFrom: number,
+  dataTo: number,
+): { from: number; to: number } {
   const tile = INTERVAL_SEC[res] * TILE_BUCKETS;
   const lo = Math.floor(dataFrom / tile) * tile;
   const hi = Math.ceil(dataTo / tile) * tile;
-  let from = Math.max(lo, Math.floor(fromSec / tile) * tile);
+  const from = Math.max(lo, Math.floor(fromSec / tile) * tile);
   let to = Math.min(hi, Math.ceil(toSec / tile) * tile);
   if (to <= from) to = from + tile;
   return { from: Math.max(0, from), to };
@@ -114,7 +158,12 @@ function alignFetchWindow(fromSec: number, toSec: number, res: ZoomRes, dataFrom
 // has full-range coverage (daily everywhere, fine where you're zoomed) — so
 // panning never hits whitespace, zoom-out instantly shows the daily base, and an
 // in-flight refetch never blanks the view.
-function mergeWindow(base: ReadonlyArray<ApiChartPoint>, fine: ReadonlyArray<ApiChartPoint>, from: number, to: number): ApiChartPoint[] {
+function mergeWindow(
+  base: ReadonlyArray<ApiChartPoint>,
+  fine: ReadonlyArray<ApiChartPoint>,
+  from: number,
+  to: number,
+): ApiChartPoint[] {
   if (fine.length === 0) return base.slice();
   const out: ApiChartPoint[] = [];
   for (const p of base) if (p.ts < from || p.ts > to) out.push(p);
@@ -128,10 +177,7 @@ function mergeWindow(base: ReadonlyArray<ApiChartPoint>, fine: ReadonlyArray<Api
 // asset's pre-window balance forward to a synthetic point at the cutoff — so the
 // (cumulative) lines start at their real level instead of mid-air, and assets
 // with no in-window deposit still show their flat balance.
-function filterBlackholeByTimeframe(
-  series: ReadonlyArray<ApiBlackholeSeries>,
-  tf: Timeframe,
-): ApiBlackholeSeries[] {
+function filterBlackholeByTimeframe(series: ReadonlyArray<ApiBlackholeSeries>, tf: Timeframe): ApiBlackholeSeries[] {
   if (tf === 'ALL' || series.length === 0) return series.map((s) => ({ ...s, points: s.points.slice() }));
   let lastTs = 0;
   for (const s of series) {
@@ -154,7 +200,11 @@ function filterBlackholeByTimeframe(
     .filter((s) => s.points.length > 0);
 }
 
-interface FetchState<T> { data: T | null; loading: boolean; error: string | null }
+interface FetchState<T> {
+  data: T | null;
+  loading: boolean;
+  error: string | null;
+}
 
 function useOneShot<T>(fetcher: () => Promise<T>, enabled = true): FetchState<T> {
   const [state, setState] = useState<FetchState<T>>({ data: null, loading: enabled, error: null });
@@ -165,12 +215,16 @@ function useOneShot<T>(fetcher: () => Promise<T>, enabled = true): FetchState<T>
     let cancelled = false;
     setState((s) => ({ ...s, loading: true }));
     fetcher()
-      .then((data) => { if (!cancelled) setState({ data, loading: false, error: null }); })
+      .then((data) => {
+        if (!cancelled) setState({ data, loading: false, error: null });
+      })
       .catch((err: unknown) => {
         if (cancelled) return;
         setState({ data: null, loading: false, error: err instanceof Error ? err.message : String(err) });
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // Fetch once, on mount or the first time `enabled` flips true. Fetcher
     // identity intentionally ignored (endpoints are server-cached).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,20 +239,35 @@ function useOneShot<T>(fetcher: () => Promise<T>, enabled = true): FetchState<T>
 // chart's key = chartKey:timeframe:interval). Unlike useOneShot (fetch-once),
 // this re-runs on key change and keeps the prior data visible during the
 // refetch so switching interval/timeframe doesn't flash "Loading…".
-function useKeyedSeries(fetcher: () => Promise<ApiChartSeries>, key: string, enabled: boolean): FetchState<ApiChartSeries> {
+function useKeyedSeries(
+  fetcher: () => Promise<ApiChartSeries>,
+  key: string,
+  enabled: boolean,
+): FetchState<ApiChartSeries> {
   const [state, setState] = useState<FetchState<ApiChartSeries>>({ data: null, loading: enabled, error: null });
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   useEffect(() => {
-    if (!enabled) { setState({ data: null, loading: false, error: null }); return undefined; }
+    if (!enabled) {
+      setState({ data: null, loading: false, error: null });
+      return undefined;
+    }
     let cancelled = false;
     setState((s) => ({ data: s.data, loading: true, error: null }));
-    fetcherRef.current()
-      .then((d) => { if (!cancelled) setState({ data: d, loading: false, error: null }); })
+    fetcherRef
+      .current()
+      .then((d) => {
+        if (!cancelled) setState({ data: d, loading: false, error: null });
+      })
       // Keep the last-good data on a failed refetch (transient network blip on a
       // zoom) so the chart shows stale data instead of blanking to an error.
-      .catch((e: unknown) => { if (!cancelled) setState((s) => ({ data: s.data, loading: false, error: e instanceof Error ? e.message : String(e) })); });
-    return () => { cancelled = true; };
+      .catch((e: unknown) => {
+        if (!cancelled)
+          setState((s) => ({ data: s.data, loading: false, error: e instanceof Error ? e.message : String(e) }));
+      });
+    return () => {
+      cancelled = true;
+    };
     // Refetch only when the key or enabled flag changes; fetcher is read via ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
@@ -228,8 +297,8 @@ function withZeroBaseline(state: FetchState<ApiChartSeries>): FetchState<ApiChar
 type Category = 'blockchain' | 'lelantus' | 'defi';
 const CATEGORIES: ReadonlyArray<{ key: Category; label: string }> = [
   { key: 'blockchain', label: 'Blockchain' },
-  { key: 'lelantus',   label: 'Lelantus' },
-  { key: 'defi',       label: 'DeFi' },
+  { key: 'lelantus', label: 'Lelantus' },
+  { key: 'defi', label: 'DeFi' },
 ];
 
 const Page = styled.div`
@@ -241,21 +310,27 @@ const Page = styled.div`
 
 const CategoryBar = styled.div`
   display: flex;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
 `;
 
 const Toolbar = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
   margin-bottom: 12px;
   flex-wrap: wrap;
 `;
 
 const TimeframeGroup = styled.div`
   display: flex;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
 `;
 
 const TfButton = styled.button<{ active?: boolean }>`
@@ -264,7 +339,7 @@ const TfButton = styled.button<{ active?: boolean }>`
   border: 1px solid ${(p) => (p.active ? 'rgba(0, 246, 210, 0.5)' : 'rgba(255, 255, 255, 0.12)')};
   border-radius: 6px;
   padding: 4px 10px;
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
   transition: background 120ms, color 120ms, border-color 120ms;
@@ -290,7 +365,9 @@ const IntervalGroup = styled.div`
   padding-right: 12px;
   margin-right: 4px;
   border-right: 1px solid rgba(255, 255, 255, 0.12);
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
 `;
 
 const Grid = styled.div`
@@ -320,14 +397,16 @@ const CellHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   padding: 0 2px 6px;
   margin-bottom: 2px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 `;
 
 const CellTitle = styled.div`
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
   white-space: nowrap;
@@ -338,7 +417,9 @@ const CellTitle = styled.div`
 const CellActions = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   flex-shrink: 0;
 `;
 
@@ -379,7 +460,7 @@ const ScaleToggle = styled.button<{ active?: boolean }>`
   color: ${(p) => (p.active ? '#00f6d2' : 'rgba(255, 255, 255, 0.6)')};
   border: 1px solid ${(p) => (p.active ? 'rgba(0, 246, 210, 0.5)' : 'rgba(255, 255, 255, 0.12)')};
   border-radius: 4px;
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   cursor: pointer;
   transition: color 120ms, border-color 120ms, background 120ms;
@@ -391,27 +472,22 @@ const ScaleToggle = styled.button<{ active?: boolean }>`
 `;
 
 const ExpandIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="7 1 11 1 11 5" />
     <polyline points="5 11 1 11 1 7" />
     <line x1="11" y1="1" x2="7" y2="5" />
     <line x1="1" y1="11" x2="5" y2="7" />
   </svg>
 );
-
-const ModalBackdrop = styled.div`
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(0, 0, 0, 0.65);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  padding: 24px;
-`;
 
 const ModalContent = styled.div`
   background: #042548;
@@ -431,7 +507,9 @@ const ModalToolbar = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
   margin-bottom: 12px;
   padding-right: 36px;
   flex-wrap: wrap;
@@ -439,7 +517,9 @@ const ModalToolbar = styled.div`
 
 const ModalActionGroup = styled.div`
   display: flex;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
 `;
 
 const ModalBody = styled.div`
@@ -474,24 +554,17 @@ const CloseButton = styled.button`
   }
 `;
 
-const Loading = styled.div`
-  color: rgba(255, 255, 255, 0.5);
-  text-align: center;
-  padding: 80px 0;
-  font-size: 13px;
-`;
-
 function fmtUsd(v: number): string {
   if (!Number.isFinite(v)) return '';
-  if (v >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
-  if (v >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
-  if (v >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'k';
-  return '$' + v.toFixed(2);
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
+  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}k`;
+  return `$${v.toFixed(2)}`;
 }
 
 function fmtBlockTime(v: number): string {
   if (!Number.isFinite(v)) return '';
-  return v.toFixed(1) + 's';
+  return `${v.toFixed(1)}s`;
 }
 
 function fmtBeam(v: number): string {
@@ -499,26 +572,26 @@ function fmtBeam(v: number): string {
   const beam = v / 1e8;
   if (!Number.isFinite(beam)) return '';
   const abs = Math.abs(beam);
-  if (abs >= 1e9) return (beam / 1e9).toFixed(2) + 'B BEAM';
-  if (abs >= 1e6) return (beam / 1e6).toFixed(2) + 'M BEAM';
-  if (abs >= 1e3) return (beam / 1e3).toFixed(2) + 'k BEAM';
-  if (abs >= 1)   return beam.toFixed(2)         + ' BEAM';
-  return beam.toFixed(4) + ' BEAM';
+  if (abs >= 1e9) return `${(beam / 1e9).toFixed(2)}B BEAM`;
+  if (abs >= 1e6) return `${(beam / 1e6).toFixed(2)}M BEAM`;
+  if (abs >= 1e3) return `${(beam / 1e3).toFixed(2)}k BEAM`;
+  if (abs >= 1) return `${beam.toFixed(2)} BEAM`;
+  return `${beam.toFixed(4)} BEAM`;
 }
 
 function fmtDifficulty(v: number): string {
   if (!Number.isFinite(v)) return '';
   const abs = Math.abs(v);
-  if (abs >= 1e12) return (v / 1e12).toFixed(2) + 'T';
-  if (abs >= 1e9)  return (v / 1e9).toFixed(2)  + 'G';
-  if (abs >= 1e6)  return (v / 1e6).toFixed(2)  + 'M';
-  if (abs >= 1e3)  return (v / 1e3).toFixed(2)  + 'K';
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}G`;
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}K`;
   return v.toFixed(0);
 }
 
 function fmtInt(v: number): string {
-  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
   return v.toFixed(0);
 }
 
@@ -527,7 +600,10 @@ function fmtBytes(v: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   let n = v;
   let i = 0;
-  while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i += 1;
+  }
   // 0 decimals for raw bytes; 2 for KB+ so GB-scale charts show real variation
   // (1 decimal rounds everything to the same 30.7/30.8/30.9 GB).
   return `${n.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
@@ -535,7 +611,7 @@ function fmtBytes(v: number): string {
 
 function fmtVol(v: number): string {
   if (!Number.isFinite(v)) return '';
-  return v.toFixed(v >= 100 ? 0 : 1) + '%';
+  return `${v.toFixed(v >= 100 ? 0 : 1)}%`;
 }
 
 // Native token units (no currency symbol) for the Black Hole chart axis/tooltip.
@@ -544,10 +620,10 @@ function fmtVol(v: number): string {
 function fmtNative(v: number): string {
   if (!Number.isFinite(v)) return '';
   const abs = Math.abs(v);
-  if (abs >= 1e12) return (v / 1e12).toFixed(2) + 'T';
-  if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-  if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-  if (abs >= 1e3) return (v / 1e3).toFixed(2) + 'k';
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}k`;
   if (abs >= 1) return v.toFixed(2);
   if (abs > 0) return v.toPrecision(3);
   return '0';
@@ -558,7 +634,7 @@ function toCsv(series: ReadonlyArray<ApiChartPoint>, title: string): string {
   for (const p of series) {
     lines.push(`${new Date(p.ts * 1000).toISOString()},${p.ts},${p.value}`);
   }
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -577,11 +653,18 @@ function toSvg(
 ): string {
   const W = 720;
   const H = 360;
-  const pad = { l: 64, r: 16, t: 32, b: 32 };
+  const pad = {
+    l: 64,
+    r: 16,
+    t: 32,
+    b: 32,
+  };
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
   if (series.length === 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#888" font-family="sans-serif">${escapeXml(emptyLabel ?? 'No data')}</text></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${
+      H / 2
+    }" text-anchor="middle" fill="#888" font-family="sans-serif">${escapeXml(emptyLabel ?? 'No data')}</text></svg>`;
   }
   const xs = series.map((p) => p.ts);
   const ys = series.map((p) => p.value * scale);
@@ -623,7 +706,7 @@ function toSvg(
     ...xGrid,
     `<rect x="${pad.l}" y="${pad.t}" width="${innerW}" height="${innerH}" fill="none" stroke="rgba(255,255,255,0.1)"/>`,
     `<path d="${path}" fill="none" stroke="#00f6d2" stroke-width="2"/>`,
-    `</svg>`,
+    '</svg>',
   ].join('');
 }
 
@@ -640,7 +723,7 @@ function blackholeCsv(series: ReadonlyArray<ApiBlackholeSeries>, title: string):
       lines.push(`${new Date(p.ts * 1000).toISOString()},${p.ts},${s.aid},${csvField(s.label)},${p.value}`);
     }
   }
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 // Multi-line SVG export. Honours the log toggle (all balances are > 0 so a
@@ -655,14 +738,21 @@ function blackholeSvg(
 ): string {
   const W = 720;
   const H = 380;
-  const pad = { l: 64, r: 16, t: 56, b: 32 };
+  const pad = {
+    l: 64,
+    r: 16,
+    t: 56,
+    b: 32,
+  };
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
   const colors = buildBlackholeColors(series);
   const styles = buildBlackholeLineStyles(series);
   const allPts = series.flatMap((s) => s.points);
   if (allPts.length === 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#888" font-family="sans-serif">${escapeXml(emptyLabel ?? 'No data')}</text></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${
+      H / 2
+    }" text-anchor="middle" fill="#888" font-family="sans-serif">${escapeXml(emptyLabel ?? 'No data')}</text></svg>`;
   }
   const xMin = Math.min(...allPts.map((p) => p.ts));
   const xMax = Math.max(...allPts.map((p) => p.ts));
@@ -683,7 +773,9 @@ function blackholeSvg(
     const y = (pad.t + innerH - ((tv - yMin) / yRange) * innerH).toFixed(1);
     return (
       `<line x1="${pad.l}" y1="${y}" x2="${pad.l + innerW}" y2="${y}" stroke="${grid}"/>` +
-      `<text x="${pad.l - 6}" y="${Number(y) + 3}" text-anchor="end" fill="${label}">${escapeXml(formatter(realV))}</text>`
+      `<text x="${pad.l - 6}" y="${Number(y) + 3}" text-anchor="end" fill="${label}">${escapeXml(
+        formatter(realV),
+      )}</text>`
     );
   });
   const xGrid = axisTicks(xMin, xMax, 5).map((t, i, arr) => {
@@ -710,25 +802,31 @@ function blackholeSvg(
   for (const s of series) {
     const text = `${s.label} #${s.aid}`;
     const w = 18 + text.length * 6.2;
-    if (lx + w > W - pad.r) { lx = pad.l; ly += 14; }
+    if (lx + w > W - pad.r) {
+      lx = pad.l;
+      ly += 14;
+    }
     const dash = LINE_STYLE_DASH[styles.get(s.aid) ?? 'solid'];
     const dashAttr = dash ? ` stroke-dasharray="${dash}"` : '';
     legend.push(
-      `<line x1="${lx}" y1="${ly - 3}" x2="${lx + 12}" y2="${ly - 3}" stroke="${colors.get(s.aid)}" stroke-width="2"${dashAttr}/>` +
-      `<text x="${lx + 16}" y="${ly}" fill="${label}">${escapeXml(text)}</text>`,
+      `<line x1="${lx}" y1="${ly - 3}" x2="${lx + 12}" y2="${ly - 3}" stroke="${colors.get(
+        s.aid,
+      )}" stroke-width="2"${dashAttr}/><text x="${lx + 16}" y="${ly}" fill="${label}">${escapeXml(text)}</text>`,
     );
     lx += w;
   }
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="sans-serif" font-size="11">`,
     `<rect width="${W}" height="${H}" fill="#042548"/>`,
-    `<text x="${pad.l}" y="20" fill="rgba(255,255,255,0.7)" font-size="13">${escapeXml(title)}${useLog ? ' (log)' : ''}</text>`,
+    `<text x="${pad.l}" y="20" fill="rgba(255,255,255,0.7)" font-size="13">${escapeXml(title)}${
+      useLog ? ' (log)' : ''
+    }</text>`,
     ...legend,
     ...yGrid,
     ...xGrid,
     `<rect x="${pad.l}" y="${pad.t}" width="${innerW}" height="${innerH}" fill="none" stroke="rgba(255,255,255,0.1)"/>`,
     ...paths,
-    `</svg>`,
+    '</svg>',
   ].join('');
 }
 
@@ -740,6 +838,9 @@ interface ChartCellProps {
   formatter?: (v: number) => string;
   logScale?: boolean;
   chartKey?: string;
+  // Consumed by ExpandedChart (via Omit<ChartCellProps, 'onExpand'>); the grid
+  // cell ignores it because markers only render at modal size.
+  // eslint-disable-next-line react/no-unused-prop-types
   hideAmml?: boolean;
   /** Message shown when the series has no points (defaults to "No data"). */
   emptyLabel?: string;
@@ -769,8 +870,19 @@ const InnerChart: React.FC<{
   onVisibleRangeChange?: (fromSec: number, toSec: number) => void;
   presetWindow?: { from: number; to: number; nonce: number };
 }> = ({
-  chartKey, expanded, series, title, scale, formatter, logScale, hideAmml, overlaySeries, overlayLabel,
-  interactive, onVisibleRangeChange, presetWindow,
+  chartKey,
+  expanded,
+  series,
+  title,
+  scale,
+  formatter,
+  logScale,
+  hideAmml,
+  overlaySeries,
+  overlayLabel,
+  interactive,
+  onVisibleRangeChange,
+  presetWindow,
 }) => {
   if (chartKey === 'assets') {
     return (
@@ -859,9 +971,18 @@ const ChartShell: React.FC<{
   );
 };
 
-const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
-  { state, title, timeframe, scale, formatter, logScale, chartKey, emptyLabel, onExpand, onToggleLog },
-) => {
+const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = ({
+  state,
+  title,
+  timeframe,
+  scale,
+  formatter,
+  logScale,
+  chartKey,
+  emptyLabel,
+  onExpand,
+  onToggleLog,
+}) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
@@ -869,9 +990,18 @@ const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = (
   return (
     <ChartShell title={title} logScale={logScale} onExpand={onExpand} onToggleLog={onToggleLog}>
       {filtered && filtered.length > 0 ? (
-        <InnerChart chartKey={chartKey} series={filtered} title="" scale={scale} formatter={formatter} logScale={logScale} />
+        <InnerChart
+          chartKey={chartKey}
+          series={filtered}
+          title=""
+          scale={scale}
+          formatter={formatter}
+          logScale={logScale}
+        />
       ) : (
-        <Loading>{state.error ?? (state.loading ? 'Loading…' : (emptyLabel ?? 'No data'))}</Loading>
+        <CenteredNote pad="80px 0" size={13}>
+          {state.error ?? (state.loading ? 'Loading…' : emptyLabel ?? 'No data')}
+        </CenteredNote>
       )}
     </ChartShell>
   );
@@ -897,7 +1027,9 @@ const BlackholeCell: React.FC<{
       {filtered && filtered.length > 0 ? (
         <BlackholeChart series={filtered} logScale={logScale} formatter={formatter} />
       ) : (
-        <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>
+        <CenteredNote pad="80px 0" size={13}>
+          {state.error ?? (state.loading ? 'Loading…' : 'No data')}
+        </CenteredNote>
       )}
     </ChartShell>
   );
@@ -929,22 +1061,54 @@ export const NetworkCharts: React.FC = () => {
   // in, finer buckets become available. null = not yet reported (use timeframe).
   const [viewSpan, setViewSpan] = useState<number | null>(null);
 
-  const hashrate   = useTiered(() => api.charts.hashrate(), () => api.charts.hashrate({ res: '1h' }), res);
-  const difficulty = useTiered(() => api.charts.difficulty(), () => api.charts.difficulty({ res: '1h' }), res);
-  const blockTime  = useTiered(() => api.charts.blockTime(), () => api.charts.blockTime({ res: '1h' }), res);
-  const coinbase   = useTiered(() => api.charts.coinbase(), () => api.charts.coinbase({ res: '1h' }), res);
-  const tvl        = useTiered(() => api.charts.tvl(), () => api.charts.tvl({ res: '1h' }), res);
-  const price      = useTiered(() => api.charts.price(), () => api.charts.price({ res: '1h' }), res);
-  const dexVolume  = useTiered(() => api.charts.dexVolume(), () => api.charts.dexVolume({ res: '1h' }), res);
-  const beamVol    = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
-  const dexVol     = useOneShot<ApiChartSeries>(() => api.charts.dexVol());
+  const hashrate = useTiered(
+    () => api.charts.hashrate(),
+    () => api.charts.hashrate({ res: '1h' }),
+    res,
+  );
+  const difficulty = useTiered(
+    () => api.charts.difficulty(),
+    () => api.charts.difficulty({ res: '1h' }),
+    res,
+  );
+  const blockTime = useTiered(
+    () => api.charts.blockTime(),
+    () => api.charts.blockTime({ res: '1h' }),
+    res,
+  );
+  const coinbase = useTiered(
+    () => api.charts.coinbase(),
+    () => api.charts.coinbase({ res: '1h' }),
+    res,
+  );
+  const tvl = useTiered(
+    () => api.charts.tvl(),
+    () => api.charts.tvl({ res: '1h' }),
+    res,
+  );
+  const price = useTiered(
+    () => api.charts.price(),
+    () => api.charts.price({ res: '1h' }),
+    res,
+  );
+  const dexVolume = useTiered(
+    () => api.charts.dexVolume(),
+    () => api.charts.dexVolume({ res: '1h' }),
+    res,
+  );
+  const beamVol = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
+  const dexVol = useOneShot<ApiChartSeries>(() => api.charts.dexVol());
   const poolsCreatedRaw = useOneShot<ApiChartSeries>(() => api.charts.poolsCreated());
-  const poolsClosedRaw  = useOneShot<ApiChartSeries>(() => api.charts.poolsClosed());
+  const poolsClosedRaw = useOneShot<ApiChartSeries>(() => api.charts.poolsClosed());
   // Start the cumulative pool-count charts at 0 rather than their first day's total.
-  const poolsCreated = useMemo(() => withZeroBaseline(poolsCreatedRaw),
-    [poolsCreatedRaw.data, poolsCreatedRaw.loading, poolsCreatedRaw.error]);
-  const poolsClosed  = useMemo(() => withZeroBaseline(poolsClosedRaw),
-    [poolsClosedRaw.data, poolsClosedRaw.loading, poolsClosedRaw.error]);
+  const poolsCreated = useMemo(
+    () => withZeroBaseline(poolsCreatedRaw),
+    [poolsCreatedRaw.data, poolsCreatedRaw.loading, poolsCreatedRaw.error],
+  );
+  const poolsClosed = useMemo(
+    () => withZeroBaseline(poolsClosedRaw),
+    [poolsClosedRaw.data, poolsClosedRaw.loading, poolsClosedRaw.error],
+  );
 
   // DEX volume (total) is an all-time cumulative — it can only come from the
   // daily tier (the hourly tier is a bounded trailing-24h window). Derive its
@@ -962,28 +1126,95 @@ export const NetworkCharts: React.FC = () => {
     return { data: { series }, loading: false, error: null };
   }, [dexVolumeDaily.data, dexVolumeDaily.loading, dexVolumeDaily.error]);
 
-  const assets             = useTiered(() => api.charts.assets(), () => api.charts.assets({ res: '1h' }), res);
-  const transactionsDaily  = useTiered(() => api.charts.transactionsDaily(), () => api.charts.transactionsDaily({ res: '1h' }), res);
-  const transactionsTotal  = useTiered(() => api.charts.transactionsTotal(), () => api.charts.transactionsTotal({ res: '1h' }), res);
-  const txosTotal          = useTiered(() => api.charts.txosTotal(), () => api.charts.txosTotal({ res: '1h' }), res);
-  const utxosTotal         = useTiered(() => api.charts.utxosTotal(), () => api.charts.utxosTotal({ res: '1h' }), res);
-  const shieldedInsDaily   = useTiered(() => api.charts.shieldedInsDaily(), () => api.charts.shieldedInsDaily({ res: '1h' }), res);
-  const shieldedInsTotal   = useTiered(() => api.charts.shieldedInsTotal(), () => api.charts.shieldedInsTotal({ res: '1h' }), res);
-  const shieldedOutsDaily  = useTiered(() => api.charts.shieldedOutsDaily(), () => api.charts.shieldedOutsDaily({ res: '1h' }), res);
-  const shieldedOutsTotal  = useTiered(() => api.charts.shieldedOutsTotal(), () => api.charts.shieldedOutsTotal({ res: '1h' }), res);
-  const contractsTotal     = useTiered(() => api.charts.contractsTotal(), () => api.charts.contractsTotal({ res: '1h' }), res);
-  const sizeTotal          = useTiered(() => api.charts.sizeTotal(), () => api.charts.sizeTotal({ res: '1h' }), res);
-  const archiveTotal       = useTiered(() => api.charts.archiveTotal(), () => api.charts.archiveTotal({ res: '1h' }), res);
-  const feesDaily          = useTiered(() => api.charts.feesDaily(), () => api.charts.feesDaily({ res: '1h' }), res);
-  const feesTotal          = useTiered(() => api.charts.feesTotal(), () => api.charts.feesTotal({ res: '1h' }), res);
-  const contractCallsDaily = useTiered(() => api.charts.contractCallsDaily(), () => api.charts.contractCallsDaily({ res: '1h' }), res);
-  const contractCallsTotal = useTiered(() => api.charts.contractCallsTotal(), () => api.charts.contractCallsTotal({ res: '1h' }), res);
-  const blackhole          = useOneShot<ApiBlackholeBody>(() => api.charts.blackhole());
+  const assets = useTiered(
+    () => api.charts.assets(),
+    () => api.charts.assets({ res: '1h' }),
+    res,
+  );
+  const transactionsDaily = useTiered(
+    () => api.charts.transactionsDaily(),
+    () => api.charts.transactionsDaily({ res: '1h' }),
+    res,
+  );
+  const transactionsTotal = useTiered(
+    () => api.charts.transactionsTotal(),
+    () => api.charts.transactionsTotal({ res: '1h' }),
+    res,
+  );
+  const txosTotal = useTiered(
+    () => api.charts.txosTotal(),
+    () => api.charts.txosTotal({ res: '1h' }),
+    res,
+  );
+  const utxosTotal = useTiered(
+    () => api.charts.utxosTotal(),
+    () => api.charts.utxosTotal({ res: '1h' }),
+    res,
+  );
+  const shieldedInsDaily = useTiered(
+    () => api.charts.shieldedInsDaily(),
+    () => api.charts.shieldedInsDaily({ res: '1h' }),
+    res,
+  );
+  const shieldedInsTotal = useTiered(
+    () => api.charts.shieldedInsTotal(),
+    () => api.charts.shieldedInsTotal({ res: '1h' }),
+    res,
+  );
+  const shieldedOutsDaily = useTiered(
+    () => api.charts.shieldedOutsDaily(),
+    () => api.charts.shieldedOutsDaily({ res: '1h' }),
+    res,
+  );
+  const shieldedOutsTotal = useTiered(
+    () => api.charts.shieldedOutsTotal(),
+    () => api.charts.shieldedOutsTotal({ res: '1h' }),
+    res,
+  );
+  const contractsTotal = useTiered(
+    () => api.charts.contractsTotal(),
+    () => api.charts.contractsTotal({ res: '1h' }),
+    res,
+  );
+  const sizeTotal = useTiered(
+    () => api.charts.sizeTotal(),
+    () => api.charts.sizeTotal({ res: '1h' }),
+    res,
+  );
+  const archiveTotal = useTiered(
+    () => api.charts.archiveTotal(),
+    () => api.charts.archiveTotal({ res: '1h' }),
+    res,
+  );
+  const feesDaily = useTiered(
+    () => api.charts.feesDaily(),
+    () => api.charts.feesDaily({ res: '1h' }),
+    res,
+  );
+  const feesTotal = useTiered(
+    () => api.charts.feesTotal(),
+    () => api.charts.feesTotal({ res: '1h' }),
+    res,
+  );
+  const contractCallsDaily = useTiered(
+    () => api.charts.contractCallsDaily(),
+    () => api.charts.contractCallsDaily({ res: '1h' }),
+    res,
+  );
+  const contractCallsTotal = useTiered(
+    () => api.charts.contractCallsTotal(),
+    () => api.charts.contractCallsTotal({ res: '1h' }),
+    res,
+  );
+  const blackhole = useOneShot<ApiBlackholeBody>(() => api.charts.blackhole());
 
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   // Interval resets to 'auto' (and the reported visible span clears) when the
   // timeframe changes or a different chart is expanded.
-  useEffect(() => { setChartInterval('auto'); setViewSpan(null); }, [expandedKey, timeframe]);
+  useEffect(() => {
+    setChartInterval('auto');
+    setViewSpan(null);
+  }, [expandedKey, timeframe]);
   const [searchParams, setSearchParams] = useSearchParams();
   // Deep-link from the global search bar: /explorer/charts?chart=<key> opens
   // that chart's extended (expanded) view. An unknown key is a harmless no-op
@@ -1011,8 +1242,7 @@ export const NetworkCharts: React.FC = () => {
   // Black Hole balances span ~8 orders of magnitude (0.01 → ~1e9) across
   // assets, so it opens on a log Y axis; everything else defaults to linear.
   const [logPerKey, setLogPerKey] = useState<Record<string, boolean>>({ blackhole: true });
-  const toggleLog = (k: string): void =>
-    setLogPerKey((m) => ({ ...m, [k]: !m[k] }));
+  const toggleLog = (k: string): void => setLogPerKey((m) => ({ ...m, [k]: !m[k] }));
 
   // Ordered so each "… / day" chart sits immediately before its "… (total)"
   // twin — the 2-column auto-flow Grid then renders them side-by-side on one
@@ -1020,38 +1250,208 @@ export const NetworkCharts: React.FC = () => {
   // twin are listed after the pairs so they fall below in each category.
   const allCharts: ReadonlyArray<ChartSpec & { category: Category }> = [
     // Blockchain — day/total pairs
-    { key: 'transactionsDaily',title: 'Transactions / day',      state: transactionsDaily,  formatter: fmtInt,        category: 'blockchain', overlay: { state: coinbase, label: 'Coinbase' } },
-    { key: 'transactionsTotal',title: 'Transactions (total)',    state: transactionsTotal,  formatter: fmtInt,        category: 'blockchain' },
-    { key: 'feesDaily',        title: 'Fees / day',              state: feesDaily,          formatter: fmtBeam,       category: 'blockchain' },
-    { key: 'feesTotal',        title: 'Fees (total)',            state: feesTotal,          formatter: fmtBeam,       category: 'blockchain' },
-    { key: 'callsDaily',       title: 'Contract calls / day',    state: contractCallsDaily, formatter: fmtInt,        category: 'blockchain' },
-    { key: 'callsTotal',       title: 'Contract calls (total)',  state: contractCallsTotal, formatter: fmtInt,        category: 'blockchain' },
+    {
+      key: 'transactionsDaily',
+      title: 'Transactions / day',
+      state: transactionsDaily,
+      formatter: fmtInt,
+      category: 'blockchain',
+      overlay: { state: coinbase, label: 'Coinbase' },
+    },
+    {
+      key: 'transactionsTotal',
+      title: 'Transactions (total)',
+      state: transactionsTotal,
+      formatter: fmtInt,
+      category: 'blockchain',
+    },
+    {
+      key: 'feesDaily',
+      title: 'Fees / day',
+      state: feesDaily,
+      formatter: fmtBeam,
+      category: 'blockchain',
+    },
+    {
+      key: 'feesTotal',
+      title: 'Fees (total)',
+      state: feesTotal,
+      formatter: fmtBeam,
+      category: 'blockchain',
+    },
+    {
+      key: 'callsDaily',
+      title: 'Contract calls / day',
+      state: contractCallsDaily,
+      formatter: fmtInt,
+      category: 'blockchain',
+    },
+    {
+      key: 'callsTotal',
+      title: 'Contract calls (total)',
+      state: contractCallsTotal,
+      formatter: fmtInt,
+      category: 'blockchain',
+    },
     // Blockchain — standalone
-    { key: 'hashrate',         title: 'Hashrate (Beamhash III)', state: hashrate,           formatter: fmtHashrate,   category: 'blockchain' },
-    { key: 'difficulty',       title: 'Difficulty',              state: difficulty,         formatter: fmtDifficulty, category: 'blockchain' },
-    { key: 'blockTime',        title: 'Avg block time',          state: blockTime,          formatter: fmtBlockTime,  category: 'blockchain' },
-    { key: 'txosTotal',        title: 'TXOs (total)',            state: txosTotal,          formatter: fmtInt,        category: 'blockchain' },
-    { key: 'utxosTotal',       title: 'UTXOs',                   state: utxosTotal,         formatter: fmtInt,        category: 'blockchain' },
-    { key: 'contractsTotal',   title: 'Contracts active',        state: contractsTotal,     formatter: fmtInt,        category: 'blockchain' },
-    { key: 'sizeTotal',        title: 'Total blockchain size',   state: sizeTotal,          formatter: fmtBytes,      category: 'blockchain' },
-    { key: 'archiveTotal',     title: 'Total archive size',      state: archiveTotal,       formatter: fmtBytes,      category: 'blockchain' },
-    { key: 'assets',           title: 'Confidential Assets',     state: assets,             formatter: fmtInt,        category: 'blockchain' },
+    {
+      key: 'hashrate',
+      title: 'Hashrate (Beamhash III)',
+      state: hashrate,
+      formatter: fmtHashrate,
+      category: 'blockchain',
+    },
+    {
+      key: 'difficulty',
+      title: 'Difficulty',
+      state: difficulty,
+      formatter: fmtDifficulty,
+      category: 'blockchain',
+    },
+    {
+      key: 'blockTime',
+      title: 'Avg block time',
+      state: blockTime,
+      formatter: fmtBlockTime,
+      category: 'blockchain',
+    },
+    {
+      key: 'txosTotal',
+      title: 'TXOs (total)',
+      state: txosTotal,
+      formatter: fmtInt,
+      category: 'blockchain',
+    },
+    {
+      key: 'utxosTotal',
+      title: 'UTXOs',
+      state: utxosTotal,
+      formatter: fmtInt,
+      category: 'blockchain',
+    },
+    {
+      key: 'contractsTotal',
+      title: 'Contracts active',
+      state: contractsTotal,
+      formatter: fmtInt,
+      category: 'blockchain',
+    },
+    {
+      key: 'sizeTotal',
+      title: 'Total blockchain size',
+      state: sizeTotal,
+      formatter: fmtBytes,
+      category: 'blockchain',
+    },
+    {
+      key: 'archiveTotal',
+      title: 'Total archive size',
+      state: archiveTotal,
+      formatter: fmtBytes,
+      category: 'blockchain',
+    },
+    {
+      key: 'assets',
+      title: 'Confidential Assets',
+      state: assets,
+      formatter: fmtInt,
+      category: 'blockchain',
+    },
     // Lelantus — day/total pairs
-    { key: 'shieldedIns',       title: 'Shielded inputs / day',  state: shieldedInsDaily,   formatter: fmtInt,        category: 'lelantus' },
-    { key: 'shieldedInsTotal',  title: 'Shielded inputs (total)',state: shieldedInsTotal,   formatter: fmtInt,        category: 'lelantus' },
-    { key: 'shieldedOuts',      title: 'Shielded outputs / day', state: shieldedOutsDaily,  formatter: fmtInt,        category: 'lelantus' },
-    { key: 'shieldedOutsTotal', title: 'Shielded outputs (total)',state: shieldedOutsTotal,  formatter: fmtInt,        category: 'lelantus' },
+    {
+      key: 'shieldedIns',
+      title: 'Shielded inputs / day',
+      state: shieldedInsDaily,
+      formatter: fmtInt,
+      category: 'lelantus',
+    },
+    {
+      key: 'shieldedInsTotal',
+      title: 'Shielded inputs (total)',
+      state: shieldedInsTotal,
+      formatter: fmtInt,
+      category: 'lelantus',
+    },
+    {
+      key: 'shieldedOuts',
+      title: 'Shielded outputs / day',
+      state: shieldedOutsDaily,
+      formatter: fmtInt,
+      category: 'lelantus',
+    },
+    {
+      key: 'shieldedOutsTotal',
+      title: 'Shielded outputs (total)',
+      state: shieldedOutsTotal,
+      formatter: fmtInt,
+      category: 'lelantus',
+    },
     // DeFi — day/total pairs
-    { key: 'dexVolume',          title: 'DEX volume / day',       state: dexVolume,          formatter: fmtUsd, category: 'defi' },
-    { key: 'dexVolumeCumulative',title: 'DEX volume (total)',     state: dexVolumeCumulative,formatter: fmtUsd, category: 'defi' },
+    {
+      key: 'dexVolume',
+      title: 'DEX volume / day',
+      state: dexVolume,
+      formatter: fmtUsd,
+      category: 'defi',
+    },
+    {
+      key: 'dexVolumeCumulative',
+      title: 'DEX volume (total)',
+      state: dexVolumeCumulative,
+      formatter: fmtUsd,
+      category: 'defi',
+    },
     // DeFi — standalone
-    { key: 'price',              title: 'BEAM/USD (oracle median)', state: price,            formatter: fmtUsd, category: 'defi' },
-    { key: 'tvl',                title: 'DEX TVL',                state: tvl,                formatter: fmtUsd, category: 'defi' },
-    { key: 'poolsCreated',       title: 'DEX Pools created (total)', state: poolsCreated,   formatter: fmtInt, category: 'defi' },
-    { key: 'poolsClosed',        title: 'DEX Pools closed (total)',  state: poolsClosed,    formatter: fmtInt, category: 'defi', emptyLabel: 'No pools closed yet' },
-    { key: 'beamVol',            title: 'BEAM Volatility Index (30d)', state: beamVol,       formatter: fmtVol, category: 'defi' },
-    { key: 'dexVol',             title: 'DEX Volatility Index (30d)',  state: dexVol,        formatter: fmtVol, category: 'defi' },
-    { key: 'blackhole',          title: 'Black Hole (assets burned)',  multiState: blackhole, formatter: fmtNative, category: 'defi' },
+    {
+      key: 'price',
+      title: 'BEAM/USD (oracle median)',
+      state: price,
+      formatter: fmtUsd,
+      category: 'defi',
+    },
+    {
+      key: 'tvl',
+      title: 'DEX TVL',
+      state: tvl,
+      formatter: fmtUsd,
+      category: 'defi',
+    },
+    {
+      key: 'poolsCreated',
+      title: 'DEX Pools created (total)',
+      state: poolsCreated,
+      formatter: fmtInt,
+      category: 'defi',
+    },
+    {
+      key: 'poolsClosed',
+      title: 'DEX Pools closed (total)',
+      state: poolsClosed,
+      formatter: fmtInt,
+      category: 'defi',
+      emptyLabel: 'No pools closed yet',
+    },
+    {
+      key: 'beamVol',
+      title: 'BEAM Volatility Index (30d)',
+      state: beamVol,
+      formatter: fmtVol,
+      category: 'defi',
+    },
+    {
+      key: 'dexVol',
+      title: 'DEX Volatility Index (30d)',
+      state: dexVol,
+      formatter: fmtVol,
+      category: 'defi',
+    },
+    {
+      key: 'blackhole',
+      title: 'Black Hole (assets burned)',
+      multiState: blackhole,
+      formatter: fmtNative,
+      category: 'defi',
+    },
   ];
 
   const charts = allCharts.filter((c) => c.category === category);
@@ -1068,7 +1468,13 @@ export const NetworkCharts: React.FC = () => {
         downloadBlob(blackholeCsv(filtered, expanded.title), `${base}.csv`, 'text/csv;charset=utf-8');
         return;
       }
-      const svg = blackholeSvg(filtered, expanded.title, expanded.formatter, !!logPerKey[expanded.key], expanded.emptyLabel);
+      const svg = blackholeSvg(
+        filtered,
+        expanded.title,
+        expanded.formatter,
+        !!logPerKey[expanded.key],
+        expanded.emptyLabel,
+      );
       if (format === 'svg') downloadBlob(svg, `${base}.svg`, 'image/svg+xml');
       else downloadSvgAsPng(svg, `${base}.png`);
       return;
@@ -1084,41 +1490,28 @@ export const NetworkCharts: React.FC = () => {
     else downloadSvgAsPng(svg, `${base}.png`);
   };
 
-  useEffect(() => {
-    if (!expanded) return undefined;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeExpanded(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [expanded, closeExpanded]);
+  useEscapeClose(closeExpanded, expanded !== null);
 
   return (
     <Page>
       <Toolbar>
         <CategoryBar>
           {CATEGORIES.map((c) => (
-            <TfButton
-              key={c.key}
-              active={category === c.key}
-              onClick={() => setCategory(c.key)}
-            >
+            <TfButton key={c.key} active={category === c.key} onClick={() => setCategory(c.key)}>
               {c.label}
             </TfButton>
           ))}
         </CategoryBar>
         <TimeframeGroup>
           {TIMEFRAMES.map((tf) => (
-            <TfButton
-              key={tf}
-              active={timeframe === tf}
-              onClick={() => setTimeframe(tf)}
-            >
+            <TfButton key={tf} active={timeframe === tf} onClick={() => setTimeframe(tf)}>
               {tf}
             </TfButton>
           ))}
         </TimeframeGroup>
       </Toolbar>
       <Grid>
-        {charts.map((c) => (
+        {charts.map((c) =>
           c.multiState ? (
             <BlackholeCell
               key={c.key}
@@ -1144,13 +1537,15 @@ export const NetworkCharts: React.FC = () => {
               onExpand={() => setExpandedKey(c.key)}
               onToggleLog={() => toggleLog(c.key)}
             />
-          )
-        ))}
+          ),
+        )}
       </Grid>
       {expanded && (
-        <ModalBackdrop onClick={closeExpanded}>
+        <Overlay z={100} backdrop="rgba(0, 0, 0, 0.65)" pad="24px" onClick={closeExpanded}>
           <ModalContent onClick={(e) => e.stopPropagation()}>
-            <CloseButton onClick={closeExpanded} aria-label="Close">×</CloseButton>
+            <CloseButton onClick={closeExpanded} aria-label="Close">
+              ×
+            </CloseButton>
             <ModalToolbar>
               <ModalActionGroup>
                 <TfButton
@@ -1179,38 +1574,40 @@ export const NetworkCharts: React.FC = () => {
                   </TfButton>
                 )}
               </ModalActionGroup>
-              {expanded && !expanded.multiState && (LADDERS[expanded.key]?.length ?? 1) > 1 && expanded.key !== 'assets' && (
-                <IntervalGroup title="Candle interval">
-                  <TfButton
-                    active={chartInterval === 'auto'}
-                    onClick={() => setChartInterval('auto')}
-                    title="Auto: finest bucket that fits the range"
-                  >
-                    Auto
-                  </TfButton>
-                  {INTERVAL_ORDER.map((iv) => {
-                    const ok = validIntervals(viewSpan ?? timeframeSpanSec(timeframe), LADDERS[expanded.key]!).includes(iv);
-                    return (
-                      <TfButton
-                        key={iv}
-                        active={chartInterval === iv}
-                        disabled={!ok}
-                        onClick={() => ok && setChartInterval(iv)}
-                        title={ok ? `${iv} candles` : 'Too many points for this range'}
-                      >
-                        {iv}
-                      </TfButton>
-                    );
-                  })}
-                </IntervalGroup>
-              )}
+              {expanded &&
+                !expanded.multiState &&
+                (LADDERS[expanded.key]?.length ?? 1) > 1 &&
+                expanded.key !== 'assets' && (
+                  <IntervalGroup title="Candle interval">
+                    <TfButton
+                      active={chartInterval === 'auto'}
+                      onClick={() => setChartInterval('auto')}
+                      title="Auto: finest bucket that fits the range"
+                    >
+                      Auto
+                    </TfButton>
+                    {INTERVAL_ORDER.map((iv) => {
+                      const ok = validIntervals(
+                        viewSpan ?? timeframeSpanSec(timeframe),
+                        LADDERS[expanded.key]!,
+                      ).includes(iv);
+                      return (
+                        <TfButton
+                          key={iv}
+                          active={chartInterval === iv}
+                          disabled={!ok}
+                          onClick={() => ok && setChartInterval(iv)}
+                          title={ok ? `${iv} candles` : 'Too many points for this range'}
+                        >
+                          {iv}
+                        </TfButton>
+                      );
+                    })}
+                  </IntervalGroup>
+                )}
               <TimeframeGroup>
                 {TIMEFRAMES.map((tf) => (
-                  <TfButton
-                    key={tf}
-                    active={timeframe === tf}
-                    onClick={() => setTimeframe(tf)}
-                  >
+                  <TfButton key={tf} active={timeframe === tf} onClick={() => setTimeframe(tf)}>
                     {tf}
                   </TfButton>
                 ))}
@@ -1243,15 +1640,32 @@ export const NetworkCharts: React.FC = () => {
               )}
             </ModalBody>
           </ModalContent>
-        </ModalBackdrop>
+        </Overlay>
       )}
     </Page>
   );
 };
 
 const ExpandedChart: React.FC<
-  Omit<ChartCellProps, 'onExpand'> & { overlay?: { state: FetchState<ApiChartSeries>; label: string }; interval: ZoomRes | 'auto'; onViewSpan: (spanSec: number) => void }
-> = ({ chartKey, state, title, timeframe, interval, scale, formatter, logScale, hideAmml, emptyLabel, overlay, onViewSpan }) => {
+  Omit<ChartCellProps, 'onExpand'> & {
+    overlay?: { state: FetchState<ApiChartSeries>; label: string };
+    interval: ZoomRes | 'auto';
+    onViewSpan: (spanSec: number) => void;
+  }
+> = ({
+  chartKey,
+  state,
+  title,
+  timeframe,
+  interval,
+  scale,
+  formatter,
+  logScale,
+  hideAmml,
+  emptyLabel,
+  overlay,
+  onViewSpan,
+}) => {
   const ladder = (chartKey && LADDERS[chartKey]) || ['1d'];
   const fetcher = chartKey ? RANGE_FETCHERS[chartKey] : undefined;
   // `assets` renders through ConfidentialAssetsChart (no range support here), so
@@ -1270,7 +1684,9 @@ const ExpandedChart: React.FC<
 
   // Visible window. `null` = follow the timeframe bounds; mouse-zoom sets it.
   const [view, setView] = useState<{ from: number; to: number } | null>(null);
-  useEffect(() => { setView(null); }, [timeframe]);
+  useEffect(() => {
+    setView(null);
+  }, [timeframe]);
   const tfBounds = useMemo(() => rangeBoundsFor(fullSeries, timeframe), [fullSeries, timeframe]);
   const effView = view ?? tfBounds;
   const spanSec = effView ? effView.to - effView.from : 0;
@@ -1279,21 +1695,27 @@ const ExpandedChart: React.FC<
   // is on screen — finer buckets light up as you zoom in.
   const onViewSpanRef = useRef(onViewSpan);
   onViewSpanRef.current = onViewSpan;
-  useEffect(() => { if (spanSec > 0) onViewSpanRef.current(spanSec); }, [spanSec]);
+  useEffect(() => {
+    if (spanSec > 0) onViewSpanRef.current(spanSec);
+  }, [spanSec]);
 
   // Effective interval: user's pick if valid for the visible span, else the
   // finest that fits. In Auto mode it adapts automatically as you zoom.
   const valid = validIntervals(spanSec || Number.POSITIVE_INFINITY, ladder);
-  const effInterval: ZoomRes = interval !== 'auto' && valid.includes(interval) ? interval : (valid[0] ?? '1d');
+  const effInterval: ZoomRes = interval !== 'auto' && valid.includes(interval) ? interval : valid[0] ?? '1d';
 
   const fetchWin = useMemo(
-    () => (effView && fullSeries.length ? alignFetchWindow(effView.from, effView.to, effInterval, dataFrom, dataTo) : null),
+    () =>
+      effView && fullSeries.length ? alignFetchWindow(effView.from, effView.to, effInterval, dataFrom, dataTo) : null,
     [effView, effInterval, dataFrom, dataTo, fullSeries.length],
   );
   // A daily window covering the whole history == the full series already loaded.
   const useFull = !!fetchWin && effInterval === '1d' && fetchWin.from <= dataFrom && fetchWin.to >= dataTo;
   const win = useKeyedSeries(
-    () => (fetcher && fetchWin ? fetcher({ res: effInterval, from: fetchWin.from, to: fetchWin.to }) : Promise.resolve({ series: [] })),
+    () =>
+      fetcher && fetchWin
+        ? fetcher({ res: effInterval, from: fetchWin.from, to: fetchWin.to })
+        : Promise.resolve({ series: [] }),
     `${chartKey ?? ''}:${effInterval}:${fetchWin?.from ?? 0}:${fetchWin?.to ?? 0}`,
     rangeable && !!fetchWin && !useFull,
   );
@@ -1316,7 +1738,12 @@ const ExpandedChart: React.FC<
     if (zoomTimer.current) clearTimeout(zoomTimer.current);
     zoomTimer.current = setTimeout(() => setView({ from, to }), 200);
   }, []);
-  useEffect(() => () => { if (zoomTimer.current) clearTimeout(zoomTimer.current); }, []);
+  useEffect(
+    () => () => {
+      if (zoomTimer.current) clearTimeout(zoomTimer.current);
+    },
+    [],
+  );
 
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
@@ -1343,16 +1770,22 @@ const ExpandedChart: React.FC<
   if (rangeable) {
     loading = full.loading || win.loading;
     error = full.error ?? win.error;
-    if (!full.data) shown = null;                                              // initial load
-    else if (!useFull && win.data && fetchWin) shown = mergeWindow(fullSeries, win.data.series, fetchWin.from, fetchWin.to);
-    else shown = fullSeries;                                                   // daily base: zoomed out, or fine still loading
+    if (!full.data) shown = null; // initial load
+    else if (!useFull && win.data && fetchWin)
+      shown = mergeWindow(fullSeries, win.data.series, fetchWin.from, fetchWin.to);
+    else shown = fullSeries; // daily base: zoomed out, or fine still loading
   } else {
     shown = filtered;
     loading = state.loading;
     error = state.error;
   }
 
-  if (!shown || shown.length === 0) return <Loading>{error ?? (loading ? 'Loading…' : (emptyLabel ?? 'No data'))}</Loading>;
+  if (!shown || shown.length === 0)
+    return (
+      <CenteredNote pad="80px 0" size={13}>
+        {error ?? (loading ? 'Loading…' : emptyLabel ?? 'No data')}
+      </CenteredNote>
+    );
   return (
     <InnerChart
       chartKey={chartKey}
@@ -1384,7 +1817,11 @@ const ExpandedBlackhole: React.FC<{
     [state.data, timeframe],
   );
   if (!filtered || filtered.length === 0) {
-    return <Loading>{state.error ?? (state.loading ? 'Loading…' : 'No data')}</Loading>;
+    return (
+      <CenteredNote pad="80px 0" size={13}>
+        {state.error ?? (state.loading ? 'Loading…' : 'No data')}
+      </CenteredNote>
+    );
   }
   return <BlackholeChart series={filtered} logScale={logScale} formatter={formatter} showMarkers />;
 };

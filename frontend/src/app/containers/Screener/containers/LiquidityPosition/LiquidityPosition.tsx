@@ -31,7 +31,9 @@ const Page = styled.div`
   /* Fill the viewport so the global footer stays pinned to the bottom even on
      the short empty state (matches PairsList / AssetsList / PairDetail). */
   min-height: calc(100vh - 130px);
-  ${MOBILE_MEDIA} { padding: 12px; }
+  ${MOBILE_MEDIA} {
+    padding: 12px;
+  }
 `;
 
 const Title = styled.h1`
@@ -46,13 +48,20 @@ const Sub = styled.p`
   color: rgba(255, 255, 255, 0.55);
   margin: 0 0 16px;
   max-width: 760px;
-  & a { color: #00f6d2; text-decoration: none; }
-  & a:hover { text-decoration: underline; }
+  & a {
+    color: #00f6d2;
+    text-decoration: none;
+  }
+  & a:hover {
+    text-decoration: underline;
+  }
 `;
 
 const SearchRow = styled.form`
   display: flex;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   flex-wrap: wrap;
   align-items: flex-start;
   position: relative;
@@ -76,7 +85,9 @@ const Field = styled.textarea`
   font-family: inherit;
   line-height: 20px;
   outline: none;
-  &:focus { border-color: var(--color-green); }
+  &:focus {
+    border-color: var(--color-green);
+  }
 `;
 
 const Btn = styled.button`
@@ -94,8 +105,13 @@ const Btn = styled.button`
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  &:hover { background: rgba(0, 246, 210, 0.25); }
-  &:disabled { opacity: 0.5; cursor: default; }
+  &:hover {
+    background: rgba(0, 246, 210, 0.25);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
 `;
 
 const GhostBtn = styled.button`
@@ -113,7 +129,10 @@ const GhostBtn = styled.button`
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  &:hover { border-color: var(--color-green); color: #00f6d2; }
+  &:hover {
+    border-color: var(--color-green);
+    color: #00f6d2;
+  }
 `;
 
 const Message = styled.div`
@@ -124,7 +143,10 @@ const Message = styled.div`
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.7);
-  &[data-err='1'] { border-color: rgba(255, 99, 99, 0.5); color: #ff9b9b; }
+  &[data-err='1'] {
+    border-color: rgba(255, 99, 99, 0.5);
+    color: #ff9b9b;
+  }
 `;
 
 const Hints = styled.div`
@@ -132,9 +154,12 @@ const Hints = styled.div`
   font-size: 12px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.45);
-  & b { color: rgba(255, 255, 255, 0.7); font-weight: 600; }
+  & b {
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 600;
+  }
   & code {
-    font-family: 'SFMono-Regular', ui-monospace, monospace;
+    font-family: var(--font-mono);
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 4px;
@@ -146,7 +171,9 @@ const Hints = styled.div`
     margin-top: 6px;
     display: flex;
     flex-wrap: wrap;
-    & > * + * { margin-left: 8px; }
+    & > * + * {
+      margin-left: 8px;
+    }
     align-items: baseline;
   }
 `;
@@ -155,7 +182,9 @@ const Picker = styled.div`
   margin-top: 16px;
   display: flex;
   flex-wrap: wrap;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   align-items: center;
 `;
 
@@ -168,8 +197,13 @@ const PickerBtn = styled.button<{ active?: boolean }>`
   background: ${(p) => (p.active ? 'rgba(0,246,210,0.18)' : 'rgba(255,255,255,0.04)')};
   color: ${(p) => (p.active ? '#00f6d2' : 'rgba(255,255,255,0.75)')};
   border: 1px solid ${(p) => (p.active ? 'rgba(0,246,210,0.5)' : 'rgba(255,255,255,0.12)')};
-  &:hover { border-color: rgba(0, 246, 210, 0.5); }
-  & small { color: rgba(255, 255, 255, 0.4); margin-left: 5px; }
+  &:hover {
+    border-color: rgba(0, 246, 210, 0.5);
+  }
+  & small {
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 5px;
+  }
 `;
 
 const Grid = styled.div`
@@ -177,7 +211,9 @@ const Grid = styled.div`
   grid-template-columns: 1fr 1fr;
   grid-gap: 16px;
   margin-top: 16px;
-  @media (max-width: 760px) { grid-template-columns: 1fr; }
+  @media (max-width: 760px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const Card = styled.div`
@@ -195,7 +231,9 @@ const CardHead = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  & > * + * { margin-left: 10px; }
+  & > * + * {
+    margin-left: 10px;
+  }
   flex-wrap: wrap;
   margin-bottom: 10px;
 `;
@@ -216,14 +254,19 @@ const SwapBtn = styled.button`
   font-size: 11px;
   padding: 2px 8px;
   cursor: pointer;
-  &:hover { color: #00f6d2; border-color: rgba(0, 246, 210, 0.5); }
+  &:hover {
+    color: #00f6d2;
+    border-color: rgba(0, 246, 210, 0.5);
+  }
 `;
 
 const Row = styled.div<{ sep?: boolean }>`
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
   padding: 5px 0;
   font-size: 13px;
   border-top: ${(p) => (p.sep ? '1px solid rgba(255,255,255,0.06)' : 'none')};
@@ -239,7 +282,10 @@ const Value = styled.span<{ pos?: boolean; neg?: boolean }>`
   color: ${(p) => (p.pos ? '#36e0a0' : p.neg ? '#ff9b9b' : '#fff')};
   font-variant-numeric: tabular-nums;
   text-align: right;
-  & small { color: rgba(255, 255, 255, 0.4); margin-left: 4px; }
+  & small {
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 4px;
+  }
 `;
 
 const BigPnl = styled.div<{ pos?: boolean }>`
@@ -258,7 +304,9 @@ const PnlSub = styled.div`
 
 const Tabs = styled.div`
   display: flex;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   flex-wrap: wrap;
 `;
 
@@ -271,8 +319,13 @@ const Tab = styled.button<{ active?: boolean }>`
   background: ${(p) => (p.active ? 'rgba(0,246,210,0.18)' : 'transparent')};
   color: ${(p) => (p.active ? '#00f6d2' : 'rgba(255,255,255,0.6)')};
   border: 1px solid ${(p) => (p.active ? 'rgba(0,246,210,0.5)' : 'rgba(255,255,255,0.12)')};
-  &:hover:not(:disabled) { color: #00f6d2; }
-  &:disabled { opacity: 0.35; cursor: not-allowed; }
+  &:hover:not(:disabled) {
+    color: #00f6d2;
+  }
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
 `;
 
 const Bookmarks = styled.div`
@@ -293,16 +346,31 @@ const BmItem = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   padding: 7px 8px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.8);
-  &:hover { background: rgba(255, 255, 255, 0.06); }
-  & .sub { color: rgba(255, 255, 255, 0.4); font-size: 11px; }
-  & .del { background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; font-size: 14px; }
-  & .del:hover { color: #ff9b9b; }
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  & .sub {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+  }
+  & .del {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    font-size: 14px;
+  }
+  & .del:hover {
+    color: #ff9b9b;
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -414,10 +482,7 @@ export const LiquidityPosition: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selectedPool = useMemo(
-    () => pools?.find((p) => p.lp_token === selectedLp) ?? null,
-    [pools, selectedLp],
-  );
+  const selectedPool = useMemo(() => pools?.find((p) => p.lp_token === selectedLp) ?? null, [pools, selectedLp]);
 
   const loaded: Loaded | null = useMemo(() => {
     if (!selectedPool || !pair || !pair.reserve1 || !pair.reserve2 || !pair.ctl_supply) return null;
@@ -471,7 +536,10 @@ export const LiquidityPosition: React.FC = () => {
       persistBookmarks(bookmarks.filter((b) => b.search !== currentRef));
     } else {
       const label = selectedPool
-        ? `${assetName(selectedPool.aid1, selectedPool.symbol1)} / ${assetName(selectedPool.aid2, selectedPool.symbol2)}`
+        ? `${assetName(selectedPool.aid1, selectedPool.symbol1)} / ${assetName(
+            selectedPool.aid2,
+            selectedPool.symbol2,
+          )}`
         : `${currentRef.split(/[\s,]+/).filter(Boolean).length} ref(s)`;
       persistBookmarks([{ search: currentRef, label }, ...bookmarks].slice(0, 30));
     }
@@ -481,12 +549,15 @@ export const LiquidityPosition: React.FC = () => {
     <Page>
       <Title>Liquidity Positions</Title>
       <Sub>
-        Analyse any Beam DEX liquidity position: paste the <b>kernel ids</b> and/or <b>block heights</b> of
-        your <i>Liquidity Add</i> and <i>Liquidity Withdraw</i> transactions (one or many, any pools). Beam is
-        confidential, so positions can&apos;t be listed — you supply the references, and everything (share,
-        fees, P&amp;L, what&apos;s still in the pool) is computed from them. List your withdrawals too and it
-        accounts for what you&apos;ve already taken out. Developed by{' '}
-        <a href="https://github.com/dbadol/BeamLiquidityPosition" target="_blank" rel="noopener noreferrer">dbadol</a>.
+        Analyse any Beam DEX liquidity position: paste the <b>kernel ids</b> and/or <b>block heights</b> of your{' '}
+        <i>Liquidity Add</i> and <i>Liquidity Withdraw</i> transactions (one or many, any pools). Beam is confidential,
+        so positions can&apos;t be listed — you supply the references, and everything (share, fees, P&amp;L, what&apos;s
+        still in the pool) is computed from them. List your withdrawals too and it accounts for what you&apos;ve already
+        taken out. Developed by{' '}
+        <a href="https://github.com/dbadol/BeamLiquidityPosition" target="_blank" rel="noopener noreferrer">
+          dbadol
+        </a>
+        .
       </Sub>
 
       <SearchRow onSubmit={onSubmit}>
@@ -497,20 +568,32 @@ export const LiquidityPosition: React.FC = () => {
           rows={1}
           autoFocus
         />
-        <Btn type="submit" disabled={loading}>{loading ? 'Looking up…' : 'Analyse'}</Btn>
-        <GhostBtn type="button" onClick={() => setBmOpen((o) => !o)} title="Bookmarks">★ {bookmarks.length || ''}</GhostBtn>
+        <Btn type="submit" disabled={loading}>
+          {loading ? 'Looking up…' : 'Analyse'}
+        </Btn>
+        <GhostBtn type="button" onClick={() => setBmOpen((o) => !o)} title="Bookmarks">
+          ★{bookmarks.length || ''}
+        </GhostBtn>
         {pools && (
-          <GhostBtn type="button" onClick={toggleBookmark}>{isBookmarked ? 'Saved ✓' : 'Save'}</GhostBtn>
+          <GhostBtn type="button" onClick={toggleBookmark}>
+            {isBookmarked ? 'Saved ✓' : 'Save'}
+          </GhostBtn>
         )}
         {bmOpen && (
           <Bookmarks>
             {bookmarks.length === 0 ? (
-              <BmItem><span className="sub">No bookmarks yet</span></BmItem>
+              <BmItem>
+                <span className="sub">No bookmarks yet</span>
+              </BmItem>
             ) : (
               bookmarks.map((b) => (
                 <BmItem
                   key={b.search}
-                  onClick={() => { setInput(b.search); setBmOpen(false); void runLookup(b.search); }}
+                  onClick={() => {
+                    setInput(b.search);
+                    setBmOpen(false);
+                    void runLookup(b.search);
+                  }}
                 >
                   <span>
                     {b.label}
@@ -518,8 +601,12 @@ export const LiquidityPosition: React.FC = () => {
                     <span className="sub">{b.search.length > 40 ? `${b.search.slice(0, 40)}…` : b.search}</span>
                   </span>
                   <button
+                    type="button"
                     className="del"
-                    onClick={(e) => { e.stopPropagation(); persistBookmarks(bookmarks.filter((x) => x.search !== b.search)); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      persistBookmarks(bookmarks.filter((x) => x.search !== b.search));
+                    }}
                   >
                     ×
                   </button>
@@ -531,10 +618,11 @@ export const LiquidityPosition: React.FC = () => {
       </SearchRow>
 
       <Hints>
-        Paste the <b>Kernel ID</b> (64 hex characters) or the <b>block height</b> of each of your{' '}
-        <i>Liquidity Add</i> and <i>Liquidity Withdraw</i> transactions — both are in your BEAM
-        wallet&apos;s transaction details, or on a Beam block explorer. List as many as you like,
-        separated by commas, spaces or new lines; adds and removes can be mixed.
+        Paste the <b>Kernel ID</b> (64 hex characters) or the <b>block height</b> of each of your <i>Liquidity Add</i>{' '}
+        and
+        <i>Liquidity Withdraw</i> transactions — both are in your BEAM wallet&apos;s transaction details, or on a Beam
+        block explorer. List as many as you like, separated by commas, spaces or new lines; adds and removes can be
+        mixed.
         <div className="ex">
           <span>Examples:</span>
           <code>3869854</code>
@@ -546,7 +634,11 @@ export const LiquidityPosition: React.FC = () => {
 
       {error && <Message data-err="1">{error}</Message>}
       {unresolved.length > 0 && (
-        <Message>Couldn&apos;t resolve {unresolved.length} reference(s): {unresolved.join(', ')}</Message>
+        <Message>
+          Couldn&apos;t resolve
+          {unresolved.length} reference(s):
+          {unresolved.join(', ')}
+        </Message>
       )}
 
       {pools && pools.length > 1 && (
@@ -554,8 +646,11 @@ export const LiquidityPosition: React.FC = () => {
           <Label>Pool:</Label>
           {pools.map((p) => (
             <PickerBtn key={p.lp_token} active={p.lp_token === selectedLp} onClick={() => void selectPool(p.lp_token)}>
-              {assetName(p.aid1, p.symbol1)} / {assetName(p.aid2, p.symbol2)}
-              <small>{p.kind_label} · {p.events.length} op{p.events.length > 1 ? 's' : ''}</small>
+              {assetName(p.aid1, p.symbol1)} /{assetName(p.aid2, p.symbol2)}
+              <small>
+                {p.kind_label} · {p.events.length} op
+                {p.events.length > 1 ? 's' : ''}
+              </small>
             </PickerBtn>
           ))}
         </Picker>
@@ -626,8 +721,8 @@ const Result: React.FC<ResultProps> = ({
   if (agg.addsCount === 0) {
     return (
       <Message data-err="1">
-        These references only contain withdrawals (no <i>Liquidity Add</i>). Add the kernel id or block
-        height of your deposit(s) to compute P&amp;L and the remaining position.
+        These references only contain withdrawals (no <i>Liquidity Add</i>
+        ). Add the kernel id or block height of your deposit(s) to compute P&amp;L and the remaining position.
       </Message>
     );
   }
@@ -656,20 +751,45 @@ const Result: React.FC<ResultProps> = ({
 
           {flow.available ? (
             <>
-              <BigPnl pos={flow.pnl >= 0}>{flow.pnl >= 0 ? '+' : ''}{fmtUnit(flow.pnl, unit, n1, n2)}</BigPnl>
+              <BigPnl pos={flow.pnl >= 0}>
+                {flow.pnl >= 0 ? '+' : ''}
+                {fmtUnit(flow.pnl, unit, n1, n2)}
+              </BigPnl>
               <PnlSub>
                 net profit / loss · {fmtUnit(flow.remaining, unit, n1, n2)} still in the pool
                 {flow.invested > 0 ? ` · ROI ${fmtPct(flow.pnl / flow.invested)}` : ''}
               </PnlSub>
-              <Row sep><Label>Invested ({agg.addsCount} add{agg.addsCount === 1 ? '' : 's'})</Label><Value>{fmtUnit(flow.invested, unit, n1, n2)}</Value></Row>
+              <Row sep>
+                <Label>
+                  Invested ({agg.addsCount} add
+                  {agg.addsCount === 1 ? '' : 's'})
+                </Label>
+                <Value>{fmtUnit(flow.invested, unit, n1, n2)}</Value>
+              </Row>
               {agg.hasRemoves && (
-                <Row><Label>Withdrawn — realized ({agg.removesCount} remove{agg.removesCount === 1 ? '' : 's'})</Label><Value>{fmtUnit(flow.withdrawn, unit, n1, n2)}</Value></Row>
+                <Row>
+                  <Label>
+                    Withdrawn — realized ({agg.removesCount} remove
+                    {agg.removesCount === 1 ? '' : 's'})
+                  </Label>
+                  <Value>{fmtUnit(flow.withdrawn, unit, n1, n2)}</Value>
+                </Row>
               )}
-              <Row><Label>Still in pool — unrealized</Label><Value>{fmtUnit(flow.remaining, unit, n1, n2)}</Value></Row>
-              <Row><Label>= Net profit / loss</Label><Value pos={flow.pnl >= 0} neg={flow.pnl < 0}>{fmtUnit(flow.pnl, unit, n1, n2)}</Value></Row>
+              <Row>
+                <Label>Still in pool — unrealized</Label>
+                <Value>{fmtUnit(flow.remaining, unit, n1, n2)}</Value>
+              </Row>
+              <Row>
+                <Label>= Net profit / loss</Label>
+                <Value pos={flow.pnl >= 0} neg={flow.pnl < 0}>
+                  {fmtUnit(flow.pnl, unit, n1, n2)}
+                </Value>
+              </Row>
               <Row sep>
                 <Label>Position withdrawn / remaining</Label>
-                <Value>{fmtPct(agg.withdrawnFrac, 1).replace('+', '')} / {fmtPct(agg.remainingFrac, 1).replace('+', '')}</Value>
+                <Value>
+                  {fmtPct(agg.withdrawnFrac, 1).replace('+', '')} / {fmtPct(agg.remainingFrac, 1).replace('+', '')}
+                </Value>
               </Row>
               <PnlSub style={{ marginTop: 8 }}>
                 Each add/remove is valued at the pool price <i>at that time</i>; the in-pool remainder at the
@@ -678,8 +798,8 @@ const Result: React.FC<ResultProps> = ({
             </>
           ) : (
             <Message style={{ marginTop: 0 }}>
-              This pair has no BEAM-quoted pool, so {unitTabLabel(unit, n1, n2)} valuation isn&apos;t available.
-              Switch to {n1} or {n2}.
+              This pair has no BEAM-quoted pool, so {unitTabLabel(unit, n1, n2)} valuation isn&apos;t available. Switch
+              to {n1} or {n2}.
             </Message>
           )}
         </WideCard>
@@ -689,56 +809,241 @@ const Result: React.FC<ResultProps> = ({
         <Grid>
           {/* REMAINING BASIS */}
           <Card>
-            <CardHead><CardTitle>Deposits &amp; remaining basis</CardTitle></CardHead>
-            <Row><Label>Operations</Label><Value>{agg.addsCount} add{agg.addsCount === 1 ? '' : 's'}, {agg.removesCount} remove{agg.removesCount === 1 ? '' : 's'}</Value></Row>
-            <Row><Label>First add</Label><Value>{new Date(agg.firstAddTs * 1000).toISOString().replace('T', ' ').slice(0, 19)} UTC</Value></Row>
-            <Row sep><Label>Total deposited {n1}</Label><Value>{fmtAmount(agg.totalDep1)}<small>{n1}</small></Value></Row>
-            <Row><Label>Total deposited {n2}</Label><Value>{fmtAmount(agg.totalDep2)}<small>{n2}</small></Value></Row>
-            <Row sep><Label>Remaining basis {n1}</Label><Value>{fmtAmount(m.a1i)}<small>{n1}</small></Value></Row>
-            <Row><Label>Remaining basis {n2}</Label><Value>{fmtAmount(m.a2i)}<small>{n2}</small></Value></Row>
-            <Row sep><Label>Avg entry price</Label><Value>1 {n2} = {fmtAmount(m.p2in1init)} {n1}</Value></Row>
+            <CardHead>
+              <CardTitle>Deposits &amp; remaining basis</CardTitle>
+            </CardHead>
+            <Row>
+              <Label>Operations</Label>
+              <Value>
+                {agg.addsCount} add
+                {agg.addsCount === 1 ? '' : 's'}, {agg.removesCount} remove
+                {agg.removesCount === 1 ? '' : 's'}
+              </Value>
+            </Row>
+            <Row>
+              <Label>First add</Label>
+              <Value>{new Date(agg.firstAddTs * 1000).toISOString().replace('T', ' ').slice(0, 19)} UTC</Value>
+            </Row>
+            <Row sep>
+              <Label>
+                Total deposited
+                {n1}
+              </Label>
+              <Value>
+                {fmtAmount(agg.totalDep1)}
+                <small>{n1}</small>
+              </Value>
+            </Row>
+            <Row>
+              <Label>
+                Total deposited
+                {n2}
+              </Label>
+              <Value>
+                {fmtAmount(agg.totalDep2)}
+                <small>{n2}</small>
+              </Value>
+            </Row>
+            <Row sep>
+              <Label>
+                Remaining basis
+                {n1}
+              </Label>
+              <Value>
+                {fmtAmount(m.a1i)}
+                <small>{n1}</small>
+              </Value>
+            </Row>
+            <Row>
+              <Label>
+                Remaining basis
+                {n2}
+              </Label>
+              <Value>
+                {fmtAmount(m.a2i)}
+                <small>{n2}</small>
+              </Value>
+            </Row>
+            <Row sep>
+              <Label>Avg entry price</Label>
+              <Value>
+                1{n2} ={fmtAmount(m.p2in1init)} {n1}
+              </Value>
+            </Row>
           </Card>
 
           {/* CURRENT POOL */}
           <Card>
-            <CardHead><CardTitle>Current pool</CardTitle></CardHead>
-            <Row><Label>Snapshot height</Label><Value>{pair.snapshot_height ?? '–'}</Value></Row>
-            <Row><Label>Fee tier</Label><Value>{pool.kind_label} ({pool.fee_pct}%)</Value></Row>
-            <Row><Label>Total {n1}</Label><Value>{fmtAmount(m.a1p)}<small>{n1}</small></Value></Row>
-            <Row><Label>Total {n2}</Label><Value>{fmtAmount(m.a2p)}<small>{n2}</small></Value></Row>
-            <Row sep><Label>Current price</Label><Value>1 {n2} = {fmtAmount(m.p2in1pool)} {n1}</Value></Row>
+            <CardHead>
+              <CardTitle>Current pool</CardTitle>
+            </CardHead>
+            <Row>
+              <Label>Snapshot height</Label>
+              <Value>{pair.snapshot_height ?? '–'}</Value>
+            </Row>
+            <Row>
+              <Label>Fee tier</Label>
+              <Value>
+                {pool.kind_label} ({pool.fee_pct}
+                %)
+              </Value>
+            </Row>
+            <Row>
+              <Label>
+                Total
+                {n1}
+              </Label>
+              <Value>
+                {fmtAmount(m.a1p)}
+                <small>{n1}</small>
+              </Value>
+            </Row>
+            <Row>
+              <Label>
+                Total
+                {n2}
+              </Label>
+              <Value>
+                {fmtAmount(m.a2p)}
+                <small>{n2}</small>
+              </Value>
+            </Row>
+            <Row sep>
+              <Label>Current price</Label>
+              <Value>
+                1{n2} ={fmtAmount(m.p2in1pool)} {n1}
+              </Value>
+            </Row>
           </Card>
 
           {/* CURRENT POSITION (remaining) */}
           <Card>
-            <CardHead><CardTitle>Remaining position</CardTitle></CardHead>
-            <Row><Label>Share of the pool</Label><Value>{fmtPct(m.share, 4).replace('+', '')}</Value></Row>
-            <Row sep><Label>Principal {n1}</Label><Value>{fmtAmount(m.aid1Principal)}<small>{n1}</small></Value></Row>
-            <Row><Label>+ Fees earned {n1}</Label><Value pos={m.aid1Fees >= 0} neg={m.aid1Fees < 0}>{fmtAmount(m.aid1Fees)}<small>{n1}</small></Value></Row>
-            <Row><Label>= Available {n1}</Label><Value>{fmtAmount(m.aid1Total)}<small>{n1}</small></Value></Row>
-            <Row sep><Label>Principal {n2}</Label><Value>{fmtAmount(m.aid2Principal)}<small>{n2}</small></Value></Row>
-            <Row><Label>+ Fees earned {n2}</Label><Value pos={m.aid2Fees >= 0} neg={m.aid2Fees < 0}>{fmtAmount(m.aid2Fees)}<small>{n2}</small></Value></Row>
-            <Row><Label>= Available {n2}</Label><Value>{fmtAmount(m.aid2Total)}<small>{n2}</small></Value></Row>
+            <CardHead>
+              <CardTitle>Remaining position</CardTitle>
+            </CardHead>
+            <Row>
+              <Label>Share of the pool</Label>
+              <Value>{fmtPct(m.share, 4).replace('+', '')}</Value>
+            </Row>
+            <Row sep>
+              <Label>
+                Principal
+                {n1}
+              </Label>
+              <Value>
+                {fmtAmount(m.aid1Principal)}
+                <small>{n1}</small>
+              </Value>
+            </Row>
+            <Row>
+              <Label>
+                + Fees earned
+                {n1}
+              </Label>
+              <Value pos={m.aid1Fees >= 0} neg={m.aid1Fees < 0}>
+                {fmtAmount(m.aid1Fees)}
+                <small>{n1}</small>
+              </Value>
+            </Row>
+            <Row>
+              <Label>
+                = Available
+                {n1}
+              </Label>
+              <Value>
+                {fmtAmount(m.aid1Total)}
+                <small>{n1}</small>
+              </Value>
+            </Row>
+            <Row sep>
+              <Label>
+                Principal
+                {n2}
+              </Label>
+              <Value>
+                {fmtAmount(m.aid2Principal)}
+                <small>{n2}</small>
+              </Value>
+            </Row>
+            <Row>
+              <Label>
+                + Fees earned
+                {n2}
+              </Label>
+              <Value pos={m.aid2Fees >= 0} neg={m.aid2Fees < 0}>
+                {fmtAmount(m.aid2Fees)}
+                <small>{n2}</small>
+              </Value>
+            </Row>
+            <Row>
+              <Label>
+                = Available
+                {n2}
+              </Label>
+              <Value>
+                {fmtAmount(m.aid2Total)}
+                <small>{n2}</small>
+              </Value>
+            </Row>
           </Card>
 
           {/* REMAINING P&L (pair unit, unrealized) */}
           <Card>
             <CardHead>
               <CardTitle>Remaining P&amp;L (unrealized)</CardTitle>
-              <SwapBtn onClick={() => setPnlUnit(flip(pnlUnit))}>in {pnlUnit === 1 ? n1 : n2} ⇄</SwapBtn>
+              <SwapBtn onClick={() => setPnlUnit(flip(pnlUnit))}>
+                in
+                {pnlUnit === 1 ? n1 : n2} ⇄
+              </SwapBtn>
             </CardHead>
             {(() => {
               const pnl = computePnl(m, pnlUnit);
               const u = pnlUnit === 1 ? n1 : n2;
               return (
                 <>
-                  <Row><Label>Time in the pool</Label><Value>{fmtDuration(m.durationMs)}</Value></Row>
-                  <Row sep><Label>Current worth</Label><Value>{fmtAmount(pnl.totalCurrent)}<small>{u}</small></Value></Row>
-                  <Row><Label>− Basis worth</Label><Value>{fmtAmount(pnl.totalInitial)}<small>{u}</small></Value></Row>
-                  <Row><Label>= Profit or Loss</Label><Value pos={pnl.profit >= 0} neg={pnl.profit < 0}>{fmtAmount(pnl.profit)}<small>{u}</small></Value></Row>
-                  <Row sep><Label>ROI</Label><Value pos={pnl.roi >= 0} neg={pnl.roi < 0}>{fmtPct(pnl.roi)}</Value></Row>
-                  <Row><Label>Estimated APR</Label><Value pos={pnl.apr >= 0} neg={pnl.apr < 0}>{fmtPct(pnl.apr)}</Value></Row>
-                  <Row><Label>Price change ({u})</Label><Value pos={pnl.priceChange >= 0} neg={pnl.priceChange < 0}>{fmtPct(pnl.priceChange)}</Value></Row>
+                  <Row>
+                    <Label>Time in the pool</Label>
+                    <Value>{fmtDuration(m.durationMs)}</Value>
+                  </Row>
+                  <Row sep>
+                    <Label>Current worth</Label>
+                    <Value>
+                      {fmtAmount(pnl.totalCurrent)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row>
+                    <Label>− Basis worth</Label>
+                    <Value>
+                      {fmtAmount(pnl.totalInitial)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row>
+                    <Label>= Profit or Loss</Label>
+                    <Value pos={pnl.profit >= 0} neg={pnl.profit < 0}>
+                      {fmtAmount(pnl.profit)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row sep>
+                    <Label>ROI</Label>
+                    <Value pos={pnl.roi >= 0} neg={pnl.roi < 0}>
+                      {fmtPct(pnl.roi)}
+                    </Value>
+                  </Row>
+                  <Row>
+                    <Label>Estimated APR</Label>
+                    <Value pos={pnl.apr >= 0} neg={pnl.apr < 0}>
+                      {fmtPct(pnl.apr)}
+                    </Value>
+                  </Row>
+                  <Row>
+                    <Label>Price change ({u})</Label>
+                    <Value pos={pnl.priceChange >= 0} neg={pnl.priceChange < 0}>
+                      {fmtPct(pnl.priceChange)}
+                    </Value>
+                  </Row>
                 </>
               );
             })()}
@@ -748,20 +1053,71 @@ const Result: React.FC<ResultProps> = ({
           <WideCard>
             <CardHead>
               <CardTitle>Hypotheticals (remaining position)</CardTitle>
-              <SwapBtn onClick={() => setHypoUnit(flip(hypoUnit))}>in {hypoUnit === 1 ? n1 : n2} ⇄</SwapBtn>
+              <SwapBtn onClick={() => setHypoUnit(flip(hypoUnit))}>
+                in
+                {hypoUnit === 1 ? n1 : n2} ⇄
+              </SwapBtn>
             </CardHead>
             {(() => {
               const hypo = computeHypo(m, hypoUnit);
               const u = hypoUnit === 1 ? n1 : n2;
               return (
                 <>
-                  <Row><Label>Current worth (in pool)</Label><Value>{fmtAmount(hypo.current)}<small>{u}</small></Value></Row>
-                  <Row sep><Label>1. If HODL the pair</Label><Value>{fmtAmount(hypo.hodl)}<small>{u}</small></Value></Row>
-                  <Row><Label>P&amp;L vs HODL (impermanent loss)</Label><Value pos={hypo.hodlDiff >= 0} neg={hypo.hodlDiff < 0}>{fmtAmount(hypo.hodlDiff)}<small>{u}</small></Value></Row>
-                  <Row sep><Label>2. If HODL all in {n1}</Label><Value>{fmtAmount(hypo.allA1)}<small>{u}</small></Value></Row>
-                  <Row><Label>Profit or Loss</Label><Value pos={hypo.allA1Diff >= 0} neg={hypo.allA1Diff < 0}>{fmtAmount(hypo.allA1Diff)}<small>{u}</small></Value></Row>
-                  <Row sep><Label>3. If HODL all in {n2}</Label><Value>{fmtAmount(hypo.allA2)}<small>{u}</small></Value></Row>
-                  <Row><Label>Profit or Loss</Label><Value pos={hypo.allA2Diff >= 0} neg={hypo.allA2Diff < 0}>{fmtAmount(hypo.allA2Diff)}<small>{u}</small></Value></Row>
+                  <Row>
+                    <Label>Current worth (in pool)</Label>
+                    <Value>
+                      {fmtAmount(hypo.current)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row sep>
+                    <Label>1. If HODL the pair</Label>
+                    <Value>
+                      {fmtAmount(hypo.hodl)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row>
+                    <Label>P&amp;L vs HODL (impermanent loss)</Label>
+                    <Value pos={hypo.hodlDiff >= 0} neg={hypo.hodlDiff < 0}>
+                      {fmtAmount(hypo.hodlDiff)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row sep>
+                    <Label>
+                      2. If HODL all in
+                      {n1}
+                    </Label>
+                    <Value>
+                      {fmtAmount(hypo.allA1)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row>
+                    <Label>Profit or Loss</Label>
+                    <Value pos={hypo.allA1Diff >= 0} neg={hypo.allA1Diff < 0}>
+                      {fmtAmount(hypo.allA1Diff)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row sep>
+                    <Label>
+                      3. If HODL all in
+                      {n2}
+                    </Label>
+                    <Value>
+                      {fmtAmount(hypo.allA2)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
+                  <Row>
+                    <Label>Profit or Loss</Label>
+                    <Value pos={hypo.allA2Diff >= 0} neg={hypo.allA2Diff < 0}>
+                      {fmtAmount(hypo.allA2Diff)}
+                      <small>{u}</small>
+                    </Value>
+                  </Row>
                 </>
               );
             })()}
@@ -773,20 +1129,47 @@ const Result: React.FC<ResultProps> = ({
               <CardTitle>Analytics (remaining position)</CardTitle>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
                 <Tabs>
-                  <Tab active={tab === 'il'} onClick={() => setTab('il')}>IL curve</Tab>
-                  <Tab active={tab === 'scenarios'} onClick={() => setTab('scenarios')}>Scenarios</Tab>
-                  <Tab active={tab === 'simulator'} onClick={() => setTab('simulator')}>Simulator</Tab>
+                  <Tab active={tab === 'il'} onClick={() => setTab('il')}>
+                    IL curve
+                  </Tab>
+                  <Tab active={tab === 'scenarios'} onClick={() => setTab('scenarios')}>
+                    Scenarios
+                  </Tab>
+                  <Tab active={tab === 'simulator'} onClick={() => setTab('simulator')}>
+                    Simulator
+                  </Tab>
                 </Tabs>
-                <SwapBtn style={{ marginLeft: 8 }} onClick={() => setAnalyticsUnit(flip(analyticsUnit))}>in {analyticsUnit === 1 ? n1 : n2} ⇄</SwapBtn>
+                <SwapBtn style={{ marginLeft: 8 }} onClick={() => setAnalyticsUnit(flip(analyticsUnit))}>
+                  in
+                  {analyticsUnit === 1 ? n1 : n2} ⇄
+                </SwapBtn>
               </div>
             </CardHead>
             {tab === 'il' && <ILCurveChart metrics={m} unit={analyticsUnit} name1={n1} name2={n2} />}
-            {tab === 'scenarios' && <ScenariosChart metrics={m} unit={analyticsUnit} name1={n1} name2={n2} unitName={analyticsUnit === 1 ? n1 : n2} />}
-            {tab === 'simulator' && <SimulatorChart metrics={m} unit={analyticsUnit} name1={n1} name2={n2} unitName={analyticsUnit === 1 ? n1 : n2} />}
+            {tab === 'scenarios' && (
+              <ScenariosChart
+                metrics={m}
+                unit={analyticsUnit}
+                name1={n1}
+                name2={n2}
+                unitName={analyticsUnit === 1 ? n1 : n2}
+              />
+            )}
+            {tab === 'simulator' && (
+              <SimulatorChart
+                metrics={m}
+                unit={analyticsUnit}
+                name1={n1}
+                name2={n2}
+                unitName={analyticsUnit === 1 ? n1 : n2}
+              />
+            )}
           </WideCard>
         </Grid>
       ) : (
-        <Message>This position is fully withdrawn (nothing remains in the pool), so only the realized P&amp;L above applies.</Message>
+        <Message>
+          This position is fully withdrawn (nothing remains in the pool), so only the realized P&amp;L above applies.
+        </Message>
       )}
     </>
   );

@@ -19,7 +19,9 @@ import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend } fro
 const Legend = styled(ChartLegend)`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
 `;
 
 const LegendItem = styled.span`
@@ -106,15 +108,28 @@ function allNonNegative(data: ReadonlyArray<{ value: number }>): boolean {
 function defaultFormatter(v: number): string {
   if (!Number.isFinite(v)) return '';
   const abs = Math.abs(v);
-  if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-  if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-  if (abs >= 1e3) return (v / 1e3).toFixed(2) + 'k';
-  if (abs >= 1)   return v.toFixed(2);
-  if (abs > 0)    return v.toPrecision(3);
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}k`;
+  if (abs >= 1) return v.toFixed(2);
+  if (abs > 0) return v.toPrecision(3);
   return '0';
 }
 
-export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatter = defaultFormatter, logScale = false, onChartReady, overlaySeries, overlayLabel, overlayColor = '#f5a623', interactive = false, onVisibleRangeChange, presetWindow }) => {
+export const SimpleChart: React.FC<Props> = ({
+  series,
+  title,
+  scale = 1,
+  formatter = defaultFormatter,
+  logScale = false,
+  onChartReady,
+  overlaySeries,
+  overlayLabel,
+  overlayColor = '#f5a623',
+  interactive = false,
+  onVisibleRangeChange,
+  presetWindow,
+}) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
@@ -123,13 +138,17 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
   // it — listing it in the create-effect's deps would rebuild the entire
   // chart whenever an inline arrow caller re-renders.
   const onChartReadyRef = useRef(onChartReady);
-  useEffect(() => { onChartReadyRef.current = onChartReady; }, [onChartReady]);
+  useEffect(() => {
+    onChartReadyRef.current = onChartReady;
+  }, [onChartReady]);
 
   // Interactive (zoom-preserving) mode bookkeeping.
   const didFitRef = useRef(false);
-  const programmaticRef = useRef(false);           // guards setData/setVisibleRange re-entrancy
+  const programmaticRef = useRef(false); // guards setData/setVisibleRange re-entrancy
   const onRangeRef = useRef(onVisibleRangeChange); // ref-stash so the once-on-creation subscribe
-  useEffect(() => { onRangeRef.current = onVisibleRangeChange; }, [onVisibleRangeChange]); // effect never depends on the raw prop
+  useEffect(() => {
+    onRangeRef.current = onVisibleRangeChange;
+  }, [onVisibleRangeChange]); // effect never depends on the raw prop
   const lastRangeRef = useRef<{ from: number; to: number } | null>(null);
   // Whether the current main / overlay data is all >= 0 (read by the series'
   // autoscaleInfoProvider to floor the axis at 0 — see nonNegAutoscale).
@@ -169,8 +188,9 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
     });
     if (interactive) {
       chart.timeScale().subscribeVisibleTimeRangeChange((r) => {
-        if (programmaticRef.current || !r) return;              // ignore our own writes + null edges
-        const from = Number(r.from), to = Number(r.to);
+        if (programmaticRef.current || !r) return; // ignore our own writes + null edges
+        const from = Number(r.from);
+        const to = Number(r.to);
         lastRangeRef.current = { from, to };
         onRangeRef.current?.(from, to);
       });
@@ -211,18 +231,25 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
     const chart = chartRef.current;
     if (!s || !chart) return;
     const data: LineData[] = toLineData(series, scale);
-    nonNegRef.current = allNonNegative(data);        // floor the axis at 0 when all >= 0
-    programmaticRef.current = true;                 // suppress the range event our writes cause
+    nonNegRef.current = allNonNegative(data); // floor the axis at 0 when all >= 0
+    programmaticRef.current = true; // suppress the range event our writes cause
     s.setData(data);
     if (!interactive) {
       if (data.length > 0) chart.timeScale().fitContent();
     } else if (!didFitRef.current) {
-      if (data.length > 0) { chart.timeScale().fitContent(); didFitRef.current = true; }
+      if (data.length > 0) {
+        chart.timeScale().fitContent();
+        didFitRef.current = true;
+      }
     } else if (lastRangeRef.current) {
-      chart.timeScale().setVisibleRange({ from: lastRangeRef.current.from as never, to: lastRangeRef.current.to as never });
+      chart
+        .timeScale()
+        .setVisibleRange({ from: lastRangeRef.current.from as never, to: lastRangeRef.current.to as never });
     }
     // release the guard after LWC processes the writes
-    requestAnimationFrame(() => { programmaticRef.current = false; });
+    requestAnimationFrame(() => {
+      programmaticRef.current = false;
+    });
   }, [series, scale, interactive]);
 
   // Buttons-as-presets: a timeframe click sets the visible window imperatively.
@@ -235,10 +262,12 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
     if (!chart || !interactive || !presetWindow) return;
     if (presetNonceRef.current === presetWindow.nonce) return;
     presetNonceRef.current = presetWindow.nonce;
-    programmaticRef.current = true;               // suppress the range event our own write causes
+    programmaticRef.current = true; // suppress the range event our own write causes
     chart.timeScale().setVisibleRange({ from: presetWindow.from as never, to: presetWindow.to as never });
     lastRangeRef.current = { from: presetWindow.from, to: presetWindow.to };
-    requestAnimationFrame(() => { programmaticRef.current = false; });
+    requestAnimationFrame(() => {
+      programmaticRef.current = false;
+    });
   }, [interactive, presetWindow]);
 
   // Optional overlay comparison line — created lazily on the same right axis,
@@ -281,9 +310,9 @@ export const SimpleChart: React.FC<Props> = ({ series, title, scale = 1, formatt
             {overlayLabel}
           </LegendItem>
         </Legend>
-      ) : (
-        title ? <ChartLegend>{title}</ChartLegend> : null
-      )}
+      ) : title ? (
+        <ChartLegend>{title}</ChartLegend>
+      ) : null}
       <ChartInner ref={innerRef} />
     </ChartWrap>
   );

@@ -83,12 +83,7 @@ export interface ApiPairsList {
   last_indexed_height: number;
 }
 
-export type SortKey =
-  | 'tvl_usd'
-  | 'volume_24h_usd'
-  | 'price_change_24h'
-  | 'trades_24h'
-  | 'aid2';
+export type SortKey = 'tvl_usd' | 'volume_24h_usd' | 'price_change_24h' | 'trades_24h' | 'aid2';
 export type SortOrder = 'asc' | 'desc';
 
 export interface PairsQuery {
@@ -532,8 +527,17 @@ export interface ApiDappRawCallsList {
 // ---------------------------------------------------------------------------
 
 export type SearchType =
-  | 'asset' | 'pool' | 'dapp' | 'publisher'
-  | 'block' | 'kernel' | 'contract' | 'bans' | 'chart' | 'ipfs' | 'page';
+  | 'asset'
+  | 'pool'
+  | 'dapp'
+  | 'publisher'
+  | 'block'
+  | 'kernel'
+  | 'contract'
+  | 'bans'
+  | 'chart'
+  | 'ipfs'
+  | 'page';
 
 export interface SearchItem {
   type: SearchType;

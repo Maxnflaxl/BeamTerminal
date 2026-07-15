@@ -9,7 +9,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const BaseButtonStyled = styled.button<ButtonProps>`
-  font-family: 'SFProDisplay', sans-serif;
+  font-family: var(--font-sans);
   &[disabled] {
     opacity: 0.5;
 
@@ -77,7 +77,7 @@ const BlockButtonStyled = styled(GhostButtonStyled)`
 
 const IconButtonStyled = styled(BaseButtonStyled)`
   display: inline-block;
-  font-family: 'ProximaNova', 'SFProDisplay', sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   font-weight: 700;
   font-size: 14px;
@@ -104,7 +104,7 @@ const LinkButtonStyled = styled(IconButtonStyled)`
   color: ${({ pallete }) => `var(--color-${pallete})`};
 `;
 const ControlButtonStyled = styled(IconButtonStyled)`
-  font-family: 'ProximaNova', 'SFProDisplay', sans-serif;
+  font-family: var(--font-sans);
   font-style: normal;
   font-weight: 700;
   font-size: 14px;

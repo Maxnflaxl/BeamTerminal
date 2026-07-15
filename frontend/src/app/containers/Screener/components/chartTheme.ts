@@ -40,8 +40,18 @@ const BASE_OPTIONS: DeepPartial<ChartOptions> = {
   },
   crosshair: {
     mode: CrosshairMode.Normal,
-    vertLine: { color: CHART_COLORS.accentDim, width: 1, style: 0, labelBackgroundColor: CHART_COLORS.accent },
-    horzLine: { color: CHART_COLORS.accentDim, width: 1, style: 0, labelBackgroundColor: CHART_COLORS.accent },
+    vertLine: {
+      color: CHART_COLORS.accentDim,
+      width: 1,
+      style: 0,
+      labelBackgroundColor: CHART_COLORS.accent,
+    },
+    horzLine: {
+      color: CHART_COLORS.accentDim,
+      width: 1,
+      style: 0,
+      labelBackgroundColor: CHART_COLORS.accent,
+    },
   },
   rightPriceScale: { borderColor: CHART_COLORS.border },
   timeScale: { borderColor: CHART_COLORS.border, timeVisible: false, secondsVisible: false },
@@ -49,17 +59,15 @@ const BASE_OPTIONS: DeepPartial<ChartOptions> = {
 
 // Shallow-merge one level into the nested option groups so a caller can tweak,
 // say, `timeScale.rightOffset` without dropping the base `timeScale.borderColor`.
-function mergeOptions(
-  base: DeepPartial<ChartOptions>,
-  over?: DeepPartial<ChartOptions>,
-): DeepPartial<ChartOptions> {
+function mergeOptions(base: DeepPartial<ChartOptions>, over?: DeepPartial<ChartOptions>): DeepPartial<ChartOptions> {
   if (!over) return base;
   const out: Record<string, unknown> = { ...base };
   for (const [k, ov] of Object.entries(over)) {
     const bv = (base as Record<string, unknown>)[k];
-    out[k] = bv && ov && typeof bv === 'object' && typeof ov === 'object' && !Array.isArray(ov)
-      ? { ...(bv as object), ...(ov as object) }
-      : ov;
+    out[k] =
+      bv && ov && typeof bv === 'object' && typeof ov === 'object' && !Array.isArray(ov)
+        ? { ...(bv as object), ...(ov as object) }
+        : ov;
   }
   return out as DeepPartial<ChartOptions>;
 }
@@ -94,7 +102,7 @@ export const ChartLegend = styled.div`
   left: 12px;
   z-index: 10;
   pointer-events: none;
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
 `;

@@ -2,7 +2,6 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import { Provider } from 'react-redux';
 import { HashRouter } from 'react-router-dom';
-import 'core-js/stable';
 
 import configureStore from '@app/store/store';
 import App from './app';
@@ -25,7 +24,10 @@ if (typeof window !== 'undefined') {
 }
 
 if (process.env.NODE_ENV === 'development') {
-  import('react-grab').then((m) => m.init({ activationMode: 'toggle', allowActivationInsideInput: false, maxContextLines: 3 }));
+  // eslint-disable-next-line import/no-extraneous-dependencies -- dev-only tool, stripped from prod builds
+  import('react-grab').then((m) =>
+    m.init({ activationMode: 'toggle', allowActivationInsideInput: false, maxContextLines: 3 }),
+  );
 }
 
 const { store } = configureStore();

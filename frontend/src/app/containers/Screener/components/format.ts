@@ -1,8 +1,20 @@
 // Display helpers reused across screener pages.
 
+// One cached Intl.NumberFormat per digit count — toLocaleString with options
+// constructs a fresh formatter on every call, which adds up across table cells.
+const groupFmts = new Map<number, Intl.NumberFormat>();
+
 function group(v: number, dec: number): string {
-  return v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  let f = groupFmts.get(dec);
+  if (!f) {
+    f = new Intl.NumberFormat('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    groupFmts.set(dec, f);
+  }
+  return f.format(v);
 }
+
+/** Grouped fixed-decimal formatting via the cached formatter above. */
+export const fmtGrouped = group;
 
 export function fmt$(v: number | null | undefined, dec = 2): string {
   if (v == null || !Number.isFinite(v)) return '$—';
@@ -67,7 +79,10 @@ export function fmtPriceSub(v: number): string {
     else break;
   }
   if (zeros < 2) return v.toFixed(Math.min(zeros + 4, 10));
-  const subStr = String(zeros).split('').map((d) => sub[parseInt(d, 10)]).join('');
+  const subStr = String(zeros)
+    .split('')
+    .map((d) => sub[parseInt(d, 10)])
+    .join('');
   const sig = afterDot.slice(zeros, zeros + 4);
   return `0.0${subStr}${sig}`;
 }
@@ -88,7 +103,19 @@ export function fmtDateFull(ts: number): string {
   if (!ts) return '—';
   const d = new Date(ts * 1000);
   const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
+    d.getMinutes(),
+  )}:${pad(d.getSeconds())}`;
+}
+
+/** Compact K/M/B with trailing-zero trim — 2 decimals for B/M, 1 for K,
+ *  2 for sub-1 values, integers otherwise. */
+export function fmtCompact(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(2).replace(/\.?0+$/, '')}B`;
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(2).replace(/\.?0+$/, '')}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(1).replace(/\.?0+$/, '')}K`;
+  return n.toFixed(abs > 0 && abs < 1 ? 2 : 0);
 }
 
 /** Initials fallback when an asset has no icon — first 2 chars of symbol. */

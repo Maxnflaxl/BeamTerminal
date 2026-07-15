@@ -2,15 +2,32 @@ import React, { useEffect, useRef } from 'react';
 import { styled } from '@linaria/react';
 import type { IChartApi, ISeriesApi, LineData, UTCTimestamp } from 'lightweight-charts';
 import { fmtNum } from './format';
-import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend, clearChildren, makeSpan } from './chartTheme';
+import {
+  createBeamChart,
+  CHART_COLORS,
+  ChartWrap,
+  ChartInner,
+  ChartLegend,
+  clearChildren,
+  makeSpan,
+} from './chartTheme';
 
 const Legend = styled(ChartLegend)`
   display: flex;
   align-items: baseline;
-  & > * + * { margin-left: 6px; }
-  & .lbl { color: rgba(255,255,255,0.4); }
-  & .val { color: #fff; }
-  & .unit { color: rgba(255,255,255,0.4); margin-left: 4px; }
+  & > * + * {
+    margin-left: 6px;
+  }
+  & .lbl {
+    color: rgba(255, 255, 255, 0.4);
+  }
+  & .val {
+    color: #fff;
+  }
+  & .unit {
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 4px;
+  }
 `;
 
 interface Point {

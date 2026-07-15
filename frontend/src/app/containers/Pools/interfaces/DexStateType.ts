@@ -1,6 +1,4 @@
-import {
-  IAsset, IOptions, IPoolCard, IPredict, ITxStatus, KindProcent,
-} from '@core/types';
+import { IAsset, IOptions, IPoolCard, IPredict, ITxStatus, KindProcent } from '@core/types';
 import { ShaderRuntimeMap } from '@app/core/shaderRegistry';
 
 export interface AccumulatorRewardsState {

@@ -2,40 +2,36 @@ import React, { useState, useMemo } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate } from 'react-router-dom';
 import AssetIcon from '@app/shared/components/AssetsIcon';
-import { MOBILE_MEDIA, DesktopOnly, MobileOnly } from '../components/responsive';
+import { MOBILE_MEDIA, DesktopOnly, MobileOnly, useIsMobile } from '../components/responsive';
 import { useAssets } from '../hooks';
 import { fmtNum } from '../components/format';
+import { CenteredNote } from '../components/CenteredNote';
+import {
+  ListPage as Page,
+  SearchInput as Search,
+  TableWrap,
+  MobileCard as ACard,
+  MobileCardMain as ACardMain,
+  MobileCardTopRow as ACardTitleRow,
+  MobileCardTitle as ACardTitle,
+  MobileCardSub as ACardSub,
+  MobileCardStats as ACardStats,
+  MobileCardStat as ACardStat,
+} from '../components/listPage';
 import { ScreenerTable } from '../components/ScreenerTable';
-
-const Page = styled.div`
-  width: 100%;
-  min-height: calc(100vh - 130px);
-`;
 
 const Header = styled.div`
   max-width: 1100px;
   margin: 24px auto 0;
   padding: 0 20px;
   display: flex;
-  & > * + * { margin-left: 16px; }
+  & > * + * {
+    margin-left: 16px;
+  }
   align-items: center;
   ${MOBILE_MEDIA} {
     padding: 0 12px;
   }
-`;
-
-const Search = styled.input`
-  flex: 1;
-  max-width: 360px;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: white;
-  font-size: 13px;
-  outline: none;
-  font-family: inherit;
-  &:focus { border-color: var(--color-green); }
 `;
 
 const ToggleBtn = styled.button<{ on: boolean }>`
@@ -50,59 +46,9 @@ const ToggleBtn = styled.button<{ on: boolean }>`
   cursor: pointer;
   flex-shrink: 0;
   margin-left: 16px;
-  &:hover { filter: brightness(1.1); }
-`;
-
-const TableWrap = styled.div`
-  max-width: 1100px;
-  margin: 16px auto;
-  padding: 0 20px;
-  overflow-x: auto;
-
-  ${MOBILE_MEDIA} {
-    padding: 0 12px;
-    overflow-x: visible;
+  &:hover {
+    filter: brightness(1.1);
   }
-`;
-
-const ACard = styled.div`
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-gap: 10px;
-  padding: 12px;
-  margin-bottom: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  cursor: pointer;
-  &:hover { background: rgba(255, 255, 255, 0.05); }
-`;
-
-const ACardMain = styled.div`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  & > * + * { margin-top: 4px; }
-`;
-
-const ACardTitleRow = styled.div`
-  display: flex;
-  align-items: baseline;
-  & > * + * { margin-left: 8px; }
-  flex-wrap: wrap;
-`;
-
-const ACardTitle = styled.div`
-  font-weight: 600;
-  font-size: 14px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-const ACardSub = styled.div`
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 11px;
 `;
 
 const ACardDesc = styled.div`
@@ -115,37 +61,19 @@ const ACardDesc = styled.div`
   -webkit-box-orient: vertical;
 `;
 
-const ACardStats = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-gap: 2px 12px;
-  margin-top: 4px;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 12px;
-`;
-
-const ACardStat = styled.div`
-  display: flex;
-  flex-direction: column;
-  color: rgba(255, 255, 255, 0.85);
-
-  & > span:first-child {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-`;
-
 // Top-aligned cells so multi-line descriptions sit at the row top.
 const Table = styled(ScreenerTable)`
   min-width: 720px;
-  && td { vertical-align: top; }
+  && td {
+    vertical-align: top;
+  }
 `;
 
 const Cell = styled.div`
   display: flex;
-  & > * + * { margin-left: 10px; }
+  & > * + * {
+    margin-left: 10px;
+  }
   align-items: center;
 `;
 
@@ -153,7 +81,9 @@ const Cell = styled.div`
 // strip the right-margin (set for text-adjacent layout) since the icon sits
 // in its own flex slot here.
 const RowAssetIcon = styled(AssetIcon)`
-  && { margin-right: 0; }
+  && {
+    margin-right: 0;
+  }
   flex-shrink: 0;
 `;
 
@@ -192,23 +122,15 @@ const ImposterBadge = styled.span`
   letter-spacing: 0.4px;
 `;
 
-const Loading = styled.div`
-  text-align: center;
-  padding: 60px 20px;
-  color: rgba(255, 255, 255, 0.5);
-`;
-
-const Empty = styled.div`
-  text-align: center;
-  padding: 60px 20px;
-  color: rgba(255, 255, 255, 0.5);
-`;
-
 export const AssetsList: React.FC = () => {
   const navigate = useNavigate();
   const { data, loading, error } = useAssets();
   const [searchInput, setSearchInput] = useState('');
   const [showImposters, setShowImposters] = useState(false);
+  // Render only the active layout's rows — same gate as PairsList: the card
+  // and table lists both map every asset, and without it both live in the DOM
+  // with one CSS-hidden, doubling row count and icon subscriptions.
+  const isMobile = useIsMobile();
 
   const filtered = useMemo(() => {
     const all = data?.assets ?? [];
@@ -227,6 +149,7 @@ export const AssetsList: React.FC = () => {
     <Page>
       <Header>
         <Search
+          maxW={360}
           type="text"
           placeholder="Search assets (symbol, name, AID)…"
           value={searchInput}
@@ -237,121 +160,103 @@ export const AssetsList: React.FC = () => {
         </ToggleBtn>
       </Header>
 
-      <TableWrap>
+      <TableWrap maxWidth={1100}>
         {error ? (
-          <Empty>
+          <CenteredNote>
             Failed to load assets:
             {error}
-          </Empty>
+          </CenteredNote>
         ) : loading && filtered.length === 0 ? (
-          <Loading>Loading assets…</Loading>
+          <CenteredNote>Loading assets…</CenteredNote>
         ) : filtered.length === 0 ? (
-          <Empty>No assets match.</Empty>
+          <CenteredNote>No assets match.</CenteredNote>
         ) : (
           <>
-          <MobileOnly>
-            {filtered.map((a) => {
-              const supplyHuman = a.emission
-                ? Number(a.emission) / 10 ** a.decimals
-                : null;
-              const maxSupplyHuman = a.max_supply
-                ? Number(a.max_supply) / 10 ** a.decimals
-                : null;
-              const maxSupplyLabel = maxSupplyHuman !== null
-                ? fmtNum(maxSupplyHuman, 0)
-                : a.minter_cid
-                  ? '∞'
-                  : '—';
-              return (
-                <ACard key={a.aid} onClick={() => navigate(`/asset/${a.aid}`)}>
-                  <RowAssetIcon asset_id={a.aid} color={a.color} />
-                  <ACardMain>
-                    <ACardTitleRow>
-                      <ACardTitle>{a.short_name ?? `aid${a.aid}`}</ACardTitle>
-                      <ACardSub>#{a.aid}</ACardSub>
-                      {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
-                    </ACardTitleRow>
-                    {a.name && <ACardSub>{a.name}</ACardSub>}
-                    {a.description && <ACardDesc>{a.description}</ACardDesc>}
-                    <ACardStats>
-                      <ACardStat>
-                        <span>Emission</span>
-                        <span>{supplyHuman !== null ? fmtNum(supplyHuman, 0) : '—'}</span>
-                      </ACardStat>
-                      <ACardStat>
-                        <span>Max</span>
-                        <span>{maxSupplyLabel}</span>
-                      </ACardStat>
-                      <ACardStat>
-                        <span>Pools</span>
-                        <span>{a.pool_count}</span>
-                      </ACardStat>
-                    </ACardStats>
-                  </ACardMain>
-                </ACard>
-              );
-            })}
-          </MobileOnly>
-          <DesktopOnly>
-          <Table>
-            <thead>
-              <tr>
-                <th style={{ width: 60 }}>AID</th>
-                <th>Asset</th>
-                <th>Description</th>
-                <th style={{ width: 100 }}>Emission</th>
-                <th style={{ width: 100 }}>Max Supply</th>
-                <th style={{ width: 70 }}>Pools</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((a) => {
-                const supplyHuman = a.emission
-                  ? Number(a.emission) / 10 ** a.decimals
-                  : null;
-                const maxSupplyHuman = a.max_supply
-                  ? Number(a.max_supply) / 10 ** a.decimals
-                  : null;
-                // Minter-issued assets with no cap (UINT64_MAX sentinel) keep
-                // max_supply null on the backend — render those as "∞" so
-                // they're visually distinct from non-minter rows ("—").
-                const maxSupplyLabel = maxSupplyHuman !== null
-                  ? fmtNum(maxSupplyHuman, 0)
-                  : a.minter_cid
-                    ? '∞'
-                    : '—';
-                return (
-                  <tr key={a.aid} onClick={() => navigate(`/asset/${a.aid}`)}>
-                    <td style={{ color: 'rgba(255,255,255,0.4)' }}>
-                      #
-                      {a.aid}
-                    </td>
-                    <td>
-                      <Cell>
-                        <RowAssetIcon asset_id={a.aid} color={a.color} />
-                        <Sym>
-                          {a.short_name ?? `aid${a.aid}`}
-                          <small>{a.name ?? ''}</small>
+            <MobileOnly>
+              {isMobile &&
+                filtered.map((a) => {
+                  const supplyHuman = a.emission ? Number(a.emission) / 10 ** a.decimals : null;
+                  const maxSupplyHuman = a.max_supply ? Number(a.max_supply) / 10 ** a.decimals : null;
+                  const maxSupplyLabel = maxSupplyHuman !== null ? fmtNum(maxSupplyHuman, 0) : a.minter_cid ? '∞' : '—';
+                  return (
+                    <ACard key={a.aid} onClick={() => navigate(`/asset/${a.aid}`)}>
+                      <RowAssetIcon asset_id={a.aid} color={a.color} />
+                      <ACardMain>
+                        <ACardTitleRow>
+                          <ACardTitle>{a.short_name ?? `aid${a.aid}`}</ACardTitle>
+                          <ACardSub>#{a.aid}</ACardSub>
                           {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
-                        </Sym>
-                      </Cell>
-                    </td>
-                    <td>
-                      <Desc>{a.description ?? ''}</Desc>
-                    </td>
-                    <td style={{ fontFamily: 'SFProDisplay,monospace' }}>
-                      {supplyHuman !== null ? fmtNum(supplyHuman, 0) : '—'}
-                    </td>
-                    <td style={{ fontFamily: 'SFProDisplay,monospace' }}>
-                      {maxSupplyLabel}
-                    </td>
-                    <td style={{ fontFamily: 'SFProDisplay,monospace' }}>{a.pool_count}</td>
+                        </ACardTitleRow>
+                        {a.name && <ACardSub>{a.name}</ACardSub>}
+                        {a.description && <ACardDesc>{a.description}</ACardDesc>}
+                        <ACardStats cols={3}>
+                          <ACardStat column>
+                            <span>Emission</span>
+                            <span>{supplyHuman !== null ? fmtNum(supplyHuman, 0) : '—'}</span>
+                          </ACardStat>
+                          <ACardStat column>
+                            <span>Max</span>
+                            <span>{maxSupplyLabel}</span>
+                          </ACardStat>
+                          <ACardStat column>
+                            <span>Pools</span>
+                            <span>{a.pool_count}</span>
+                          </ACardStat>
+                        </ACardStats>
+                      </ACardMain>
+                    </ACard>
+                  );
+                })}
+            </MobileOnly>
+            <DesktopOnly>
+              <Table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 60 }}>AID</th>
+                    <th>Asset</th>
+                    <th>Description</th>
+                    <th style={{ width: 100 }}>Emission</th>
+                    <th style={{ width: 100 }}>Max Supply</th>
+                    <th style={{ width: 70 }}>Pools</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </Table>
-          </DesktopOnly>
+                </thead>
+                <tbody>
+                  {!isMobile &&
+                    filtered.map((a) => {
+                      const supplyHuman = a.emission ? Number(a.emission) / 10 ** a.decimals : null;
+                      const maxSupplyHuman = a.max_supply ? Number(a.max_supply) / 10 ** a.decimals : null;
+                      // Minter-issued assets with no cap (UINT64_MAX sentinel) keep
+                      // max_supply null on the backend — render those as "∞" so
+                      // they're visually distinct from non-minter rows ("—").
+                      const maxSupplyLabel =
+                        maxSupplyHuman !== null ? fmtNum(maxSupplyHuman, 0) : a.minter_cid ? '∞' : '—';
+                      return (
+                        <tr key={a.aid} onClick={() => navigate(`/asset/${a.aid}`)}>
+                          <td style={{ color: 'rgba(255,255,255,0.4)' }}>#{a.aid}</td>
+                          <td>
+                            <Cell>
+                              <RowAssetIcon asset_id={a.aid} color={a.color} />
+                              <Sym>
+                                {a.short_name ?? `aid${a.aid}`}
+                                <small>{a.name ?? ''}</small>
+                                {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
+                              </Sym>
+                            </Cell>
+                          </td>
+                          <td>
+                            <Desc>{a.description ?? ''}</Desc>
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>
+                            {supplyHuman !== null ? fmtNum(supplyHuman, 0) : '—'}
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>{maxSupplyLabel}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>{a.pool_count}</td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </Table>
+            </DesktopOnly>
           </>
         )}
       </TableWrap>

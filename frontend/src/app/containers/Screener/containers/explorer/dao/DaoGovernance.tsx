@@ -1,12 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { css } from '@linaria/core';
-import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, Pill, ErrorBox, theme } from '../shared';
 import { ROUTES } from '@app/shared/constants';
+import { Page, ExplorerHeader, H1, Subtitle, StatGrid, StatCard, Label, Value, Pill, ErrorBox, theme } from '../shared';
+import { usePolled } from '../../../hooks';
 import { api } from '../../../api/client';
 import type { ApiDaoGovernance, ApiDaoProposalSummary } from '../../../api/types';
-import { TallyBar, TimeChart, fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeLabel } from './daoShared';
+import {
+  TallyBar,
+  TimeChart,
+  fmtBeamx,
+  fmtCompact,
+  grothToBeamx,
+  variantColor,
+  outcomeTone,
+  outcomeLabel,
+} from './daoShared';
 
 const POLL_MS = 60_000;
 
@@ -44,7 +54,9 @@ const TopRow = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
 `;
 const PTitle = styled.div`
   font-size: 14px;
@@ -67,7 +79,9 @@ const Legend = styled.div`
   flex-wrap: wrap;
   font-size: 11px;
   color: ${theme.color.muted};
-  & > * + * { margin-left: 14px; }
+  & > * + * {
+    margin-left: 14px;
+  }
 `;
 const LegendItem = styled.span`
   display: inline-flex;
@@ -84,7 +98,9 @@ const detailsCls = css`
   display: inline-flex;
   align-items: center;
   /* Owl margins, not gap — flex gap is unsupported in the wallet's Chrome 83. */
-  & > * + * { margin-left: 5px; }
+  & > * + * {
+    margin-left: 5px;
+  }
   font-size: 11px;
   font-weight: 600;
   padding: 6px 14px;
@@ -130,31 +146,7 @@ const ProposalCardView: React.FC<{ p: ApiDaoProposalSummary }> = ({ p }) => (
 );
 
 export const DaoGovernance: React.FC = () => {
-  const [data, setData] = useState<ApiDaoGovernance | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const load = (): void => {
-      api
-        .daoGovernance()
-        .then((d) => {
-          if (alive) {
-            setData(d);
-            setError(null);
-          }
-        })
-        .catch((e: unknown) => {
-          if (alive) setError(e instanceof Error ? e.message : String(e));
-        });
-    };
-    load();
-    const id = setInterval(load, POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
+  const { data, error } = usePolled<ApiDaoGovernance>(() => api.daoGovernance(), [], POLL_MS);
 
   const byEpoch = useMemo(() => {
     const m = new Map<number, ApiDaoProposalSummary[]>();
@@ -175,12 +167,19 @@ export const DaoGovernance: React.FC = () => {
         </div>
       </ExplorerHeader>
 
-      {error && <ErrorBox>Failed to load governance: {error}</ErrorBox>}
+      {error && (
+        <ErrorBox>
+          Failed to load governance:
+          {error}
+        </ErrorBox>
+      )}
 
       <StatGrid>
         <StatCard>
           <Label>Current epoch</Label>
-          <Value style={{ color: theme.color.accent }}>{data?.current_epoch != null ? `#${data.current_epoch}` : '—'}</Value>
+          <Value style={{ color: theme.color.accent }}>
+            {data?.current_epoch != null ? `#${data.current_epoch}` : '—'}
+          </Value>
         </StatCard>
         <StatCard>
           <Label>Live proposals</Label>

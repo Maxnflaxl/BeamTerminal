@@ -1,27 +1,23 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { styled } from '@linaria/react';
 import { css } from '@linaria/core';
-import {
-  createChart, ColorType,
-  type IChartApi, type ISeriesApi, type LineData, type UTCTimestamp,
-} from 'lightweight-charts';
+import { ColorType, type IChartApi, type ISeriesApi, type LineData, type UTCTimestamp } from 'lightweight-charts';
+import { createBeamChart } from '../../components/chartTheme';
+import { Overlay, useEscapeClose } from '../../components/modalChrome';
 import { api } from '../../api/client';
 import type { ApiMiningPools, ApiMiningPool, ApiMiningBlocks, ApiNetwork } from '../../api/types';
 import type { ApiChartPoint } from '../../api/client';
 import { Sparkline } from '../../components/Sparkline';
-import {
-  Page, Card, H2, H3,
-  DataTable, TabBtn, Dot, Btn, Muted, theme, fmtHashrate, Donut,
-} from './shared';
+import { Page, Card, H2, H3, DataTable, TabBtn, Dot, Btn, Muted, theme, fmtHashrate, Donut } from './shared';
 import { MiningCalculator } from './MiningCalculator';
 
 // --- helpers -----------------------------------------------------------------
 
 function fmtSI(v: number): string {
   if (!Number.isFinite(v)) return '—';
-  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + 'G';
-  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M';
-  if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  if (Math.abs(v) >= 1e9) return `${(v / 1e9).toFixed(1)}G`;
+  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (Math.abs(v) >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
   return v.toFixed(0);
 }
 
@@ -56,7 +52,11 @@ const COLORS = ['#00f6d2', '#4f9dff', '#ffb454', '#ff6b9d', '#a78bfa', '#34d399'
 
 // --- Donut -------------------------------------------------------------------
 
-interface Slice { label: string; value: number; color: string }
+interface Slice {
+  label: string;
+  value: number;
+  color: string;
+}
 
 // --- styled helpers ----------------------------------------------------------
 
@@ -66,7 +66,9 @@ const TabRow = styled.div`
   -webkit-box-align: center;
   align-items: center;
   margin-bottom: 14px;
-  > * + * { margin-left: 8px; }
+  > * + * {
+    margin-left: 8px;
+  }
 `;
 
 const HeaderStrip = styled.div`
@@ -78,13 +80,17 @@ const HeaderStrip = styled.div`
   justify-content: space-between;
   flex-wrap: wrap;
   margin-bottom: 12px;
-  > * + * { margin-top: 0; }
+  > * + * {
+    margin-top: 0;
+  }
 `;
 
 const NetInfo = styled.span`
   font-size: 12px;
   color: ${theme.color.muted};
-  > strong { color: ${theme.color.text}; }
+  > strong {
+    color: ${theme.color.text};
+  }
 `;
 
 const ChartWrap = styled.div`
@@ -99,11 +105,15 @@ const DonutLayout = styled.div`
   grid-template-columns: 190px 1fr;
   grid-gap: 24px;
   align-items: center;
-  @media (max-width: 600px) { grid-template-columns: 1fr; }
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const Legend = styled.ul`
-  list-style: none; margin: 0; padding: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
   li {
     display: -webkit-box;
     display: flex;
@@ -111,24 +121,26 @@ const Legend = styled.ul`
     align-items: center;
     padding: 5px 0;
     font-size: 13px;
-    > * + * { margin-left: 8px; }
+    > * + * {
+      margin-left: 8px;
+    }
   }
-  li .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
-  li .pct { margin-left: auto; opacity: 0.65; font-size: 12px; }
-  li .cnt { opacity: 0.8; font-size: 12px; }
-`;
-
-const ModalOverlay = styled.div`
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(4, 37, 72, 0.82);
-  z-index: 200;
-  display: -webkit-box;
-  display: flex;
-  -webkit-box-align: center;
-  align-items: center;
-  -webkit-box-pack: center;
-  justify-content: center;
+  li .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  li .pct {
+    margin-left: auto;
+    opacity: 0.65;
+    font-size: 12px;
+  }
+  li .cnt {
+    opacity: 0.8;
+    font-size: 12px;
+  }
 `;
 
 const ModalCard = styled.div`
@@ -161,7 +173,9 @@ const CloseBtn = styled.button`
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
-  &:hover { color: ${theme.color.text}; }
+  &:hover {
+    color: ${theme.color.text};
+  }
 `;
 
 const SparkCell = styled.div`
@@ -169,13 +183,15 @@ const SparkCell = styled.div`
   display: flex;
   -webkit-box-align: center;
   align-items: center;
-  > * + * { margin-left: 8px; }
+  > * + * {
+    margin-left: 8px;
+  }
 `;
 
 const HashrateBarTrack = styled.div`
   width: 100%;
   height: 4px;
-  background: rgba(255,255,255,0.08);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
   margin-top: 4px;
 `;
@@ -213,7 +229,10 @@ function fmtTooltipDate(ts: number): string {
   return `${dow}, ${mon} ${day} ${hh}:${mm}`;
 }
 
-interface HashrateSeriesPoint { ts: number; value: number }
+interface HashrateSeriesPoint {
+  ts: number;
+  value: number;
+}
 
 const HashrateCell: React.FC<{
   series: HashrateSeriesPoint[];
@@ -244,9 +263,7 @@ const HashrateCell: React.FC<{
   const handleMouseLeave = () => setHoverIdx(null);
 
   // X of the snapped data point within the sparkline.
-  const pointX = hoverIdx != null && series.length > 1
-    ? (hoverIdx / (series.length - 1)) * SPARK_W
-    : 0;
+  const pointX = hoverIdx != null && series.length > 1 ? (hoverIdx / (series.length - 1)) * SPARK_W : 0;
   // Anchor the tooltip to the point: extend left when the point is in the
   // right half, right otherwise — keeps it near and on-screen.
   const rightHalf = pointX > SPARK_W / 2;
@@ -258,7 +275,12 @@ const HashrateCell: React.FC<{
         {values.length > 0 && (
           <div
             ref={wrapRef}
-            style={{ position: 'relative', display: 'inline-block', width: SPARK_W, height: SPARK_H }}
+            style={{
+              position: 'relative',
+              display: 'inline-block',
+              width: SPARK_W,
+              height: SPARK_H,
+            }}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
           >
@@ -267,19 +289,29 @@ const HashrateCell: React.FC<{
               <>
                 <div
                   style={{
-                    position: 'absolute', left: pointX, top: 0,
-                    width: 1, height: SPARK_H, background: '#f0a500',
+                    position: 'absolute',
+                    left: pointX,
+                    top: 0,
+                    width: 1,
+                    height: SPARK_H,
+                    background: '#f0a500',
                     pointerEvents: 'none',
                   }}
                 />
                 <SparkTooltip
-                  style={rightHalf
-                    ? { right: SPARK_W - pointX, bottom: SPARK_H + 6 }
-                    : { left: pointX, bottom: SPARK_H + 6 }}
+                  style={
+                    rightHalf ? { right: SPARK_W - pointX, bottom: SPARK_H + 6 } : { left: pointX, bottom: SPARK_H + 6 }
+                  }
                 >
                   <div>{fmtTooltipDate(series[hoverIdx].ts)}</div>
-                  <div>Hashrate: {fmtHashrate(series[hoverIdx].value)}</div>
-                  <div>Average: {fmtHashrate(avg)}</div>
+                  <div>
+                    Hashrate:
+                    {fmtHashrate(series[hoverIdx].value)}
+                  </div>
+                  <div>
+                    Average:
+                    {fmtHashrate(avg)}
+                  </div>
                 </SparkTooltip>
               </>
             )}
@@ -300,7 +332,12 @@ const AgeCell: React.FC<{ iso: string | null; interval: number | null }> = ({ is
   const bar = ageBar(interval);
   return (
     <div
-      style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}
+      style={{
+        position: 'relative',
+        display: 'inline-flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+      }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
@@ -308,14 +345,36 @@ const AgeCell: React.FC<{ iso: string | null; interval: number | null }> = ({ is
       {/* marginTop, not flex gap on the parent — unsupported in the wallet's
           Chrome 83 (and a gap would also offset the absolute tooltip). */}
       {bar && (
-        <div style={{ width: 64, height: 3, borderRadius: 2, background: 'rgba(148,163,184,0.18)', marginTop: 3 }}>
-          <div style={{ width: `${bar.pct}%`, height: '100%', borderRadius: 2, background: bar.color }} />
+        <div
+          style={{
+            width: 64,
+            height: 3,
+            borderRadius: 2,
+            background: 'rgba(148,163,184,0.18)',
+            marginTop: 3,
+          }}
+        >
+          <div
+            style={{
+              width: `${bar.pct}%`,
+              height: '100%',
+              borderRadius: 2,
+              background: bar.color,
+            }}
+          />
         </div>
       )}
       {/* Anchored to the age+bar box (inline-flex): vertically centered on the row,
           and `right: 100%` places it left of the solve-time bar so it never covers it. */}
       {hover && interval != null && interval >= 0 && (
-        <SparkTooltip style={{ right: '100%', top: '50%', transform: 'translateY(-50%)', marginRight: 10 }}>
+        <SparkTooltip
+          style={{
+            right: '100%',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            marginRight: 10,
+          }}
+        >
           Block time: {Math.round(interval)} s
         </SparkTooltip>
       )}
@@ -365,7 +424,9 @@ const BlockTimeBars = styled.div`
   display: flex;
   -webkit-box-align: end;
   align-items: flex-end;
-  & > * + * { margin-left: 3px; }
+  & > * + * {
+    margin-left: 3px;
+  }
   height: 100px;
 `;
 
@@ -435,7 +496,9 @@ const pagerCss = css`
   -webkit-box-pack: center;
   justify-content: center;
   margin-top: 14px;
-  > * + * { margin-left: 12px; }
+  > * + * {
+    margin-left: 12px;
+  }
 `;
 
 // --- component ---------------------------------------------------------------
@@ -454,81 +517,117 @@ export const Mining: React.FC = () => {
   const [blockPage, setBlockPage] = useState(0);
   const [tab, setTab] = useState<Tab>('blocks');
   const [calcOpen, setCalcOpen] = useState(false);
+  const closeCalc = useCallback(() => setCalcOpen(false), []);
+  useEscapeClose(closeCalc, calcOpen);
 
   // chart data for diffprice / hashrate tabs
-  const [diffSeries, setDiffSeries]     = useState<ApiChartPoint[]>([]);
-  const [priceSeries, setPriceSeries]   = useState<ApiChartPoint[]>([]);
-  const [hashSeries, setHashSeries]     = useState<ApiChartPoint[]>([]);
+  const [diffSeries, setDiffSeries] = useState<ApiChartPoint[]>([]);
+  const [priceSeries, setPriceSeries] = useState<ApiChartPoint[]>([]);
+  const [hashSeries, setHashSeries] = useState<ApiChartPoint[]>([]);
 
   const chartWrapRef = useRef<HTMLDivElement>(null);
-  const chartRef     = useRef<IChartApi | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
 
   // --- polling ---------------------------------------------------------------
   useEffect(() => {
     let alive = true;
     const load = () => {
-      api.miningPools()
-        .then((d) => { if (alive) { setPoolData(d); setPoolErr(null); } })
-        .catch((e: Error) => { if (alive) setPoolErr(e?.message ?? 'failed to load'); });
-      api.miningBlocks(BLOCKS_PER_PAGE, blockPage * BLOCKS_PER_PAGE)
-        .then((d) => { if (alive) { setBlockData(d); setBlocksLoaded(true); setBlocksError(false); } })
-        .catch(() => { if (alive) { setBlocksLoaded(true); setBlocksError(true); } });
-      api.network()
-        .then((d) => { if (alive) setNet(d); })
+      api
+        .miningPools()
+        .then((d) => {
+          if (alive) {
+            setPoolData(d);
+            setPoolErr(null);
+          }
+        })
+        .catch((e: Error) => {
+          if (alive) setPoolErr(e?.message ?? 'failed to load');
+        });
+      api
+        .miningBlocks(BLOCKS_PER_PAGE, blockPage * BLOCKS_PER_PAGE)
+        .then((d) => {
+          if (alive) {
+            setBlockData(d);
+            setBlocksLoaded(true);
+            setBlocksError(false);
+          }
+        })
+        .catch(() => {
+          if (alive) {
+            setBlocksLoaded(true);
+            setBlocksError(true);
+          }
+        });
+      api
+        .network()
+        .then((d) => {
+          if (alive) setNet(d);
+        })
         .catch(() => {});
     };
     load();
-    const t = setInterval(load, 60_000);
-    return () => { alive = false; clearInterval(t); };
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      void load();
+    }, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
   }, [blockPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- fetch chart series lazily when tab changes ---------------------------
   useEffect(() => {
     let alive = true;
     if (tab === 'diffprice') {
-      Promise.all([api.charts.difficulty(), api.charts.price()]).then(([d, p]) => {
-        if (!alive) return;
-        setDiffSeries(d.series ?? []);
-        setPriceSeries(p.series ?? []);
-      }).catch(() => {});
+      Promise.all([api.charts.difficulty(), api.charts.price()])
+        .then(([d, p]) => {
+          if (!alive) return;
+          setDiffSeries(d.series ?? []);
+          setPriceSeries(p.series ?? []);
+        })
+        .catch(() => {});
     } else if (tab === 'hashrate') {
-      api.charts.hashrate().then((d) => {
-        if (!alive) return;
-        setHashSeries(d.series ?? []);
-      }).catch(() => {});
+      api.charts
+        .hashrate()
+        .then((d) => {
+          if (!alive) return;
+          setHashSeries(d.series ?? []);
+        })
+        .catch(() => {});
     }
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [tab]);
 
   // --- lightweight-charts: rebuild when tab or data changes -----------------
   useEffect(() => {
     const el = chartWrapRef.current;
-    if (!el) return;
+    if (!el) return undefined;
     // destroy previous
-    if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
 
-    if (tab === 'blocks') return; // SVG tab — no LWC chart
+    if (tab === 'blocks') return undefined; // SVG tab — no LWC chart
 
-    const hasDiff  = tab === 'diffprice' && diffSeries.length > 0;
+    const hasDiff = tab === 'diffprice' && diffSeries.length > 0;
     const hasPrice = tab === 'diffprice' && priceSeries.length > 0;
-    const hasHash  = tab === 'hashrate'  && hashSeries.length > 0;
+    const hasHash = tab === 'hashrate' && hashSeries.length > 0;
 
-    if (!hasDiff && !hasPrice && !hasHash) return; // no data yet
+    if (!hasDiff && !hasPrice && !hasHash) return undefined; // no data yet
 
-    const chart = createChart(el, {
-      autoSize: true,
+    // Shared base theme; this chart keeps its lighter surface background and
+    // the tab-dependent left price scale.
+    const chart = createBeamChart(el, {
       layout: {
         background: { type: ColorType.Solid, color: 'rgba(255,255,255,0.03)' },
         textColor: 'rgba(255, 255, 255, 0.6)',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
       },
       rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)', visible: true },
-      leftPriceScale:  { borderColor: 'rgba(255, 255, 255, 0.1)', visible: tab === 'diffprice' },
-      timeScale: { borderColor: 'rgba(255, 255, 255, 0.1)', timeVisible: false },
+      leftPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)', visible: tab === 'diffprice' },
     });
     chartRef.current = chart;
 
@@ -538,21 +637,32 @@ export const Mining: React.FC = () => {
     if (tab === 'diffprice') {
       if (hasDiff) {
         const s: ISeriesApi<'Line'> = chart.addLineSeries({
-          color: '#4f9dff', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, priceScaleId: 'left',
+          color: '#4f9dff',
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          priceScaleId: 'left',
           priceFormat: { type: 'custom', minMove: 1, formatter: (p: number) => fmtSI(p) },
         });
         s.setData(toLineData(diffSeries));
       }
       if (hasPrice) {
         const s: ISeriesApi<'Line'> = chart.addLineSeries({
-          color: '#00f6d2', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, priceScaleId: 'right',
-          priceFormat: { type: 'custom', minMove: 0.0001, formatter: (p: number) => '$' + p.toFixed(p < 1 ? 4 : 2) },
+          color: '#00f6d2',
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          priceScaleId: 'right',
+          priceFormat: { type: 'custom', minMove: 0.0001, formatter: (p: number) => `$${p.toFixed(p < 1 ? 4 : 2)}` },
         });
         s.setData(toLineData(priceSeries));
       }
     } else if (tab === 'hashrate' && hasHash) {
       const s: ISeriesApi<'Line'> = chart.addLineSeries({
-        color: '#ffb454', lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+        color: '#ffb454',
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
         priceFormat: { type: 'custom', minMove: 1, formatter: (p: number) => fmtHashrate(p) },
       });
       s.setData(toLineData(hashSeries));
@@ -561,19 +671,22 @@ export const Mining: React.FC = () => {
     chart.timeScale().fitContent();
 
     return () => {
-      if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
     };
   }, [tab, diffSeries, priceSeries, hashSeries]);
 
   // --- derived data ----------------------------------------------------------
-  const network  = poolData?.network_hashrate ?? null;
-  const blockHt  = poolData?.block_height ?? null;
-  const pools    = poolData?.pools ?? [];
-  const blocks   = blockData?.blocks ?? [];
-  const hasNext  = blocks.length === BLOCKS_PER_PAGE;
+  const network = poolData?.network_hashrate ?? null;
+  const blockHt = poolData?.block_height ?? null;
+  const pools = poolData?.pools ?? [];
+  const blocks = blockData?.blocks ?? [];
+  const hasNext = blocks.length === BLOCKS_PER_PAGE;
 
   // Consensus stats + per-interval block times (seconds), oldest→newest.
-  const difficulty   = net?.difficulty ?? null;
+  const difficulty = net?.difficulty ?? null;
   const avgBlockTime = net?.avg_block_time ?? null;
   const blockTimes = useMemo(() => {
     const recent = net?.recent ?? [];
@@ -587,15 +700,14 @@ export const Mining: React.FC = () => {
   const btMaxT = Math.max(...blockTimes, 120);
   const btTargetBottom = (60 / btMaxT) * 100;
 
-  const sorted = useMemo(
-    () => [...pools].sort((a, b) => (b.hashrate ?? -1) - (a.hashrate ?? -1)),
-    [pools],
-  );
+  const sorted = useMemo(() => [...pools].sort((a, b) => (b.hashrate ?? -1) - (a.hashrate ?? -1)), [pools]);
 
   // pool name → website map for recent-blocks attribution
   const poolByName = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const p of pools) { m[p.name] = p.website; }
+    for (const p of pools) {
+      m[p.name] = p.website;
+    }
     return m;
   }, [pools]);
 
@@ -610,10 +722,7 @@ export const Mining: React.FC = () => {
   }, [pools]);
 
   // max hashrate for proportional bar
-  const maxHashrate = useMemo(
-    () => Math.max(1, ...pools.map((p) => p.hashrate ?? 0)),
-    [pools],
-  );
+  const maxHashrate = useMemo(() => Math.max(1, ...pools.map((p) => p.hashrate ?? 0)), [pools]);
 
   // blocks distribution slices — over the past 24h, against the network total
   const blocks24hTotal = poolData?.blocks_24h_total ?? 0;
@@ -621,7 +730,9 @@ export const Mining: React.FC = () => {
     const known = sorted.filter((p) => (p.blocks_past_24h ?? 0) > 0);
     const sum = known.reduce((s, p) => s + (p.blocks_past_24h ?? 0), 0);
     const out: Slice[] = known.map((p, i) => ({
-      label: p.name, value: p.blocks_past_24h ?? 0, color: COLORS[i % COLORS.length],
+      label: p.name,
+      value: p.blocks_past_24h ?? 0,
+      color: COLORS[i % COLORS.length],
     }));
     const unknown = Math.max(0, blocks24hTotal - sum);
     if (unknown > 0) out.push({ label: 'Unknown', value: unknown, color: COLORS[7] });
@@ -641,23 +752,43 @@ export const Mining: React.FC = () => {
           <NetInfo>
             Network hashrate: <strong>{fmtHashrate(network)}</strong>
             {blockHt != null && (
-              <span style={{ marginLeft: 12 }}>Block: <strong>{blockHt.toLocaleString()}</strong></span>
+              <span style={{ marginLeft: 12 }}>
+                Block:
+                <strong>{blockHt.toLocaleString()}</strong>
+              </span>
             )}
             {difficulty != null && (
-              <span style={{ marginLeft: 12 }}>Diff: <strong>{fmtDifficulty(difficulty)}</strong></span>
+              <span style={{ marginLeft: 12 }}>
+                Diff:
+                <strong>{fmtDifficulty(difficulty)}</strong>
+              </span>
             )}
             {avgBlockTime != null && (
-              <span style={{ marginLeft: 12 }}>Avg block: <strong>{avgBlockTime.toFixed(1)}s</strong></span>
+              <span style={{ marginLeft: 12 }}>
+                Avg block:
+                <strong>{avgBlockTime.toFixed(1)}s</strong>
+              </span>
             )}
             {totalMiners != null && (
-              <span style={{ marginLeft: 12 }}>Miners: <strong>{totalMiners.toLocaleString()}</strong></span>
+              <span style={{ marginLeft: 12 }}>
+                Miners:
+                <strong>{totalMiners.toLocaleString()}</strong>
+              </span>
             )}
             {totalWorkers != null && (
-              <span style={{ marginLeft: 12 }}>Workers: <strong>{totalWorkers.toLocaleString()}</strong></span>
+              <span style={{ marginLeft: 12 }}>
+                Workers:
+                <strong>{totalWorkers.toLocaleString()}</strong>
+              </span>
             )}
           </NetInfo>
         </HeaderStrip>
-        {poolErr && <Muted>Could not load pool data: {poolErr}</Muted>}
+        {poolErr && (
+          <Muted>
+            Could not load pool data:
+            {poolErr}
+          </Muted>
+        )}
         {sorted.length === 0 && !poolErr && <Muted>Loading pool data…</Muted>}
         {sorted.length > 0 && (
           <DataTable>
@@ -671,7 +802,7 @@ export const Mining: React.FC = () => {
                 <th className="right">Blocks (1h)</th>
                 <th className="right">Block Height</th>
                 <th className="right">Last Found</th>
-                <th style={{ width: 20 }}></th>
+                <th aria-label="Details" style={{ width: 20 }} />
               </tr>
             </thead>
             <tbody>
@@ -682,11 +813,14 @@ export const Mining: React.FC = () => {
                     <td className="muted">{idx + 1}</td>
                     <td>
                       <div>
-                        <a href={p.website} target="_blank" rel="noreferrer">{p.name}</a>
+                        <a href={p.website} target="_blank" rel="noreferrer">
+                          {p.name}
+                        </a>
                       </div>
                       {p.payout_scheme && (
                         <div style={{ fontSize: 11, color: theme.color.muted, marginTop: 2 }}>
-                          {p.fee != null ? `${p.fee}% ` : ''}{p.payout_scheme}
+                          {p.fee != null ? `${p.fee}% ` : ''}
+                          {p.payout_scheme}
                         </div>
                       )}
                     </td>
@@ -700,9 +834,13 @@ export const Mining: React.FC = () => {
                     <td className="right">{p.miners != null ? p.miners.toLocaleString() : '—'}</td>
                     <td className="right">{p.workers != null ? p.workers.toLocaleString() : '—'}</td>
                     <td className="right">{p.blocks_past_hour ?? '—'}</td>
-                    <td className="right">{p.last_block_height != null ? p.last_block_height.toLocaleString() : '—'}</td>
+                    <td className="right">
+                      {p.last_block_height != null ? p.last_block_height.toLocaleString() : '—'}
+                    </td>
                     <td className="right">{fmtAge(p.last_block_ts)}</td>
-                    <td><Dot data-kind={offline ? 'error' : 'live'} /></td>
+                    <td>
+                      <Dot data-kind={offline ? 'error' : 'live'} />
+                    </td>
                   </tr>
                 );
               })}
@@ -723,33 +861,40 @@ export const Mining: React.FC = () => {
 
         {tab === 'blocks' && (
           <>
-            {blockSlices.length === 0
-              ? <Muted>No block attribution data available yet.</Muted>
-              : (
-                <DonutLayout>
-                  <Donut
-                    slices={blockSlices.map((s, i) => ({ key: String(i), label: s.label, color: s.color, value: s.value }))}
-                    size={180}
-                    idlePrimary={blockSliceTotal}
-                    idleSecondary="past 24h"
-                  />
-                  <Legend>
-                    {blockSlices.map((s, i) => (
-                      <li key={i}>
-                        <span className="swatch" style={{ background: s.color }} />
-                        <span>{s.label}</span>
-                        <span className="cnt">{s.value}</span>
-                        <span className="pct">{((s.value / blockSliceTotal) * 100).toFixed(1)}%</span>
-                      </li>
-                    ))}
-                  </Legend>
-                </DonutLayout>
-              )}
+            {blockSlices.length === 0 ? (
+              <Muted>No block attribution data available yet.</Muted>
+            ) : (
+              <DonutLayout>
+                <Donut
+                  slices={blockSlices.map((s, i) => ({
+                    key: String(i),
+                    label: s.label,
+                    color: s.color,
+                    value: s.value,
+                  }))}
+                  size={180}
+                  idlePrimary={blockSliceTotal}
+                  idleSecondary="past 24h"
+                />
+                <Legend>
+                  {blockSlices.map((s, i) => (
+                    <li key={i}>
+                      <span className="swatch" style={{ background: s.color }} />
+                      <span>{s.label}</span>
+                      <span className="cnt">{s.value}</span>
+                      <span className="pct">{((s.value / blockSliceTotal) * 100).toFixed(1)}%</span>
+                    </li>
+                  ))}
+                </Legend>
+              </DonutLayout>
+            )}
             {blockTimes.length > 0 && (
               <BlockTimesSection>
                 <BlockTimesHead>
                   <BlockTimesTitle>Block times (past hour)</BlockTimesTitle>
-                  <BlockTimesAside>{avgBlockTime != null ? `avg ${avgBlockTime.toFixed(1)}s` : 'avg —s'}</BlockTimesAside>
+                  <BlockTimesAside>
+                    {avgBlockTime != null ? `avg ${avgBlockTime.toFixed(1)}s` : 'avg —s'}
+                  </BlockTimesAside>
                 </BlockTimesHead>
                 <BlockTimeWrap>
                   <BlockTimeBars>
@@ -789,9 +934,7 @@ export const Mining: React.FC = () => {
             {tab === 'diffprice' && diffSeries.length === 0 && priceSeries.length === 0 && (
               <Muted>Loading chart data…</Muted>
             )}
-            {tab === 'hashrate' && hashSeries.length === 0 && (
-              <Muted>Loading chart data…</Muted>
-            )}
+            {tab === 'hashrate' && hashSeries.length === 0 && <Muted>Loading chart data…</Muted>}
             <ChartWrap ref={chartWrapRef} />
             {tab === 'diffprice' && (diffSeries.length > 0 || priceSeries.length > 0) && (
               <div style={{ marginTop: 8, fontSize: 11, color: theme.color.muted }}>
@@ -807,9 +950,10 @@ export const Mining: React.FC = () => {
       <Card>
         <H2>Recent Blocks</H2>
         {!blocksLoaded && <Muted>Loading recent blocks…</Muted>}
-        {blocksLoaded && (blocksError || blocks.length === 0)
-          ? <Muted>Recent blocks unavailable.</Muted>
-          : blocksLoaded && (
+        {blocksLoaded && (blocksError || blocks.length === 0) ? (
+          <Muted>Recent blocks unavailable.</Muted>
+        ) : (
+          blocksLoaded && (
             <>
               <DataTable>
                 <thead>
@@ -821,21 +965,25 @@ export const Mining: React.FC = () => {
                 </thead>
                 <tbody>
                   {blocks.map((b, i) => {
-                    const site = b.mined_by ? (poolByName[b.mined_by] ?? null) : null;
+                    const site = b.mined_by ? poolByName[b.mined_by] ?? null : null;
                     // Block solve time = gap to the next-older block in the list.
                     const older = blocks[i + 1];
-                    const interval = older
-                      ? (new Date(b.ts).getTime() - new Date(older.ts).getTime()) / 1000
-                      : null;
+                    const interval = older ? (new Date(b.ts).getTime() - new Date(older.ts).getTime()) / 1000 : null;
                     return (
                       <tr key={b.height}>
                         <td className="mono">{b.height.toLocaleString()}</td>
                         <td>
-                          {b.mined_by
-                            ? site
-                              ? <a href={site} target="_blank" rel="noreferrer">{b.mined_by}</a>
-                              : b.mined_by
-                            : <span className="muted">—</span>}
+                          {b.mined_by ? (
+                            site ? (
+                              <a href={site} target="_blank" rel="noreferrer">
+                                {b.mined_by}
+                              </a>
+                            ) : (
+                              b.mined_by
+                            )
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
                         </td>
                         <td className="right">
                           <AgeCell iso={b.ts} interval={interval} />
@@ -846,31 +994,41 @@ export const Mining: React.FC = () => {
                 </tbody>
               </DataTable>
               <div className={pagerCss}>
-                <Btn type="button" disabled={blockPage === 0}
-                     onClick={() => setBlockPage((p) => Math.max(0, p - 1))}>&#8592; Newer</Btn>
-                <span>Page {blockPage + 1}</span>
-                <Btn type="button" disabled={!hasNext}
-                     onClick={() => setBlockPage((p) => p + 1)}>Older &#8594;</Btn>
+                <Btn type="button" disabled={blockPage === 0} onClick={() => setBlockPage((p) => Math.max(0, p - 1))}>
+                  &#8592; Newer
+                </Btn>
+                <span>
+                  Page
+                  {blockPage + 1}
+                </span>
+                <Btn type="button" disabled={!hasNext} onClick={() => setBlockPage((p) => p + 1)}>
+                  Older &#8594;
+                </Btn>
               </div>
             </>
-          )}
+          )
+        )}
       </Card>
 
       {/* ── 4. Calculator modal ──────────────────────────────────────────── */}
       <div style={{ marginBottom: 16 }}>
-        <Btn type="button" onClick={() => setCalcOpen(true)}>Open mining calculator</Btn>
+        <Btn type="button" onClick={() => setCalcOpen(true)}>
+          Open mining calculator
+        </Btn>
       </div>
 
       {calcOpen && (
-        <ModalOverlay onClick={() => setCalcOpen(false)}>
+        <Overlay z={200} backdrop="rgba(4, 37, 72, 0.82)" pad="0" onClick={closeCalc}>
           <ModalCard onClick={(e) => e.stopPropagation()}>
             <ModalHeader>
               <H3 style={{ margin: 0 }}>Mining Calculator</H3>
-              <CloseBtn type="button" onClick={() => setCalcOpen(false)} aria-label="Close">&#x2715;</CloseBtn>
+              <CloseBtn type="button" onClick={() => setCalcOpen(false)} aria-label="Close">
+                &#x2715;
+              </CloseBtn>
             </ModalHeader>
             <MiningCalculator />
           </ModalCard>
-        </ModalOverlay>
+        </Overlay>
       )}
     </Page>
   );

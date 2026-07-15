@@ -1,9 +1,9 @@
 import React from 'react';
 import { styled } from '@linaria/react';
+import { BeamIcon } from '@app/shared/icons';
 import type { ApiStats } from '../api/types';
 import { MOBILE_MEDIA } from './responsive';
 import { fmt$, fmtNum } from './format';
-import { BeamIcon } from '@app/shared/icons';
 
 const Bar = styled.div`
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -58,7 +58,7 @@ const Label = styled.div`
 `;
 
 const Value = styled.div`
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 15px;
   font-weight: 600;
   color: white;
@@ -85,7 +85,7 @@ const BeamPx = styled.div`
   }
   b {
     color: #fff;
-    font-family: 'SFProDisplay', monospace;
+    font-family: var(--font-mono);
     font-size: 15px;
     font-weight: 600;
     margin-top: 3px;

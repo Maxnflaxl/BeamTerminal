@@ -9,6 +9,7 @@ import { MOBILE_MEDIA } from '../components/responsive';
 import { fmt$, fmtNum, pairUrlId } from '../components/format';
 import { KindBadge } from '../components/KindBadge';
 import { ScreenerTable } from '../components/ScreenerTable';
+import { CenteredNote } from '../components/CenteredNote';
 import { SupplyChart } from '../components/SupplyChart';
 
 const Page = styled.div`
@@ -16,13 +17,17 @@ const Page = styled.div`
   max-width: 1000px;
   margin: 24px auto;
   padding: 0 20px;
-  ${MOBILE_MEDIA} { padding: 0 12px; }
+  ${MOBILE_MEDIA} {
+    padding: 0 12px;
+  }
 `;
 
 const TopBar = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
   margin-bottom: 20px;
 `;
 
@@ -39,7 +44,9 @@ const Card = styled.div`
 const HeaderRow = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 16px; }
+  & > * + * {
+    margin-left: 16px;
+  }
   padding-bottom: 16px;
   margin-bottom: 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -97,13 +104,17 @@ const InfoGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 0;
-  @media (max-width: 600px) { grid-template-columns: 1fr; }
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const InfoCell = styled.div`
   padding: 10px 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
-  &:nth-child(-n+2) { border-top: none; }
+  &:nth-child(-n + 2) {
+    border-top: none;
+  }
   .lbl {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.4);
@@ -111,7 +122,7 @@ const InfoCell = styled.div`
     letter-spacing: 0.4px;
   }
   .val {
-    font-family: 'SFProDisplay', monospace;
+    font-family: var(--font-mono);
     font-size: 14px;
     color: white;
     margin-top: 2px;
@@ -124,7 +135,9 @@ const InfoCell = styled.div`
 const CidLink = styled(Link)`
   color: var(--color-green);
   text-decoration: none;
-  &:hover { text-decoration: underline; }
+  &:hover {
+    text-decoration: underline;
+  }
 `;
 
 const Description = styled.div`
@@ -151,8 +164,13 @@ const Tabs = styled.div`
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
-    &.active { color: white; border-bottom-color: var(--color-green); }
-    &:hover { color: rgba(255, 255, 255, 0.8); }
+    &.active {
+      color: white;
+      border-bottom-color: var(--color-green);
+    }
+    &:hover {
+      color: rgba(255, 255, 255, 0.8);
+    }
   }
 `;
 
@@ -164,13 +182,9 @@ const Table = styled(ScreenerTable)`
     letter-spacing: normal;
     white-space: normal;
   }
-  && td { padding: 8px 12px; }
-`;
-
-const Empty = styled.div`
-  padding: 40px 12px;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.4);
+  && td {
+    padding: 8px 12px;
+  }
 `;
 
 export const AssetDetail: React.FC = () => {
@@ -186,8 +200,11 @@ export const AssetDetail: React.FC = () => {
   const { data: history } = useAssetHistory(aid !== undefined && aid > 0 ? aid : undefined);
   // Locked-in-contracts breakdown. Lazy: only fetch when the tab is open and
   // aid > 0 (the explorer rejects aid 0 / BEAM for this query).
-  const { data: distribution, loading: distLoading, error: distError } =
-    useAssetDistribution(aid !== undefined && aid > 0 && tab === 'distribution' ? aid : undefined);
+  const {
+    data: distribution,
+    loading: distLoading,
+    error: distError,
+  } = useAssetDistribution(aid !== undefined && aid > 0 && tab === 'distribution' ? aid : undefined);
   // Pull all pairs so we can show pool ticker symbols + USD valuations next to pool ids.
   const { data: pairsResp } = usePairs({ limit: 500 });
 
@@ -211,18 +228,19 @@ export const AssetDetail: React.FC = () => {
   // "Minter-issued" means the asset row carries a minter_cid. Such assets may
   // still have an unlimited cap (UINT64_MAX, which the backend normalizes to
   // null) — render those as "Unlimited" rather than the generic "—".
-  const maxSupplyLabel = maxSupplyHuman !== null
-    ? fmtNum(maxSupplyHuman, 0)
-    : asset.minter_cid
-      ? 'Unlimited'
-      : '—';
-  const supplyPct = supplyHuman !== null && maxSupplyHuman !== null && maxSupplyHuman > 0
-    ? (supplyHuman / maxSupplyHuman) * 100
-    : null;
-  const pairsByPool = new Map<number, { sym1: string | null; sym2: string | null; kind: number; tvl_usd: number | null }>();
+  const maxSupplyLabel = maxSupplyHuman !== null ? fmtNum(maxSupplyHuman, 0) : asset.minter_cid ? 'Unlimited' : '—';
+  const supplyPct =
+    supplyHuman !== null && maxSupplyHuman !== null && maxSupplyHuman > 0 ? (supplyHuman / maxSupplyHuman) * 100 : null;
+  const pairsByPool = new Map<
+    number,
+    { sym1: string | null; sym2: string | null; kind: number; tvl_usd: number | null }
+  >();
   for (const p of pairsResp?.pairs ?? []) {
     pairsByPool.set(p.pair_id, {
-      sym1: p.symbol1, sym2: p.symbol2, kind: p.kind, tvl_usd: p.tvl_usd,
+      sym1: p.symbol1,
+      sym2: p.symbol2,
+      kind: p.kind,
+      tvl_usd: p.tvl_usd,
     });
   }
 
@@ -239,13 +257,10 @@ export const AssetDetail: React.FC = () => {
         <>
           {kind}
           {' ('}
-          <CidLink
-            to={`/explorer/beam?network=mainnet&type=contract&id=${cid}`}
-            title={cid}
-          >
+          <CidLink to={`/explorer/beam?network=mainnet&type=contract&id=${cid}`} title={cid}>
             {`${cid.slice(0, 6)}…${cid.slice(-4)}`}
           </CidLink>
-          {')'}
+          )
         </>
       );
     }
@@ -255,14 +270,14 @@ export const AssetDetail: React.FC = () => {
     if (addr) {
       return (
         <>
-          {'Wallet ('}
+          Wallet (
           <CidLink
             to={`/explorer/beam?network=mainnet&type=assets&q=${addr}`}
             title={`Show all assets owned by ${addr}`}
           >
             {`${addr.slice(0, 6)}…${addr.slice(-4)}`}
           </CidLink>
-          {')'}
+          )
         </>
       );
     }
@@ -290,10 +305,7 @@ export const AssetDetail: React.FC = () => {
         <InfoGrid>
           <InfoCell>
             <div className="lbl">Asset ID</div>
-            <div className="val">
-              #
-              {asset.aid}
-            </div>
+            <div className="val">#{asset.aid}</div>
           </InfoCell>
           <InfoCell>
             <div className="lbl">Decimals</div>
@@ -305,8 +317,7 @@ export const AssetDetail: React.FC = () => {
               {supplyHuman !== null ? fmtNum(supplyHuman, 0) : '—'}
               {supplyPct !== null && (
                 <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginLeft: 6 }}>
-                  (
-                  {supplyPct.toFixed(supplyPct < 1 ? 2 : 1)}
+                  ({supplyPct.toFixed(supplyPct < 1 ? 2 : 1)}
                   %)
                 </span>
               )}
@@ -322,7 +333,10 @@ export const AssetDetail: React.FC = () => {
               {asset.aid === 0 ? (
                 'block #1'
               ) : asset.minted_at_height !== null ? (
-                <>block #<BlockHeight height={asset.minted_at_height} /></>
+                <>
+                  block #
+                  <BlockHeight height={asset.minted_at_height} />
+                </>
               ) : (
                 '—'
               )}
@@ -365,9 +379,14 @@ export const AssetDetail: React.FC = () => {
 
       {aid !== undefined && aid > 0 && supplyPoints.length > 0 && (
         <Card style={{ padding: 12, marginTop: 12 }}>
-          <div style={{
-            fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5, padding: '0 4px 8px',
-          }}
+          <div
+            style={{
+              fontSize: 11,
+              color: 'rgba(255,255,255,0.4)',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              padding: '0 4px 8px',
+            }}
           >
             Supply over time
           </div>
@@ -377,23 +396,25 @@ export const AssetDetail: React.FC = () => {
 
       <Tabs>
         <button type="button" className={tab === 'pools' ? 'active' : ''} onClick={() => setTab('pools')}>
-          Pools (
-          {asset.pools.length}
-          )
+          Pools ({asset.pools.length})
         </button>
         <button type="button" className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
           Mint / Burn history
         </button>
         {asset.aid > 0 && (
-          <button type="button" className={tab === 'distribution' ? 'active' : ''} onClick={() => setTab('distribution')}>
+          <button
+            type="button"
+            className={tab === 'distribution' ? 'active' : ''}
+            onClick={() => setTab('distribution')}
+          >
             Distribution
           </button>
         )}
       </Tabs>
 
-      {tab === 'pools' && (
-        asset.pools.length === 0 ? (
-          <Empty>This asset isn't in any active pools.</Empty>
+      {tab === 'pools' &&
+        (asset.pools.length === 0 ? (
+          <CenteredNote pad="40px 12px">This asset isn&apos;t in any active pools.</CenteredNote>
         ) : (
           <Table>
             <thead>
@@ -409,21 +430,25 @@ export const AssetDetail: React.FC = () => {
                 .map((pool) => {
                   const meta = pairsByPool.get(pool.pair_id);
                   return (
-                    <tr key={pool.pair_id} onClick={() => navigate(`/pair/${pairUrlId(pool.aid1, pool.aid2, pool.kind)}`)}>
+                    <tr
+                      key={pool.pair_id}
+                      onClick={() => navigate(`/pair/${pairUrlId(pool.aid1, pool.aid2, pool.kind)}`)}
+                    >
                       <td>{meta ? `${meta.sym1 ?? '?'}/${meta.sym2 ?? '?'}` : `Pool #${pool.pair_id}`}</td>
-                      <td><KindBadge kind={pool.kind} /></td>
+                      <td>
+                        <KindBadge kind={pool.kind} />
+                      </td>
                       <td className="mono">{fmt$(pool.tvl_usd)}</td>
                     </tr>
                   );
                 })}
             </tbody>
           </Table>
-        )
-      )}
+        ))}
 
-      {tab === 'history' && (
-        !history || history.history.length === 0 ? (
-          <Empty>No history events.</Empty>
+      {tab === 'history' &&
+        (!history || history.history.length === 0 ? (
+          <CenteredNote pad="40px 12px">No history events.</CenteredNote>
         ) : (
           <Table>
             <thead>
@@ -453,16 +478,15 @@ export const AssetDetail: React.FC = () => {
               })}
             </tbody>
           </Table>
-        )
-      )}
+        ))}
 
-      {tab === 'distribution' && (
-        distLoading && !distribution ? (
-          <Empty>Loading distribution…</Empty>
+      {tab === 'distribution' &&
+        (distLoading && !distribution ? (
+          <CenteredNote pad="40px 12px">Loading distribution…</CenteredNote>
         ) : distError ? (
-          <Empty>Distribution unavailable.</Empty>
+          <CenteredNote pad="40px 12px">Distribution unavailable.</CenteredNote>
         ) : !distribution || (distribution.entries.length === 0 && distribution.unlocked === '0') ? (
-          <Empty>No distribution data.</Empty>
+          <CenteredNote pad="40px 12px">No distribution data.</CenteredNote>
         ) : (
           <Table>
             <thead>
@@ -476,9 +500,8 @@ export const AssetDetail: React.FC = () => {
             <tbody>
               {distribution.entries.map((e) => {
                 const amt = Number(e.amount) / 10 ** asset.decimals;
-                const pct = Number(distribution.total) > 0
-                  ? (Number(e.amount) / Number(distribution.total)) * 100
-                  : null;
+                const pct =
+                  Number(distribution.total) > 0 ? (Number(e.amount) / Number(distribution.total)) * 100 : null;
                 return (
                   <tr key={e.cid} style={{ cursor: 'default' }}>
                     <td>
@@ -506,8 +529,7 @@ export const AssetDetail: React.FC = () => {
               )}
             </tbody>
           </Table>
-        )
-      )}
+        ))}
     </Page>
   );
 };

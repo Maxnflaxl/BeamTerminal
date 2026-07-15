@@ -1,20 +1,29 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { styled } from '@linaria/react';
 import {
-  createChart, ColorType, LineType,
-  type IChartApi, type ISeriesApi, type LineData, type UTCTimestamp,
+  ColorType,
+  LineType,
+  type IChartApi,
+  type ISeriesApi,
+  type LineData,
+  type UTCTimestamp,
 } from 'lightweight-charts';
+import { createBeamChart } from '../../components/chartTheme';
 import {
-  EXPLORER_API, HALVING_MARKERS, FORK_MARKERS,
-  expectedSupplyFast, blockRewardAtHeight, emissionRateChangeHeights,
-  parseExplorerNumber, extractStatusMetric,
-  fmtInt, fmtDateFromHeight, specialBlocks,
+  EXPLORER_API,
+  HALVING_MARKERS,
+  FORK_MARKERS,
+  expectedSupplyFast,
+  blockRewardAtHeight,
+  emissionRateChangeHeights,
+  parseExplorerNumber,
+  extractStatusMetric,
+  fmtInt,
+  fmtDateFromHeight,
+  specialBlocks,
   type SupplySnapshot,
 } from './supplyMath';
-import {
-  Page, Card, H2, Label, Value, Btn, Input, Grid2, Row, theme,
-  DataTable, ScrollX,
-} from './shared';
+import { Page, Card, H2, Label, Value, Btn, Input, Grid2, Row, theme, DataTable, ScrollX } from './shared';
 
 // ---------------------------------------------------------------------------
 // Page-specific styled components
@@ -24,7 +33,8 @@ const Status = styled.div<{ kind: 'ok' | 'bad' | 'neutral' }>`
   font-size: 26px;
   margin-top: 10px;
   color: ${(p) => (p.kind === 'ok' ? theme.color.success : p.kind === 'bad' ? theme.color.danger : theme.color.muted)};
-  text-shadow: ${(p) => (p.kind === 'ok' ? `0 0 8px ${theme.color.success}` : p.kind === 'bad' ? `0 0 8px ${theme.color.danger}` : 'none')};
+  text-shadow: ${(p) =>
+    p.kind === 'ok' ? `0 0 8px ${theme.color.success}` : p.kind === 'bad' ? `0 0 8px ${theme.color.danger}` : 'none'};
 `;
 
 const Dot = styled.span<{ color: string }>`
@@ -59,15 +69,23 @@ const Collapsible = styled.details`
 // default auto layout the column widths recompute and the whole table jumps.
 const SpecialBlocksTable = styled(DataTable)`
   table-layout: fixed;
-  td { vertical-align: top; }
-  td a { word-break: break-all; }
+  td {
+    vertical-align: top;
+  }
+  td a {
+    word-break: break-all;
+  }
 `;
 
 // ---------------------------------------------------------------------------
 // Data fetching
 // ---------------------------------------------------------------------------
 
-interface ChainSupply { total: number | null; miner: number | null; treasury: number | null }
+interface ChainSupply {
+  total: number | null;
+  miner: number | null;
+  treasury: number | null;
+}
 
 function parseChainFromExplorerResponse(data: unknown): ChainSupply {
   let miner = extractStatusMetric(data, 'Current Emission');
@@ -80,7 +98,10 @@ function parseChainFromExplorerResponse(data: unknown): ChainSupply {
   return { total, miner, treasury };
 }
 
-interface ChartPoint { time: UTCTimestamp; value: number }
+interface ChartPoint {
+  time: UTCTimestamp;
+  value: number;
+}
 
 interface ChartData {
   total: ChartPoint[];
@@ -107,7 +128,7 @@ function collectChartHeights(tip: number, step: number): number[] {
   for (let h = 0; h <= tip; h += step) s.add(h);
   s.add(tip);
   for (const m of HALVING_MARKERS) if (m.height <= tip) s.add(m.height);
-  for (const m of FORK_MARKERS)    if (m.height <= tip) s.add(m.height);
+  for (const m of FORK_MARKERS) if (m.height <= tip) s.add(m.height);
   for (const m of SPECIAL_MARKERS) if (m.height <= tip) s.add(m.height);
   for (const h of emissionRateChangeHeights(tip)) s.add(h);
   return Array.from(s).sort((a, b) => a - b);
@@ -117,11 +138,11 @@ async function fetchHeightDates(maxHeight: number, step: number, labelCount: num
   // Returns Map<height, unix-seconds>. Uses /hdrs?cols=TH&dh=...
   try {
     const nMax = Math.min(Math.max(labelCount + 1, 50), 1200);
-    const url = `${EXPLORER_API}hdrs?cols=TH&hMax=${maxHeight}&nMax=${nMax}&dh=${step}&exp_am=1`;
+    const url = `${EXPLORER_API}/hdrs?cols=TH&hMax=${maxHeight}&nMax=${nMax}&dh=${step}&exp_am=1`;
     const res = await fetch(url);
-    const data = await res.json() as { value?: unknown };
+    const data = (await res.json()) as { value?: unknown };
     const m = new Map<number, number>();
-    const rows = Array.isArray(data?.value) ? data.value as unknown[] : [];
+    const rows = Array.isArray(data?.value) ? (data.value as unknown[]) : [];
     for (let i = 1; i < rows.length; i += 1) {
       const r = rows[i];
       if (!Array.isArray(r) || r.length < 2) continue;
@@ -157,7 +178,9 @@ export const Supply: React.FC = () => {
     try {
       const v = localStorage.getItem(key);
       return v === null ? dflt : v === 'true';
-    } catch { return dflt; }
+    } catch {
+      return dflt;
+    }
   };
   const [showHalvings, setShowHalvings] = useState(() => readFlag('supplyChartShowHalvings', true));
   const [showForks, setShowForks] = useState(() => readFlag('supplyChartShowForks', true));
@@ -174,13 +197,11 @@ export const Supply: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${EXPLORER_API}status?exp_am=1`);
-        const data = await res.json() as Record<string, unknown>;
+        const res = await fetch(`${EXPLORER_API}/status?exp_am=1`);
+        const data = (await res.json()) as Record<string, unknown>;
         if (cancelled) return;
-        const h = parseExplorerNumber(data.height)
-          ?? parseExplorerNumber(data.h)
-          ?? extractStatusMetric(data, 'Height')
-          ?? 0;
+        const h =
+          parseExplorerNumber(data.height) ?? parseExplorerNumber(data.h) ?? extractStatusMetric(data, 'Height') ?? 0;
         setHeight(h);
         setChain(parseChainFromExplorerResponse(data));
         setExpected(expectedSupplyFast(h));
@@ -188,12 +209,14 @@ export const Supply: React.FC = () => {
         if (!cancelled) setHeight(0);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Build chart when height changes.
   useEffect(() => {
-    if (height === null) return;
+    if (height === null) return undefined;
     let cancelled = false;
     (async () => {
       const tip = Math.max(0, Math.floor(height));
@@ -202,7 +225,11 @@ export const Supply: React.FC = () => {
       const dates = await fetchHeightDates(tip, step, heights.length);
       if (cancelled) return;
       const data: ChartData = {
-        total: [], miner: [], treasury: [], reward: [], markers: [],
+        total: [],
+        miner: [],
+        treasury: [],
+        reward: [],
+        markers: [],
       };
       for (const h of heights) {
         const s = expectedSupplyFast(h);
@@ -213,19 +240,42 @@ export const Supply: React.FC = () => {
         data.reward.push({ time: ts, value: blockRewardAtHeight(h) });
       }
       for (const m of HALVING_MARKERS) {
-        if (m.height <= tip) data.markers.push({ time: tsForHeight(m.height, dates), label: m.label, color: '#ff9c6e', kind: 'halving' });
+        if (m.height <= tip) {
+          data.markers.push({
+            time: tsForHeight(m.height, dates),
+            label: m.label,
+            color: '#ff9c6e',
+            kind: 'halving',
+          });
+        }
       }
       for (const m of FORK_MARKERS) {
-        if (m.height <= tip) data.markers.push({ time: tsForHeight(m.height, dates), label: m.label, color: '#b388ff', kind: 'fork' });
+        if (m.height <= tip) {
+          data.markers.push({
+            time: tsForHeight(m.height, dates),
+            label: m.label,
+            color: '#b388ff',
+            kind: 'fork',
+          });
+        }
       }
       for (const m of SPECIAL_MARKERS) {
-        if (m.height <= tip) data.markers.push({ time: tsForHeight(m.height, dates), label: m.label, color: '#22d3ee', kind: 'special' });
+        if (m.height <= tip) {
+          data.markers.push({
+            time: tsForHeight(m.height, dates),
+            label: m.label,
+            color: '#22d3ee',
+            kind: 'special',
+          });
+        }
       }
       data.markers.sort((a, b) => Number(a.time) - Number(b.time));
       dataRef.current = data;
       renderChart(data);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height]);
 
@@ -236,53 +286,73 @@ export const Supply: React.FC = () => {
       localStorage.setItem('supplyChartShowHalvings', showHalvings ? 'true' : 'false');
       localStorage.setItem('supplyChartShowForks', showForks ? 'true' : 'false');
       localStorage.setItem('supplyChartShowSpecial', showSpecial ? 'true' : 'false');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHalvings, showForks, showSpecial]);
 
   // Dispose the chart on unmount — renderChart only removes the *previous*
   // instance on re-render, so without this the last chart's canvas + WebGL
   // context leak every time the Supply page is navigated away from.
-  useEffect(() => () => {
-    chartRef.current?.remove();
-    chartRef.current = null;
-  }, []);
+  useEffect(
+    () => () => {
+      chartRef.current?.remove();
+      chartRef.current = null;
+    },
+    [],
+  );
 
   function renderChart(data: ChartData): void {
     const el = chartWrapRef.current;
     if (!el) return;
-    if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
-    const chart = createChart(el, {
-      autoSize: true,
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+    // Shared base theme; this chart keeps its lighter surface background,
+    // brighter labels, and the left price scale.
+    const chart = createBeamChart(el, {
       layout: {
         background: { type: ColorType.Solid, color: theme.color.surface },
         textColor: 'rgba(255, 255, 255, 0.7)',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
       },
       rightPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)', visible: true },
-      leftPriceScale:  { borderColor: 'rgba(255, 255, 255, 0.1)', visible: true },
-      timeScale: { borderColor: 'rgba(255, 255, 255, 0.1)', timeVisible: false },
+      leftPriceScale: { borderColor: 'rgba(255, 255, 255, 0.1)', visible: true },
     });
     chartRef.current = chart;
-    const mkLine = (color: string, priceScaleId: 'left' | 'right', lineType: LineType = LineType.Simple): ISeriesApi<'Line'> => chart.addLineSeries({
-      color, lineWidth: 2, lineType, priceLineVisible: false, lastValueVisible: false, priceScaleId,
-    });
+    const mkLine = (
+      color: string,
+      priceScaleId: 'left' | 'right',
+      lineType: LineType = LineType.Simple,
+    ): ISeriesApi<'Line'> =>
+      chart.addLineSeries({
+        color,
+        lineWidth: 2,
+        lineType,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceScaleId,
+      });
     const sTotal = mkLine('#7eb8ff', 'left');
     const sMiner = mkLine('#00c853', 'left');
-    const sTrea  = mkLine('#ff9800', 'left');
-    const sRew   = mkLine('#ffd54f', 'right', LineType.WithSteps);
-    seriesRef.current = { total: sTotal, miner: sMiner, treasury: sTrea, reward: sRew };
+    const sTrea = mkLine('#ff9800', 'left');
+    const sRew = mkLine('#ffd54f', 'right', LineType.WithSteps);
+    seriesRef.current = {
+      total: sTotal,
+      miner: sMiner,
+      treasury: sTrea,
+      reward: sRew,
+    };
     sTotal.setData(data.total as LineData[]);
     sMiner.setData(data.miner as LineData[]);
     sTrea.setData(data.treasury as LineData[]);
     sRew.setData(data.reward as LineData[]);
 
     const shownKinds = {
-      halving: showHalvings, fork: showForks, special: showSpecial,
+      halving: showHalvings,
+      fork: showForks,
+      special: showSpecial,
     };
     sTotal.setMarkers(
       data.markers
@@ -298,15 +368,15 @@ export const Supply: React.FC = () => {
     chart.timeScale().fitContent();
   }
 
-  function manualCheck(): void {
+  const manualCheck = useCallback((): void => {
     const h = parseInt(manualHeight || '0', 10);
     const a = parseFloat(manualActual);
     if (!Number.isFinite(h) || h < 0) return;
     setManualOverride(Number.isFinite(a) ? a : null);
     (async () => {
       try {
-        const res = await fetch(`${EXPLORER_API}block?height=${h}&exp_am=1`);
-        const data = await res.json() as Record<string, unknown>;
+        const res = await fetch(`${EXPLORER_API}/block?height=${h}&exp_am=1`);
+        const data = (await res.json()) as Record<string, unknown>;
         setHeight(h);
         setExpected(expectedSupplyFast(h));
         if (data.found === false) {
@@ -320,7 +390,7 @@ export const Supply: React.FC = () => {
         setChain({ total: null, miner: null, treasury: null });
       }
     })();
-  }
+  }, [manualHeight, manualActual]);
 
   // Match status: compares chain.total (or manual override) against expected.
   let status: { text: string; kind: 'ok' | 'bad' | 'neutral' };
@@ -329,15 +399,14 @@ export const Supply: React.FC = () => {
   if (compareTotal !== null && compareTotal !== undefined && Number.isFinite(compareTotal)) {
     const diffTotal = Math.abs(compareTotal - expected.total);
     if (useManual) {
-      status = diffTotal < 1
-        ? { text: '✔ MATCH (total)', kind: 'ok' }
-        : { text: '✖ MISMATCH (total)', kind: 'bad' };
+      status = diffTotal < 1 ? { text: '✔ MATCH (total)', kind: 'ok' } : { text: '✖ MISMATCH (total)', kind: 'bad' };
     } else {
       const diffMiner = chain.miner !== null ? Math.abs(chain.miner - expected.miner) : 0;
-      const diffTrea  = chain.treasury !== null ? Math.abs(chain.treasury - expected.treasury) : 0;
-      status = (diffTotal < 1 && diffMiner < 1 && diffTrea < 1)
-        ? { text: '✔ MATCH', kind: 'ok' }
-        : { text: '✖ MISMATCH', kind: 'bad' };
+      const diffTrea = chain.treasury !== null ? Math.abs(chain.treasury - expected.treasury) : 0;
+      status =
+        diffTotal < 1 && diffMiner < 1 && diffTrea < 1
+          ? { text: '✔ MATCH', kind: 'ok' }
+          : { text: '✖ MISMATCH', kind: 'bad' };
     }
   } else {
     status = { text: '—', kind: 'neutral' };
@@ -380,7 +449,9 @@ export const Supply: React.FC = () => {
           onChange={(e) => setManualActual(e.target.value)}
         />
         <div style={{ height: 10 }} />
-        <Btn type="button" onClick={manualCheck}>Check</Btn>
+        <Btn type="button" onClick={manualCheck}>
+          Check
+        </Btn>
       </Card>
 
       <div>
@@ -422,7 +493,9 @@ export const Supply: React.FC = () => {
           <SpecialBlocksTable>
             <thead>
               <tr>
-                <th className="right" style={{ width: 130 }}>Height</th>
+                <th className="right" style={{ width: 130 }}>
+                  Height
+                </th>
                 <th style={{ width: 110 }}>Date</th>
                 <th>Description</th>
               </tr>
@@ -434,9 +507,16 @@ export const Supply: React.FC = () => {
                   // eslint-disable-next-line react/no-array-index-key
                   <tr key={i}>
                     <td className="right">
-                      {b.block_list?.map((h) => <div key={h}>{fmtInt(h)}</div>)}
+                      {b.block_list?.map((h) => (
+                        <div key={h}>{fmtInt(h)}</div>
+                      ))}
                       {b.block_range && (
-                        <div>{fmtInt(b.block_range[0])}<br />to {fmtInt(b.block_range[1])}</div>
+                        <div>
+                          {fmtInt(b.block_range[0])}
+                          <br />
+                          to
+                          {fmtInt(b.block_range[1])}
+                        </div>
                       )}
                     </td>
                     <td>{fmtDateFromHeight(repHeight)}</td>
@@ -450,7 +530,9 @@ export const Supply: React.FC = () => {
                               // eslint-disable-next-line react/no-array-index-key
                               <li key={j}>
                                 {l[0]}:{' '}
-                                <a href={l[1]} target="_blank" rel="noreferrer" style={{ color: theme.color.accent }}>{l[1]}</a>
+                                <a href={l[1]} target="_blank" rel="noreferrer" style={{ color: theme.color.accent }}>
+                                  {l[1]}
+                                </a>
                               </li>
                             ))}
                           </ul>

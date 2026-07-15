@@ -1,6 +1,4 @@
-import type {
-  DeltaCell, DeltaMode, DeltaTableModel, ResolvedPoint, SeriesDescriptor,
-} from './types';
+import type { DeltaCell, DeltaMode, DeltaTableModel, ResolvedPoint, SeriesDescriptor } from './types';
 
 function signOf(d: number): -1 | 0 | 1 {
   return d > 0 ? 1 : d < 0 ? -1 : 0;

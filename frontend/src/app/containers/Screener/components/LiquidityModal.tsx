@@ -1,17 +1,11 @@
-import React, {
-  useEffect, useState,
-} from 'react';
+import React, { useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
-import AssetIcon from '@app/shared/components/AssetsIcon';
 import type { ApiPair } from '../api/types';
-import {
-  useWallet, invokeAddLiquidity, invokeWithdraw, type LiquidityResult,
-} from '../wallet';
+import { useWallet, invokeAddLiquidity, invokeWithdraw, type LiquidityResult } from '../wallet';
 import { useAssetColor } from '../assetColors';
 import { fromGroths, toGrothsStr } from './format';
-import {
-  Overlay, Card, CloseBtn, Btn, tierLabel, actionButtonState,
-} from './modalChrome';
+import { Overlay, Card, CloseBtn, Btn, tierLabel, actionButtonState } from './modalChrome';
+import { Box, BoxHeader, Row, Input, TokenBadge, BadgeAssetIcon, InfoRow } from './amountBox';
 
 // The AMM LP token ("AMML") is an 8-decimal groth asset, like BEAM. Token1/2
 // use their own metadata decimals (carried on the pair).
@@ -57,77 +51,6 @@ const Hint = styled.div`
   margin-bottom: 12px;
 `;
 
-const Box = styled.div`
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 8px;
-  transition: border-color 0.15s;
-  &:focus-within { border-color: var(--color-green); }
-`;
-
-const BoxHeader = styled.div`
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-bottom: 6px;
-`;
-
-const Row = styled.div`
-  display: flex;
-  align-items: center;
-  & > * + * { margin-left: 8px; }
-  min-width: 0;
-`;
-
-const Input = styled.input`
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: white;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 20px;
-  font-weight: 600;
-  outline: none;
-  min-width: 0;
-  &::placeholder { color: rgba(255, 255, 255, 0.3); }
-  &:read-only { color: rgba(255, 255, 255, 0.7); }
-`;
-
-const TokenBadge = styled.div`
-  display: flex;
-  align-items: center;
-  & > * + * { margin-left: 6px; }
-  background: rgba(255, 255, 255, 0.06);
-  padding: 6px 10px;
-  border-radius: 20px;
-  flex-shrink: 0;
-  font-weight: 600;
-  font-size: 13px;
-  white-space: nowrap;
-  small {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
-    font-weight: 400;
-  }
-`;
-
-const BadgeAssetIcon = styled(AssetIcon)`
-  && { margin-right: 0; }
-`;
-
-const InfoRow = styled.div`
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  span:last-child {
-    font-family: 'SFProDisplay', monospace;
-    color: rgba(255, 255, 255, 0.8);
-  }
-`;
-
 interface Props {
   mode: 'add' | 'withdraw';
   pair: ApiPair;
@@ -148,13 +71,11 @@ const sanitize = (s: string): string => {
   return cleaned.slice(0, dot + 1) + cleaned.slice(dot + 1).replace(/\./g, '');
 };
 
-export const LiquidityModal: React.FC<Props> = ({
-  mode, pair, kind, reserve1Human, reserve2Human, onClose,
-}) => {
+export const LiquidityModal: React.FC<Props> = ({ mode, pair, kind, reserve1Human, reserve2Human, onClose }) => {
   const { headless, connecting, connect } = useWallet();
 
-  const aid1 = pair.aid1;
-  const aid2 = pair.aid2;
+  const { aid1 } = pair;
+  const { aid2 } = pair;
   const dec1 = pair.decimals1;
   const dec2 = pair.decimals2;
   const sym1 = pair.symbol1 ?? `aid${aid1}`;
@@ -186,12 +107,21 @@ export const LiquidityModal: React.FC<Props> = ({
   // pools take both sides; non-empty pools send only the edited side (0 lets the
   // shader derive the matching amount). Only bPredictOnly differs per caller.
   const buildWithdrawArgs = (bPredictOnly: 0 | 1) => ({
-    aid1, aid2, kind, ctl: toGrothsStr(lpAmount, LP_DECIMALS), bPredictOnly,
+    aid1,
+    aid2,
+    kind,
+    ctl: toGrothsStr(lpAmount, LP_DECIMALS),
+    bPredictOnly,
   });
   const buildAddArgs = (bPredictOnly: 0 | 1) => {
     if (poolEmpty) {
       return {
-        aid1, aid2, kind, val1: toGrothsStr(amount1, dec1), val2: toGrothsStr(amount2, dec2), bPredictOnly,
+        aid1,
+        aid2,
+        kind,
+        val1: toGrothsStr(amount1, dec1),
+        val2: toGrothsStr(amount2, dec2),
+        bPredictOnly,
       };
     }
     const editing1 = lastEdited === '1';
@@ -212,7 +142,10 @@ export const LiquidityModal: React.FC<Props> = ({
     const t = setTimeout(async () => {
       try {
         if (mode === 'withdraw') {
-          if (!Number.isFinite(lp) || lp <= 0) { setRecv(null); return; }
+          if (!Number.isFinite(lp) || lp <= 0) {
+            setRecv(null);
+            return;
+          }
           setQuoting(true);
           const res = await invokeWithdraw(buildWithdrawArgs(1));
           if (cancelled) return;
@@ -224,7 +157,10 @@ export const LiquidityModal: React.FC<Props> = ({
         // Add liquidity.
         if (poolEmpty) {
           // Both sides are user-set; predict only to surface the LP estimate.
-          if (!(a1 > 0 && a2 > 0)) { setCtlEstimate(null); return; }
+          if (!(a1 > 0 && a2 > 0)) {
+            setCtlEstimate(null);
+            return;
+          }
           setQuoting(true);
           const res = await invokeAddLiquidity(buildAddArgs(1));
           if (cancelled) return;
@@ -235,7 +171,10 @@ export const LiquidityModal: React.FC<Props> = ({
         // Non-empty: the shader fills the matching amount + LP estimate.
         const editing1 = lastEdited === '1';
         const editVal = editing1 ? a1 : a2;
-        if (!Number.isFinite(editVal) || editVal <= 0) { setCtlEstimate(null); return; }
+        if (!Number.isFinite(editVal) || editVal <= 0) {
+          setCtlEstimate(null);
+          return;
+        }
         setQuoting(true);
         const res = await invokeAddLiquidity(buildAddArgs(1));
         if (cancelled) return;
@@ -246,12 +185,18 @@ export const LiquidityModal: React.FC<Props> = ({
           setCtlEstimate(r.ctl ?? null);
         }
       } catch {
-        if (!cancelled) { setCtlEstimate(null); setRecv(null); }
+        if (!cancelled) {
+          setCtlEstimate(null);
+          setRecv(null);
+        }
       } finally {
         if (!cancelled) setQuoting(false);
       }
     }, 400);
-    return () => { cancelled = true; clearTimeout(t); };
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, headless, poolEmpty, lastEdited, amount1, amount2, lpAmount, aid1, aid2, kind, dec1, dec2]);
 
@@ -261,12 +206,13 @@ export const LiquidityModal: React.FC<Props> = ({
     setExecuting(true);
     setFeedback(null);
     try {
-      const res = mode === 'withdraw'
-        ? await invokeWithdraw(buildWithdrawArgs(0))
-        : await invokeAddLiquidity(buildAddArgs(0));
+      const res =
+        mode === 'withdraw' ? await invokeWithdraw(buildWithdrawArgs(0)) : await invokeAddLiquidity(buildAddArgs(0));
       if (res?.txid) {
         setFeedback({ kind: 'success', text: mode === 'withdraw' ? 'Withdrawal submitted' : 'Liquidity submitted' });
-        setAmount1(''); setAmount2(''); setLpAmount('');
+        setAmount1('');
+        setAmount2('');
+        setLpAmount('');
         setTimeout(() => onClose(), 1200);
       } else {
         setFeedback({ kind: 'error', text: 'Cancelled' });
@@ -296,7 +242,9 @@ export const LiquidityModal: React.FC<Props> = ({
       <Card onClick={(e) => e.stopPropagation()}>
         <Head>
           <h3>{title}</h3>
-          <CloseBtn type="button" aria-label="Close" onClick={onClose}>×</CloseBtn>
+          <CloseBtn type="button" aria-label="Close" onClick={onClose}>
+            ×
+          </CloseBtn>
         </Head>
         <Sub>
           {sym1}
@@ -307,9 +255,7 @@ export const LiquidityModal: React.FC<Props> = ({
           {tierLabel(kind)}
         </Sub>
 
-        {mode === 'add' && poolEmpty && (
-          <Hint>This pool is empty — deposit both tokens to set the initial price.</Hint>
-        )}
+        {mode === 'add' && poolEmpty && <Hint>This pool is empty — deposit both tokens to set the initial price.</Hint>}
 
         {mode === 'withdraw' ? (
           <>
@@ -345,17 +291,15 @@ export const LiquidityModal: React.FC<Props> = ({
                   inputMode="decimal"
                   placeholder="0"
                   value={amount1}
-                  onChange={(e) => { setLastEdited('1'); setAmount1(sanitize(e.target.value)); }}
+                  onChange={(e) => {
+                    setLastEdited('1');
+                    setAmount1(sanitize(e.target.value));
+                  }}
                 />
                 <TokenBadge>
                   <BadgeAssetIcon asset_id={aid1} color={color1} />
                   <div>
-                    {sym1}
-                    {' '}
-                    <small>
-                      #
-                      {aid1}
-                    </small>
+                    {sym1} <small>#{aid1}</small>
                   </div>
                 </TokenBadge>
               </Row>
@@ -368,17 +312,15 @@ export const LiquidityModal: React.FC<Props> = ({
                   inputMode="decimal"
                   placeholder="0"
                   value={amount2}
-                  onChange={(e) => { setLastEdited('2'); setAmount2(sanitize(e.target.value)); }}
+                  onChange={(e) => {
+                    setLastEdited('2');
+                    setAmount2(sanitize(e.target.value));
+                  }}
                 />
                 <TokenBadge>
                   <BadgeAssetIcon asset_id={aid2} color={color2} />
                   <div>
-                    {sym2}
-                    {' '}
-                    <small>
-                      #
-                      {aid2}
-                    </small>
+                    {sym2} <small>#{aid2}</small>
                   </div>
                 </TokenBadge>
               </Row>
@@ -394,7 +336,15 @@ export const LiquidityModal: React.FC<Props> = ({
           type="button"
           variant={btn.variant}
           disabled={btn.disabled}
-          onClick={headless ? () => { void connect(); } : () => { void execute(); }}
+          onClick={
+            headless
+              ? () => {
+                  void connect();
+                }
+              : () => {
+                  void execute();
+                }
+          }
         >
           {btn.text}
         </Btn>

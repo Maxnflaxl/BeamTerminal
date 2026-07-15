@@ -1,13 +1,11 @@
 {
   "presets": [
-    "@babel/preset-env",
+    ["@babel/preset-env", { "useBuiltIns": "usage", "corejs": "3.35" }],
     "@babel/preset-react",
     "@babel/preset-typescript",
     "@linaria/babel-preset"
   ],
   "plugins": [
-    "@babel/transform-class-properties",
-    "@babel/transform-object-rest-spread",
     "@babel/transform-runtime"
   ]
 }

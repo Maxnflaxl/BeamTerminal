@@ -2,10 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, user-scalable=no" />
     <meta name="theme-color" content="#042548" />
+    <!-- Dark first paint before styles.css/JS arrive; the wallet host clears it via html.desktop in styles.ts. -->
+    <style>html{background:#042548}</style>
     <title>BeamTerminal — DEX explorer for BEAM</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="preconnect" href="https://beamterminal.0xmx.net" crossorigin />
 
     <meta name="description" content="Open block explorer and DEX analytics for the Beam network — TVL, volume, pairs, hashrate, halving, supply." />
 
@@ -25,11 +28,10 @@
     <meta name="twitter:description" content="Open block explorer and DEX analytics for the Beam network." />
     <meta name="twitter:image" content="/og/site.svg" />
 
-    <link rel="stylesheet" media="all" href="styles.css" />
+    <!-- html-webpack-plugin injects the hashed styles.css/index.js tags. -->
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
-    <script src="index.js"></script>
   </body>
 </html>

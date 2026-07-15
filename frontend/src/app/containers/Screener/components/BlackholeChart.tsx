@@ -1,6 +1,4 @@
-import React, {
-  useCallback, useEffect, useMemo, useRef, useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import {
@@ -22,13 +20,10 @@ import { useAssets } from '../hooks';
 // the same per-aid palette slot AssetIcon falls back to, so the line, its legend
 // swatch, and the asset icon all share one colour. Exported so the SVG/PNG
 // export agrees with the on-screen chart.
-export function buildBlackholeColors(
-  series: ReadonlyArray<ApiBlackholeSeries>,
-): Map<number, string> {
+export function buildBlackholeColors(series: ReadonlyArray<ApiBlackholeSeries>): Map<number, string> {
   const map = new Map<number, string>();
   for (const s of series) {
-    const color = normalizeOptColor(s.color)
-      ?? PALLETE_ASSETS[s.aid] ?? PALLETE_ASSETS[s.aid % PALLETE_ASSETS.length]!;
+    const color = normalizeOptColor(s.color) ?? PALLETE_ASSETS[s.aid] ?? PALLETE_ASSETS[s.aid % PALLETE_ASSETS.length]!;
     map.set(s.aid, color);
   }
   return map;
@@ -42,9 +37,7 @@ const STYLE_CYCLE: BlackholeLineStyle[] = ['solid', 'dashed', 'dotted', 'large-d
 // by final value (~3 significant figures) and give each member of a multi-asset
 // bucket a distinct line style, so overlapping lines stay individually legible.
 // Exported so the chart, legend, and SVG/PNG export agree on the assignment.
-export function buildBlackholeLineStyles(
-  series: ReadonlyArray<ApiBlackholeSeries>,
-): Map<number, BlackholeLineStyle> {
+export function buildBlackholeLineStyles(series: ReadonlyArray<ApiBlackholeSeries>): Map<number, BlackholeLineStyle> {
   const buckets = new Map<string, number[]>();
   for (const s of series) {
     const v = s.points[s.points.length - 1]?.value ?? 0;
@@ -68,11 +61,17 @@ const LINE_STYLE_ENUM: Record<BlackholeLineStyle, LineStyle> = {
 };
 // CSS border-style for the legend swatch (CSS has no large-dashed → dashed).
 const LINE_STYLE_CSS: Record<BlackholeLineStyle, React.CSSProperties['borderTopStyle']> = {
-  solid: 'solid', dashed: 'dashed', dotted: 'dotted', 'large-dashed': 'dashed',
+  solid: 'solid',
+  dashed: 'dashed',
+  dotted: 'dotted',
+  'large-dashed': 'dashed',
 };
 // SVG stroke-dasharray for the PNG/SVG export ('' = solid).
 export const LINE_STYLE_DASH: Record<BlackholeLineStyle, string> = {
-  solid: '', dashed: '6 4', dotted: '2 3', 'large-dashed': '10 5',
+  solid: '',
+  dashed: '6 4',
+  dotted: '2 3',
+  'large-dashed': '10 5',
 };
 
 const ICON_PX = 20;
@@ -96,7 +95,7 @@ const Legend = styled.div`
   flex-wrap: wrap;
   align-items: center;
   padding: 2px 2px 6px;
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 `;
 
@@ -127,7 +126,9 @@ const LegendItem = styled.button<{ off?: boolean }>`
     color: rgba(255, 255, 255, 0.4);
   }
 
-  &:hover { color: #00f6d2; }
+  &:hover {
+    color: #00f6d2;
+  }
 `;
 
 // Relative wrapper so the icon overlay can be absolutely positioned over the
@@ -188,7 +189,16 @@ const MarkerChip = styled.div`
     height: 100% !important;
   }
 
-  &:hover,
+  /* Kept as two separate blocks: :focus-visible is Chrome 86+, and inside a
+     selector list it would invalidate the whole rule in the wallet (Chrome 83),
+     killing the :hover state too. */
+  &:hover {
+    --marker-scale: 1.18;
+    box-shadow: 0 0 0 1px rgba(0, 246, 210, 0.65), 0 2px 6px rgba(0, 0, 0, 0.7);
+    z-index: 5;
+    outline: none;
+  }
+
   &:focus-visible {
     --marker-scale: 1.18;
     box-shadow: 0 0 0 1px rgba(0, 246, 210, 0.65), 0 2px 6px rgba(0, 0, 0, 0.7);
@@ -206,7 +216,7 @@ const Popover = styled.div`
   border-radius: 8px;
   padding: 10px 12px;
   color: rgba(255, 255, 255, 0.92);
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
   pointer-events: auto;
@@ -217,7 +227,9 @@ const PopHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
 `;
 
 const PopTitle = styled.div`
@@ -231,7 +243,9 @@ const PopTitle = styled.div`
     height: 22px;
     margin-right: 8px;
   }
-  & > .icon > * { margin: 0 !important; }
+  & > .icon > * {
+    margin: 0 !important;
+  }
 `;
 
 const PopName = styled.div`
@@ -281,9 +295,14 @@ const PopRow = styled.div`
   justify-content: space-between;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.65);
-  & + & { margin-top: 2px; }
+  & + & {
+    margin-top: 2px;
+  }
 
-  & > .v { color: rgba(255, 255, 255, 0.92); margin-left: 8px; }
+  & > .v {
+    color: rgba(255, 255, 255, 0.92);
+    margin-left: 8px;
+  }
 `;
 
 const PopDesc = styled.div`
@@ -298,7 +317,16 @@ const PopDesc = styled.div`
 `;
 
 const ArrowIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <line x1="2" y1="6" x2="10" y2="6" />
     <polyline points="6 2 10 6 6 10" />
   </svg>
@@ -329,15 +357,20 @@ interface Props {
 function defaultFormatter(v: number): string {
   if (!Number.isFinite(v)) return '';
   const abs = Math.abs(v);
-  if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-  if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-  if (abs >= 1e3) return (v / 1e3).toFixed(2) + 'k';
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}k`;
   if (abs >= 1) return v.toFixed(2);
   if (abs > 0) return v.toPrecision(3);
   return '0';
 }
 
-export const BlackholeChart: React.FC<Props> = ({ series, logScale = false, formatter = defaultFormatter, showMarkers = false }) => {
+export const BlackholeChart: React.FC<Props> = ({
+  series,
+  logScale = false,
+  formatter = defaultFormatter,
+  showMarkers = false,
+}) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<Map<number, ISeriesApi<'Line'>>>(new Map());
@@ -376,7 +409,10 @@ export const BlackholeChart: React.FC<Props> = ({ series, logScale = false, form
     for (const s of series) {
       if (hidden.has(s.aid)) continue;
       for (const p of s.points) {
-        if (p.value > 0) { if (p.value < min) min = p.value; if (p.value > max) max = p.value; }
+        if (p.value > 0) {
+          if (p.value < min) min = p.value;
+          if (p.value > max) max = p.value;
+        }
       }
     }
     if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
@@ -437,7 +473,10 @@ export const BlackholeChart: React.FC<Props> = ({ series, logScale = false, form
       if (!el) continue;
       const p = posByAid.get(s.aid);
       if (!p) {
-        if (written.get(s.aid) !== 'hidden') { el.style.display = 'none'; written.set(s.aid, 'hidden'); }
+        if (written.get(s.aid) !== 'hidden') {
+          el.style.display = 'none';
+          written.set(s.aid, 'hidden');
+        }
         continue;
       }
       const cx = Math.min(Math.max(p.x, half), plotW - half);
@@ -454,7 +493,9 @@ export const BlackholeChart: React.FC<Props> = ({ series, logScale = false, form
   }, [series, hidden]);
 
   const updatePositionsRef = useRef(updatePositions);
-  useEffect(() => { updatePositionsRef.current = updatePositions; }, [updatePositions]);
+  useEffect(() => {
+    updatePositionsRef.current = updatePositions;
+  }, [updatePositions]);
 
   // Re-create the chart only when the formatter changes (it's applied at
   // construction). logScale / data / visibility are handled by the dedicated
@@ -546,9 +587,12 @@ export const BlackholeChart: React.FC<Props> = ({ series, logScale = false, form
     // The rAF loop hides/shows the corresponding markers next frame.
   }, [hidden]);
 
-  useEffect(() => () => {
-    if (hoverTimer.current != null) window.clearTimeout(hoverTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (hoverTimer.current != null) window.clearTimeout(hoverTimer.current);
+    },
+    [],
+  );
 
   const openHover = useCallback((aid: number): void => {
     if (hoverTimer.current != null) window.clearTimeout(hoverTimer.current);
@@ -591,7 +635,12 @@ export const BlackholeChart: React.FC<Props> = ({ series, logScale = false, form
             onClick={() => toggle(s.aid)}
             title={hidden.has(s.aid) ? `Show ${s.label}` : `Hide ${s.label}`}
           >
-            <i style={{ borderTopColor: colorByAid.get(s.aid), borderTopStyle: LINE_STYLE_CSS[styleByAid.get(s.aid) ?? 'solid'] }} />
+            <i
+              style={{
+                borderTopColor: colorByAid.get(s.aid),
+                borderTopStyle: LINE_STYLE_CSS[styleByAid.get(s.aid) ?? 'solid'],
+              }}
+            />
             {s.label}
             <span className="aid">#{s.aid}</span>
           </LegendItem>
@@ -600,85 +649,106 @@ export const BlackholeChart: React.FC<Props> = ({ series, logScale = false, form
       <Plot>
         <Inner ref={innerRef} />
         {showMarkers ? (
-        <Strip>
-          {series.map((s) => {
-            const meta = metaByAid.get(s.aid);
-            return (
-              <MarkerAnchor
-                key={s.aid}
-                ref={(el) => {
-                  if (el) markerNodes.current.set(s.aid, el);
-                  else markerNodes.current.delete(s.aid);
-                }}
-                style={{ display: 'none' }}
-              >
-                <MarkerChip
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Open ${s.label} (#${s.aid})`}
-                  onMouseEnter={() => openHover(s.aid)}
-                  onMouseLeave={closeHoverSoon}
-                  onFocus={() => openHover(s.aid)}
-                  onBlur={closeHoverSoon}
-                  onClick={() => go(s.aid)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(s.aid); }
+          <Strip>
+            {series.map((s) => {
+              const meta = metaByAid.get(s.aid);
+              return (
+                <MarkerAnchor
+                  key={s.aid}
+                  ref={(el) => {
+                    if (el) markerNodes.current.set(s.aid, el);
+                    else markerNodes.current.delete(s.aid);
                   }}
+                  style={{ display: 'none' }}
                 >
-                  <AssetIcon
-                    asset_id={s.aid}
-                    color={s.color ?? meta?.color ?? null}
-                    logoUrl={meta?.logo_url ?? null}
-                    size={ICON_PX}
-                  />
-                </MarkerChip>
-              </MarkerAnchor>
-            );
-          })}
-          {hoverAid != null && hoverPos && hoverSeries ? (
-            <Popover
-              style={hoverRight
-                ? { left: `${hoverPos.x + 12}px`, top: `${hoverPos.y}px`, transform: 'translateY(-50%)' }
-                : { left: `${Math.max(4, hoverPos.x - 12)}px`, top: `${hoverPos.y}px`, transform: 'translate(-100%, -50%)' }}
-              onMouseEnter={() => openHover(hoverAid)}
-              onMouseLeave={closeHoverSoon}
-            >
-              <PopHeader>
-                <PopTitle>
-                  <span className="icon">
-                    <AssetIcon asset_id={hoverAid} color={hoverSeries.color ?? hoverMeta?.color ?? null} logoUrl={hoverMeta?.logo_url ?? null} size={22} />
-                  </span>
-                  <PopName>
-                    <PopNameMain>{hoverMeta?.name ?? hoverSeries.label}</PopNameMain>
-                    <PopNameSub>
-                      {[hoverMeta?.short_name ?? hoverSeries.label, hoverMeta?.unit_name, `aid ${hoverAid}`]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </PopNameSub>
-                  </PopName>
-                </PopTitle>
-                <ArrowButton type="button" onClick={() => go(hoverAid)} title="Open asset details" aria-label="Open asset details">
-                  <ArrowIcon />
-                </ArrowButton>
-              </PopHeader>
-              <PopRow>
-                <span>Burned</span>
-                <span className="v">{fmtBurned(hoverSeries.points[hoverSeries.points.length - 1]?.value ?? 0)} {hoverSeries.label}</span>
-              </PopRow>
-              <PopRow>
-                <span>First burn</span>
-                <span className="v">{formatDate(hoverSeries.points[0]!.ts)}</span>
-              </PopRow>
-              {hoverMeta ? (
+                  <MarkerChip
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${s.label} (#${s.aid})`}
+                    onMouseEnter={() => openHover(s.aid)}
+                    onMouseLeave={closeHoverSoon}
+                    onFocus={() => openHover(s.aid)}
+                    onBlur={closeHoverSoon}
+                    onClick={() => go(s.aid)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        go(s.aid);
+                      }
+                    }}
+                  >
+                    <AssetIcon
+                      asset_id={s.aid}
+                      color={s.color ?? meta?.color ?? null}
+                      logoUrl={meta?.logo_url ?? null}
+                      size={ICON_PX}
+                    />
+                  </MarkerChip>
+                </MarkerAnchor>
+              );
+            })}
+            {hoverAid != null && hoverPos && hoverSeries ? (
+              <Popover
+                style={
+                  hoverRight
+                    ? { left: `${hoverPos.x + 12}px`, top: `${hoverPos.y}px`, transform: 'translateY(-50%)' }
+                    : {
+                        left: `${Math.max(4, hoverPos.x - 12)}px`,
+                        top: `${hoverPos.y}px`,
+                        transform: 'translate(-100%, -50%)',
+                      }
+                }
+                onMouseEnter={() => openHover(hoverAid)}
+                onMouseLeave={closeHoverSoon}
+              >
+                <PopHeader>
+                  <PopTitle>
+                    <span className="icon">
+                      <AssetIcon
+                        asset_id={hoverAid}
+                        color={hoverSeries.color ?? hoverMeta?.color ?? null}
+                        logoUrl={hoverMeta?.logo_url ?? null}
+                        size={22}
+                      />
+                    </span>
+                    <PopName>
+                      <PopNameMain>{hoverMeta?.name ?? hoverSeries.label}</PopNameMain>
+                      <PopNameSub>
+                        {[hoverMeta?.short_name ?? hoverSeries.label, hoverMeta?.unit_name, `aid ${hoverAid}`]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </PopNameSub>
+                    </PopName>
+                  </PopTitle>
+                  <ArrowButton
+                    type="button"
+                    onClick={() => go(hoverAid)}
+                    title="Open asset details"
+                    aria-label="Open asset details"
+                  >
+                    <ArrowIcon />
+                  </ArrowButton>
+                </PopHeader>
                 <PopRow>
-                  <span>Pools</span>
-                  <span className="v">{hoverMeta.pool_count}</span>
+                  <span>Burned</span>
+                  <span className="v">
+                    {fmtBurned(hoverSeries.points[hoverSeries.points.length - 1]?.value ?? 0)} {hoverSeries.label}
+                  </span>
                 </PopRow>
-              ) : null}
-              {hoverMeta?.description ? <PopDesc>{hoverMeta.description}</PopDesc> : null}
-            </Popover>
-          ) : null}
-        </Strip>
+                <PopRow>
+                  <span>First burn</span>
+                  <span className="v">{formatDate(hoverSeries.points[0]!.ts)}</span>
+                </PopRow>
+                {hoverMeta ? (
+                  <PopRow>
+                    <span>Pools</span>
+                    <span className="v">{hoverMeta.pool_count}</span>
+                  </PopRow>
+                ) : null}
+                {hoverMeta?.description ? <PopDesc>{hoverMeta.description}</PopDesc> : null}
+              </Popover>
+            ) : null}
+          </Strip>
         ) : null}
       </Plot>
     </Wrap>

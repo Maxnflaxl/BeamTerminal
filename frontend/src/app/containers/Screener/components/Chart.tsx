@@ -13,17 +13,39 @@ import {
 } from 'lightweight-charts';
 import type { ApiCandle } from '../api/types';
 import { fmtPriceSub, fmtNum } from './format';
-import { createBeamChart, CHART_COLORS, ChartWrap, ChartInner, ChartLegend, clearChildren, makeSpan } from './chartTheme';
+import {
+  createBeamChart,
+  CHART_COLORS,
+  ChartWrap,
+  ChartInner,
+  ChartLegend,
+  clearChildren,
+  makeSpan,
+} from './chartTheme';
 
 const Legend = styled(ChartLegend)`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 10px; }
-  & .lbl { color: rgba(255,255,255,0.4); }
-  & .val { color: #fff; margin-left: 2px; }
-  & .chg.up   { color: #00f6d2; }
-  & .chg.down { color: #f25f5b; }
-  & .denom { color: rgba(255,255,255,0.4); margin-left: 4px; }
+  & > * + * {
+    margin-left: 10px;
+  }
+  & .lbl {
+    color: rgba(255, 255, 255, 0.4);
+  }
+  & .val {
+    color: #fff;
+    margin-left: 2px;
+  }
+  & .chg.up {
+    color: #00f6d2;
+  }
+  & .chg.down {
+    color: #f25f5b;
+  }
+  & .denom {
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 4px;
+  }
 `;
 
 interface Props {
@@ -57,7 +79,15 @@ interface Props {
 }
 
 export const Chart: React.FC<Props> = ({
-  candles, style, denomSymbol, volumeDecimals, volumeSymbol, onReachStart, centerOn, fitNonce, tradePreview,
+  candles,
+  style,
+  denomSymbol,
+  volumeDecimals,
+  volumeSymbol,
+  onReachStart,
+  centerOn,
+  fitNonce,
+  tradePreview,
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -132,8 +162,14 @@ export const Chart: React.FC<Props> = ({
       const make = makeSpan;
       const row = document.createElement('div');
       const labels: Array<['lbl' | 'val', string]> = [
-        ['lbl', 'O '], ['val', ''], ['lbl', ' H '], ['val', ''],
-        ['lbl', ' L '], ['val', ''], ['lbl', ' C '], ['val', ''],
+        ['lbl', 'O '],
+        ['val', ''],
+        ['lbl', ' H '],
+        ['val', ''],
+        ['lbl', ' L '],
+        ['val', ''],
+        ['lbl', ' C '],
+        ['val', ''],
       ];
       const refs: HTMLSpanElement[] = [];
       for (const [cls, txt] of labels) {
@@ -160,11 +196,19 @@ export const Chart: React.FC<Props> = ({
       row.appendChild(trades);
       lg.appendChild(row);
       nodes = {
-        oLbl: refs[0]!, o: refs[1]!,
-        hLbl: refs[2]!, h: refs[3]!,
-        lLbl: refs[4]!, l: refs[5]!,
-        cLbl: refs[6]!, c: refs[7]!,
-        chg, denom, vol, volSym, trades,
+        oLbl: refs[0]!,
+        o: refs[1]!,
+        hLbl: refs[2]!,
+        h: refs[3]!,
+        lLbl: refs[4]!,
+        l: refs[5]!,
+        cLbl: refs[6]!,
+        c: refs[7]!,
+        chg,
+        denom,
+        vol,
+        volSym,
+        trades,
       };
     }
 
@@ -245,9 +289,7 @@ export const Chart: React.FC<Props> = ({
       const volData: HistogramData[] = candles.map((c) => ({
         time: c.time as UTCTimestamp,
         value: Number(BigInt(c.volume)) / div,
-        color: c.close >= c.open
-          ? 'rgba(0, 246, 210, 0.55)'
-          : 'rgba(242, 95, 91, 0.55)',
+        color: c.close >= c.open ? 'rgba(0, 246, 210, 0.55)' : 'rgba(242, 95, 91, 0.55)',
       }));
       vs.setData(volData);
     }
@@ -266,16 +308,16 @@ export const Chart: React.FC<Props> = ({
     const chart = chartRef.current;
     if (!chart) return;
     const cs = candlesRef.current;
-    const spacing = cs.length >= 2
-      ? Math.max(1, (cs[cs.length - 1]!.time - cs[0]!.time) / (cs.length - 1))
-      : 86400;
+    const spacing = cs.length >= 2 ? Math.max(1, (cs[cs.length - 1]!.time - cs[0]!.time) / (cs.length - 1)) : 86400;
     const half = spacing * 30;
     try {
       chart.timeScale().setVisibleRange({
         from: (centerOn - half) as UTCTimestamp,
         to: (centerOn + half) as UTCTimestamp,
       });
-    } catch { /* date outside loaded data — onReachStart will lazy-load older */ }
+    } catch {
+      /* date outside loaded data — onReachStart will lazy-load older */
+    }
   }, [centerOn]);
 
   // Reset zoom on demand (toolbar's clear-date + Enter). Skip the first render
@@ -290,7 +332,10 @@ export const Chart: React.FC<Props> = ({
     const s = seriesRef.current;
     if (!s) return;
     // Always tear down on change; re-create when there's something to show.
-    if (previewEffRef.current)  { s.removePriceLine(previewEffRef.current);  previewEffRef.current  = null; }
+    if (previewEffRef.current) {
+      s.removePriceLine(previewEffRef.current);
+      previewEffRef.current = null;
+    }
     if (!tradePreview) return;
     if (!Number.isFinite(tradePreview.effectiveRate)) return;
 

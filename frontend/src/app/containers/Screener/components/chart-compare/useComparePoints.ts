@@ -29,29 +29,48 @@ export function useComparePoints<TKey>(opts?: {
   const [mode, setMode] = useState<DeltaMode>('consecutive');
   const [baselineIndex, setBaseline] = useState(0);
 
-  const add = useCallback((key: TKey): void => {
-    setKeys((cur) => {
-      if (cur.length >= cap) return cur;
-      if (cur.some((k) => sameKey(k, key))) return cur;
-      return [...cur, key];
-    });
-  }, [cap, sameKey]);
+  const add = useCallback(
+    (key: TKey): void => {
+      setKeys((cur) => {
+        if (cur.length >= cap) return cur;
+        if (cur.some((k) => sameKey(k, key))) return cur;
+        return [...cur, key];
+      });
+    },
+    [cap, sameKey],
+  );
 
-  const move = useCallback((i: number, key: TKey): void => {
-    setKeys((cur) => {
-      if (i < 0 || i >= cur.length) return cur;
-      if (cur.some((k, j) => j !== i && sameKey(k, key))) return cur; // occupied
-      const next = cur.slice();
-      next[i] = key;
-      return next;
-    });
-  }, [sameKey]);
+  const move = useCallback(
+    (i: number, key: TKey): void => {
+      setKeys((cur) => {
+        if (i < 0 || i >= cur.length) return cur;
+        if (cur.some((k, j) => j !== i && sameKey(k, key))) return cur; // occupied
+        const next = cur.slice();
+        next[i] = key;
+        return next;
+      });
+    },
+    [sameKey],
+  );
 
-  const remove = useCallback((key: TKey): void => {
-    setKeys((cur) => cur.filter((k) => !sameKey(k, key)));
-  }, [sameKey]);
+  const remove = useCallback(
+    (key: TKey): void => {
+      setKeys((cur) => cur.filter((k) => !sameKey(k, key)));
+    },
+    [sameKey],
+  );
 
   const clear = useCallback((): void => setKeys([]), []);
 
-  return { keys, mode, baselineIndex, add, move, remove, clear, setMode, setBaseline };
+  return {
+    keys,
+    mode,
+    baselineIndex,
+    add,
+    move,
+    remove,
+    clear,
+    setMode,
+    setBaseline,
+  };
 }

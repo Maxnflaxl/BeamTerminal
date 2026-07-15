@@ -2,13 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { css } from '@linaria/core';
-import { Page, Pill, ErrorBox, DataTable, ScrollX, Btn, Muted, theme } from '../shared';
 import { ROUTES } from '@app/shared/constants';
 import { BackButton } from '@app/shared/components/BackButton';
-import { api } from '../../../api/client';
-import type { ApiDaoProposalDetail } from '../../../api/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { api } from '../../../api/client';
+import type { ApiDaoProposalDetail } from '../../../api/types';
+import { Page, Pill, ErrorBox, DataTable, ScrollX, Btn, Muted, theme } from '../shared';
 import { fmtBeamx, fmtCompact, grothToBeamx, variantColor, outcomeTone, outcomeLabel, ExternalLink } from './daoShared';
 
 const LIMIT = 25;
@@ -20,7 +20,9 @@ const TitleRow = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
 `;
 const Title = styled.h1`
   margin: 0;
@@ -42,7 +44,9 @@ const forumCls = css`
   color: ${theme.color.accent};
   text-decoration: none;
   margin-bottom: 12px;
-  &:hover { text-decoration: underline; }
+  &:hover {
+    text-decoration: underline;
+  }
 `;
 const Desc = styled.div`
   font-size: 13px;
@@ -56,20 +60,70 @@ const Desc = styled.div`
   line-height: 1.55;
   max-height: 340px;
   overflow-y: auto;
-  & > *:first-child { margin-top: 0; }
-  & > *:last-child { margin-bottom: 0; }
-  & h1, & h2, & h3, & h4 { color: ${theme.color.text}; margin: 14px 0 6px; font-size: 15px; font-weight: 700; }
-  & p { margin: 0 0 8px; }
-  & a { color: ${theme.color.accent}; }
-  & ul, & ol { margin: 0 0 8px; padding-left: 20px; }
-  & li { margin: 2px 0; }
-  & code { background: ${theme.color.surface2}; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
-  & pre { background: ${theme.color.surface2}; padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
-  & blockquote { margin: 0 0 8px; padding-left: 12px; border-left: 3px solid ${theme.color.borderDim}; color: ${theme.color.muted}; }
-  & hr { border: 0; border-top: 1px solid ${theme.color.borderDim}; margin: 12px 0; }
-  & img { max-width: 100%; border-radius: 6px; }
-  & table { border-collapse: collapse; }
-  & th, & td { border: 1px solid ${theme.color.borderDim}; padding: 4px 8px; }
+  & > *:first-child {
+    margin-top: 0;
+  }
+  & > *:last-child {
+    margin-bottom: 0;
+  }
+  & h1,
+  & h2,
+  & h3,
+  & h4 {
+    color: ${theme.color.text};
+    margin: 14px 0 6px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  & p {
+    margin: 0 0 8px;
+  }
+  & a {
+    color: ${theme.color.accent};
+  }
+  & ul,
+  & ol {
+    margin: 0 0 8px;
+    padding-left: 20px;
+  }
+  & li {
+    margin: 2px 0;
+  }
+  & code {
+    background: ${theme.color.surface2};
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+  & pre {
+    background: ${theme.color.surface2};
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+  & blockquote {
+    margin: 0 0 8px;
+    padding-left: 12px;
+    border-left: 3px solid ${theme.color.borderDim};
+    color: ${theme.color.muted};
+  }
+  & hr {
+    border: 0;
+    border-top: 1px solid ${theme.color.borderDim};
+    margin: 12px 0;
+  }
+  & img {
+    max-width: 100%;
+    border-radius: 6px;
+  }
+  & table {
+    border-collapse: collapse;
+  }
+  & th,
+  & td {
+    border: 1px solid ${theme.color.borderDim};
+    padding: 4px 8px;
+  }
 `;
 const Panel = styled.div`
   background: ${theme.color.surface};
@@ -86,8 +140,12 @@ const PanelHead = styled.div`
   text-transform: uppercase;
   letter-spacing: 0.05em;
 `;
-const PanelBody = styled.div` padding: 14px 16px; `;
-const VariantRow = styled.div` margin: 0 0 12px; `;
+const PanelBody = styled.div`
+  padding: 14px 16px;
+`;
+const VariantRow = styled.div`
+  margin: 0 0 12px;
+`;
 const VTop = styled.div`
   display: flex;
   justify-content: space-between;
@@ -101,7 +159,9 @@ const VTrack = styled.div`
   border-radius: 4px;
   overflow: hidden;
 `;
-const VFill = styled.div` height: 100%; `;
+const VFill = styled.div`
+  height: 100%;
+`;
 const Pager = styled.div`
   display: flex;
   justify-content: space-between;
@@ -110,7 +170,9 @@ const Pager = styled.div`
   border-top: 1px solid ${theme.color.borderDim};
   font-size: 11px;
   color: ${theme.color.muted};
-  & > span > * + * { margin-left: 6px; }
+  & > span > * + * {
+    margin-left: 6px;
+  }
 `;
 
 function truncPk(pk: string): string {
@@ -149,7 +211,12 @@ export const DaoProposal: React.FC = () => {
   return (
     <Page>
       <BackButton to={ROUTES.NAV.EXPLORER_DAO_GOVERNANCE} label="Governance" className={backSpacing} />
-      {error && <ErrorBox>Failed to load proposal: {error}</ErrorBox>}
+      {error && (
+        <ErrorBox>
+          Failed to load proposal:
+          {error}
+        </ErrorBox>
+      )}
       {!p && !error && <Muted>Loading…</Muted>}
       {p && (
         <>
@@ -191,7 +258,7 @@ export const DaoProposal: React.FC = () => {
                   <VTop>
                     <span>{t.label}</span>
                     <span style={{ color: variantColor(t.variant) }}>
-                      {t.pct.toFixed(1)}% · {fmtBeamx(t.stake)}
+                      {t.pct.toFixed(1)}% ·{fmtBeamx(t.stake)}
                     </span>
                   </VTop>
                   <VTrack>
@@ -203,7 +270,7 @@ export const DaoProposal: React.FC = () => {
           </Panel>
 
           <Panel>
-            <PanelHead>Individual votes · {total}</PanelHead>
+            <PanelHead>Individual votes ·{total}</PanelHead>
             <ScrollX>
               <DataTable>
                 <thead>
@@ -219,7 +286,9 @@ export const DaoProposal: React.FC = () => {
                     <tr key={`${v.voter}-${i}`}>
                       <td style={{ color: theme.color.accent }}>{truncPk(v.voter)}</td>
                       <td>
-                        <Pill data-tone={v.variant === 1 ? 'accent' : v.variant === 0 ? 'danger' : 'purple'}>{v.label}</Pill>
+                        <Pill data-tone={v.variant === 1 ? 'accent' : v.variant === 0 ? 'danger' : 'purple'}>
+                          {v.label}
+                        </Pill>
                       </td>
                       <td className="right">{v.weight != null ? fmtBeamx(v.weight) : '—'}</td>
                       <td className="right">{v.height}</td>
@@ -239,10 +308,20 @@ export const DaoProposal: React.FC = () => {
               <Pager>
                 <span>{`${page * LIMIT + 1}–${Math.min((page + 1) * LIMIT, total)} of ${total}`}</span>
                 <span>
-                  <Btn type="button" data-variant="ghost" disabled={page === 0} onClick={() => setPage((n) => Math.max(0, n - 1))}>
+                  <Btn
+                    type="button"
+                    data-variant="ghost"
+                    disabled={page === 0}
+                    onClick={() => setPage((n) => Math.max(0, n - 1))}
+                  >
                     ‹ Prev
                   </Btn>
-                  <Btn type="button" data-variant="ghost" disabled={(page + 1) * LIMIT >= total} onClick={() => setPage((n) => n + 1)}>
+                  <Btn
+                    type="button"
+                    data-variant="ghost"
+                    disabled={(page + 1) * LIMIT >= total}
+                    onClick={() => setPage((n) => n + 1)}
+                  >
                     Next ›
                   </Btn>
                 </span>

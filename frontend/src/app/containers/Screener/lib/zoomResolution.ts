@@ -28,8 +28,9 @@ const WIDEN: Record<ZoomRes, number> = { '1m': 1, '1h': 2, '1d': 3 };
 export function widenWindow(fromSec: number, toSec: number, res: ZoomRes): { from: number; to: number } {
   const b = BUCKET_SECONDS[res];
   const span = toSec - fromSec;
-  const pad = Math.min(span * (WIDEN[res] - 1) / 2, Math.max(0, (MAX_POINTS * b - span) / 2));
-  let from = fromSec - pad, to = toSec + pad;
+  const pad = Math.min((span * (WIDEN[res] - 1)) / 2, Math.max(0, (MAX_POINTS * b - span) / 2));
+  let from = fromSec - pad;
+  let to = toSec + pad;
   const tile = b * TILE_BUCKETS;
   from = Math.floor(from / tile) * tile;
   to = Math.ceil(to / tile) * tile;
@@ -39,12 +40,33 @@ export function widenWindow(fromSec: number, toSec: number, res: ZoomRes): { fro
 const FULL: ZoomRes[] = ['1m', '1h', '1d'];
 const DAILY: ZoomRes[] = ['1d'];
 export const LADDERS: Record<string, ZoomRes[]> = {
-  price: FULL, tvl: FULL, hashrate: FULL, difficulty: FULL, blockTime: FULL, coinbase: FULL,
-  dexVolume: FULL, assets: FULL,
-  transactionsDaily: FULL, transactionsTotal: FULL, txosTotal: FULL, utxosTotal: FULL,
-  sizeTotal: FULL, archiveTotal: FULL, shieldedIns: FULL, shieldedInsTotal: FULL,
-  shieldedOuts: FULL, shieldedOutsTotal: FULL, contractsTotal: FULL, feesDaily: FULL, feesTotal: FULL,
-  callsDaily: FULL, callsTotal: FULL,
-  beamVol: DAILY, dexVol: DAILY, dexVolumeCumulative: DAILY, blackhole: DAILY,
-  poolsCreated: DAILY, poolsClosed: DAILY,
+  price: FULL,
+  tvl: FULL,
+  hashrate: FULL,
+  difficulty: FULL,
+  blockTime: FULL,
+  coinbase: FULL,
+  dexVolume: FULL,
+  assets: FULL,
+  transactionsDaily: FULL,
+  transactionsTotal: FULL,
+  txosTotal: FULL,
+  utxosTotal: FULL,
+  sizeTotal: FULL,
+  archiveTotal: FULL,
+  shieldedIns: FULL,
+  shieldedInsTotal: FULL,
+  shieldedOuts: FULL,
+  shieldedOutsTotal: FULL,
+  contractsTotal: FULL,
+  feesDaily: FULL,
+  feesTotal: FULL,
+  callsDaily: FULL,
+  callsTotal: FULL,
+  beamVol: DAILY,
+  dexVol: DAILY,
+  dexVolumeCumulative: DAILY,
+  blackhole: DAILY,
+  poolsCreated: DAILY,
+  poolsClosed: DAILY,
 };

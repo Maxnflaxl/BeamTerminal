@@ -9,8 +9,8 @@ const Section = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-    border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 `;
 
 const LoadingSkileton = (props) => (

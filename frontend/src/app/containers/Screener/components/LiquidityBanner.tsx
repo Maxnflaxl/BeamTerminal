@@ -2,9 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import type { ApiPair, ApiPairTier, LiquidityInterval, LiquiditySource } from '../api/types';
 import { usePoolLiquidity, usePagedLpEvents, useAsset } from '../hooks';
-import {
-  fmt$, fmtNum, fmtPct, fmtPrice, fmtDateFull,
-} from './format';
+import { fmt$, fmtNum, fmtPct, fmtPrice, fmtDateFull } from './format';
 import { PoolHistoryChart, type SeriesVisibility } from './PoolHistoryChart';
 import { CenterOnControl } from './CenterOnControl';
 import { Pager } from './Pager';
@@ -42,7 +40,9 @@ const Banner = styled.div`
 const Bar = styled.button`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 28px; }
+  & > * + * {
+    margin-left: 28px;
+  }
   width: 100%;
   padding: 12px 16px;
   background: none;
@@ -52,16 +52,54 @@ const Bar = styled.button`
   text-align: left;
   cursor: pointer;
   flex-wrap: wrap;
-  &:hover { background: rgba(255, 255, 255, 0.02); }
-  .title { font-size: 17px; font-weight: 700; color: var(--color-green); }
-  .stat { display: flex; flex-direction: column; & > * + * { margin-top: 1px; } }
-  .stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: rgba(255,255,255,0.4); }
-  .stat .v { font-family: 'SFProDisplay', monospace; font-size: 14px; color: white; }
-  .stat .v .native { color: rgba(255,255,255,0.45); font-size: 12px; margin-left: 4px; }
-  .stat .v .pos { color: #00f6d2; margin-left: 6px; }
-  .stat .v .neg { color: #f25f5b; margin-left: 6px; }
-  .chevron { margin-left: auto; color: rgba(255,255,255,0.4); font-size: 12px; transition: transform 0.15s; }
-  .chevron.open { transform: rotate(180deg); }
+  &:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--color-green);
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    & > * + * {
+      margin-top: 1px;
+    }
+  }
+  .stat .k {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: rgba(255, 255, 255, 0.4);
+  }
+  .stat .v {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: white;
+  }
+  .stat .v .native {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 12px;
+    margin-left: 4px;
+  }
+  .stat .v .pos {
+    color: #00f6d2;
+    margin-left: 6px;
+  }
+  .stat .v .neg {
+    color: #f25f5b;
+    margin-left: 6px;
+  }
+  .chevron {
+    margin-left: auto;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 12px;
+    transition: transform 0.15s;
+  }
+  .chevron.open {
+    transform: rotate(180deg);
+  }
 `;
 
 const Body = styled.div`
@@ -79,18 +117,27 @@ const SectionTitle = styled.div`
 const Pooled = styled.div`
   font-size: 13px;
   color: rgba(255, 255, 255, 0.8);
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   line-height: 1.6;
-  .pct { color: rgba(255, 255, 255, 0.4); }
+  .pct {
+    color: rgba(255, 255, 255, 0.4);
+  }
 `;
 
 const Controls = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   flex-wrap: wrap;
   margin: 6px 0 4px;
-  .group { display: flex; background: rgba(255,255,255,0.04); border-radius: 8px; padding: 2px; }
+  .group {
+    display: flex;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    padding: 2px;
+  }
   button {
     padding: 4px 10px;
     background: transparent;
@@ -100,8 +147,14 @@ const Controls = styled.div`
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
-    &:hover { color: white; }
-    &.active { background: var(--color-green); color: var(--color-dark-blue); font-weight: 600; }
+    &:hover {
+      color: white;
+    }
+    &.active {
+      background: var(--color-green);
+      color: var(--color-dark-blue);
+      font-weight: 600;
+    }
   }
 `;
 
@@ -116,20 +169,31 @@ const TiersGrid = styled.div`
 
 const TierCard = styled.div`
   font-size: 13px;
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   color: rgba(255, 255, 255, 0.85);
   line-height: 1.55;
   padding-bottom: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  .type { font-weight: 600; color: white; }
-  .lp { color: rgba(255, 255, 255, 0.55); }
-  .res { margin-top: 2px; }
-  .muted { color: rgba(255, 255, 255, 0.4); }
+  .type {
+    font-weight: 600;
+    color: white;
+  }
+  .lp {
+    color: rgba(255, 255, 255, 0.55);
+  }
+  .res {
+    margin-top: 2px;
+  }
+  .muted {
+    color: rgba(255, 255, 255, 0.4);
+  }
 `;
 
 const TierActions = styled.div`
   display: flex;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   margin-top: 8px;
 `;
 
@@ -143,7 +207,9 @@ const TierBtn = styled.button<{ tone: 'add' | 'withdraw' }>`
   border: 1px solid ${(p) => (p.tone === 'withdraw' ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 246, 210, 0.45)')};
   background: ${(p) => (p.tone === 'withdraw' ? 'transparent' : 'rgba(0, 246, 210, 0.12)')};
   color: ${(p) => (p.tone === 'withdraw' ? 'rgba(255, 255, 255, 0.75)' : '#00f6d2')};
-  &:hover { filter: brightness(1.15); }
+  &:hover {
+    filter: brightness(1.15);
+  }
 `;
 
 const TableWrap = styled.div`
@@ -167,12 +233,18 @@ const TableWrap = styled.div`
     td {
       padding: 6px 10px;
       font-size: 12px;
-      font-family: 'SFProDisplay', monospace;
+      font-family: var(--font-mono);
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       white-space: nowrap;
     }
-    .pos { color: #00f6d2; font-weight: 600; }
-    .neg { color: #f25f5b; font-weight: 600; }
+    .pos {
+      color: #00f6d2;
+      font-weight: 600;
+    }
+    .neg {
+      color: #f25f5b;
+      font-weight: 600;
+    }
   }
 `;
 
@@ -199,7 +271,12 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
   const { inWallet } = useWallet();
   const [open, setOpen] = useState(false);
   // Add/Withdraw modal for a tier, or Create-pool for a missing tier.
-  const [liqModal, setLiqModal] = useState<{ mode: 'add' | 'withdraw'; kind: 0 | 1 | 2; r1: number | null; r2: number | null } | null>(null);
+  const [liqModal, setLiqModal] = useState<{
+    mode: 'add' | 'withdraw';
+    kind: 0 | 1 | 2;
+    r1: number | null;
+    r2: number | null;
+  } | null>(null);
   const [createKind, setCreateKind] = useState<0 | 1 | 2 | null>(null);
   const [visible, setVisible] = useState<SeriesVisibility>('both');
   const [tfIndex, setTfIndex] = useState(0);
@@ -242,286 +319,316 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
   // authoritative full set. When `p` is a single-tier response (a selected or
   // deep-linked tier) we don't know which other tiers exist, so we must not mark
   // them "not created" (that would offer a doomed Create and hide real actions).
-  const existingTiers: Array<Pick<ApiPairTier, 'kind' | 'lp_token' | 'reserve1_human' | 'reserve2_human'>> = p.tiers ?? [{
-    kind: p.kind, lp_token: p.lp_token, reserve1_human: p.reserve1_human, reserve2_human: p.reserve2_human,
-  }];
+  const existingTiers: Array<Pick<ApiPairTier, 'kind' | 'lp_token' | 'reserve1_human' | 'reserve2_human'>> =
+    p.tiers ?? [
+      {
+        kind: p.kind,
+        lp_token: p.lp_token,
+        reserve1_human: p.reserve1_human,
+        reserve2_human: p.reserve2_human,
+      },
+    ];
   const allTiers = p.tiers
     ? ([0, 1, 2] as const).map((k) => {
-      const t = existingTiers.find((x) => x.kind === k);
-      return t
-        ? { kind: k, exists: true, lpToken: t.lp_token as number | null, r1: t.reserve1_human, r2: t.reserve2_human }
-        : { kind: k, exists: false, lpToken: null as number | null, r1: null, r2: null };
-    })
+        const t = existingTiers.find((x) => x.kind === k);
+        return t
+          ? {
+              kind: k,
+              exists: true,
+              lpToken: t.lp_token as number | null,
+              r1: t.reserve1_human,
+              r2: t.reserve2_human,
+            }
+          : {
+              kind: k,
+              exists: false,
+              lpToken: null as number | null,
+              r1: null,
+              r2: null,
+            };
+      })
     : existingTiers.map((t) => ({
-      kind: t.kind, exists: true, lpToken: t.lp_token as number | null, r1: t.reserve1_human, r2: t.reserve2_human,
-    }));
+        kind: t.kind,
+        exists: true,
+        lpToken: t.lp_token as number | null,
+        r1: t.reserve1_human,
+        r2: t.reserve2_human,
+      }));
   // On the public web we just show the existing pools' stats — no Add/Withdraw
   // and no "create missing tier".
   const displayTiers = inWallet ? allTiers : allTiers.filter((t) => t.exists);
 
   return (
     <>
-    <Banner>
-      <Bar type="button" onClick={() => setOpen((v) => !v)}>
-        <span className="title">
-          {sym1}
-          {' / '}
-          {sym2}
-        </span>
-        <span className="stat">
-          <span className="k">Price</span>
-          <span className="v">
-            {fmt$(p.price_usd)}
-            {beamPerToken != null && (
-              <span className="native">
-                {fmtPrice(beamPerToken)}
-                {' '}
-                {sym1}
-              </span>
-            )}
-            <span className={chg.cls === 'negative' ? 'neg' : 'pos'}>{chg.text}</span>
+      <Banner>
+        <Bar type="button" onClick={() => setOpen((v) => !v)}>
+          <span className="title">
+            {sym1}
+            {' / '}
+            {sym2}
           </span>
-        </span>
-        <span className="stat">
-          <span className="k">24H Volume</span>
-          <span className="v">
-            {fmt$(p.volume_24h_usd)}
-            {volBeam != null && (
-              <span className="native">
-                {fmtNum(volBeam, 0)}
-                {' '}
-                {sym1}
-              </span>
-            )}
-          </span>
-        </span>
-        {isBeamPair && (
           <span className="stat">
-            <span className="k">Market Cap</span>
+            <span className="k">Price</span>
             <span className="v">
-              {fmt$(mcUsd)}
-              {mcBeam != null && (
+              {fmt$(p.price_usd)}
+              {beamPerToken != null && (
                 <span className="native">
-                  {fmtNum(mcBeam, 0)}
-                  {' '}
-                  {sym1}
+                  {fmtPrice(beamPerToken)} {sym1}
+                </span>
+              )}
+              <span className={chg.cls === 'negative' ? 'neg' : 'pos'}>{chg.text}</span>
+            </span>
+          </span>
+          <span className="stat">
+            <span className="k">24H Volume</span>
+            <span className="v">
+              {fmt$(p.volume_24h_usd)}
+              {volBeam != null && (
+                <span className="native">
+                  {fmtNum(volBeam, 0)} {sym1}
                 </span>
               )}
             </span>
           </span>
-        )}
-        <span className="stat">
-          <span className="k">Total Liquidity</span>
-          <span className="v">
-            {fmt$(p.tvl_usd)}
-            {isBeamPair && p.reserve1_human != null && (
-              <span className="native">
-                {fmtNum(p.reserve1_human, 0)}
-                {' '}
-                {sym1}
+          {isBeamPair && (
+            <span className="stat">
+              <span className="k">Market Cap</span>
+              <span className="v">
+                {fmt$(mcUsd)}
+                {mcBeam != null && (
+                  <span className="native">
+                    {fmtNum(mcBeam, 0)} {sym1}
+                  </span>
+                )}
               </span>
-            )}
+            </span>
+          )}
+          <span className="stat">
+            <span className="k">Total Liquidity</span>
+            <span className="v">
+              {fmt$(p.tvl_usd)}
+              {isBeamPair && p.reserve1_human != null && (
+                <span className="native">
+                  {fmtNum(p.reserve1_human, 0)} {sym1}
+                </span>
+              )}
+            </span>
           </span>
-        </span>
-        <span className={`chevron ${open ? 'open' : ''}`}>▼</span>
-      </Bar>
+          <span className={`chevron ${open ? 'open' : ''}`}>▼</span>
+        </Bar>
 
-      {open && (
-        <Body>
-          <SectionTitle>Liquidity Pools</SectionTitle>
-          <Pooled>
-            <div>
-              {`Total ${sym1} pooled: `}
-              {fmtNum(p.reserve1_human, 0)}
-              {pct1 != null && (
-                <span className="pct">
-                  {` (${pct1.toFixed(pct1 < 1 ? 3 : 1)}% of ${supplyWord(p.aid1)} supply)`}
-                </span>
-              )}
-            </div>
-            <div>
-              {`Total ${sym2} pooled: `}
-              {fmtNum(p.reserve2_human, 0)}
-              {pct2 != null && (
-                <span className="pct">
-                  {` (${pct2.toFixed(pct2 < 1 ? 3 : 1)}% of ${supplyWord(p.aid2)} supply)`}
-                </span>
-              )}
-            </div>
-          </Pooled>
+        {open && (
+          <Body>
+            <SectionTitle>Liquidity Pools</SectionTitle>
+            <Pooled>
+              <div>
+                {`Total ${sym1} pooled: `}
+                {fmtNum(p.reserve1_human, 0)}
+                {pct1 != null && (
+                  <span className="pct">{` (${pct1.toFixed(pct1 < 1 ? 3 : 1)}% of ${supplyWord(p.aid1)} supply)`}</span>
+                )}
+              </div>
+              <div>
+                {`Total ${sym2} pooled: `}
+                {fmtNum(p.reserve2_human, 0)}
+                {pct2 != null && (
+                  <span className="pct">{` (${pct2.toFixed(pct2 < 1 ? 3 : 1)}% of ${supplyWord(p.aid2)} supply)`}</span>
+                )}
+              </div>
+            </Pooled>
 
-          <SectionTitle>Pool History</SectionTitle>
-          <Controls>
-            <div className="group">
-              <button type="button" className={visible === 'both' ? 'active' : ''} onClick={() => setVisible('both')}>Both</button>
-              <button type="button" className={visible === '1' ? 'active' : ''} onClick={() => setVisible('1')}>{sym1}</button>
-              <button type="button" className={visible === '2' ? 'active' : ''} onClick={() => setVisible('2')}>{sym2}</button>
-            </div>
-            <div className="group">
-              {SOURCES.map((s) => (
-                <button key={s.key} type="button" className={source === s.key ? 'active' : ''} onClick={() => setSource(s.key)}>
-                  {s.label}
+            <SectionTitle>Pool History</SectionTitle>
+            <Controls>
+              <div className="group">
+                <button type="button" className={visible === 'both' ? 'active' : ''} onClick={() => setVisible('both')}>
+                  Both
                 </button>
-              ))}
-            </div>
-            <div className="group">
-              {TIMEFRAMES.map((t, i) => (
-                <button key={t.label} type="button" className={i === tfIndex ? 'active' : ''} onClick={() => setTfIndex(i)}>
-                  {t.label}
+                <button type="button" className={visible === '1' ? 'active' : ''} onClick={() => setVisible('1')}>
+                  {sym1}
                 </button>
-              ))}
-            </div>
-            <div className="group">
-              <button type="button" className={!logScale ? 'active' : ''} onClick={() => setLogScale(false)}>Lin</button>
-              <button type="button" className={logScale ? 'active' : ''} onClick={() => setLogScale(true)}>Log</button>
-            </div>
-            <CenterOnControl
-              onCenter={setCenterOn}
-              onClear={() => setCenterOn(null)}
-              onReset={() => setCenterOn(null)}
+                <button type="button" className={visible === '2' ? 'active' : ''} onClick={() => setVisible('2')}>
+                  {sym2}
+                </button>
+              </div>
+              <div className="group">
+                {SOURCES.map((s) => (
+                  <button
+                    key={s.key}
+                    type="button"
+                    className={source === s.key ? 'active' : ''}
+                    onClick={() => setSource(s.key)}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+              <div className="group">
+                {TIMEFRAMES.map((t, i) => (
+                  <button
+                    key={t.label}
+                    type="button"
+                    className={i === tfIndex ? 'active' : ''}
+                    onClick={() => setTfIndex(i)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="group">
+                <button type="button" className={!logScale ? 'active' : ''} onClick={() => setLogScale(false)}>
+                  Lin
+                </button>
+                <button type="button" className={logScale ? 'active' : ''} onClick={() => setLogScale(true)}>
+                  Log
+                </button>
+              </div>
+              <CenterOnControl
+                onCenter={setCenterOn}
+                onClear={() => setCenterOn(null)}
+                onReset={() => setCenterOn(null)}
+              />
+            </Controls>
+            <PoolHistoryChart
+              series={liq?.series ?? []}
+              decimals1={liq?.decimals1 ?? p.decimals1}
+              decimals2={liq?.decimals2 ?? p.decimals2}
+              sym1={sym1}
+              sym2={sym2}
+              visible={visible}
+              centerOn={centerOn}
+              logScale={logScale}
             />
-          </Controls>
-          <PoolHistoryChart
-            series={liq?.series ?? []}
-            decimals1={liq?.decimals1 ?? p.decimals1}
-            decimals2={liq?.decimals2 ?? p.decimals2}
-            sym1={sym1}
-            sym2={sym2}
-            visible={visible}
-            centerOn={centerOn}
-            logScale={logScale}
-          />
 
-          <TiersGrid>
-            {displayTiers.map((t) => (
-              <TierCard key={t.kind}>
-                <div className="type">
-                  Pool type:
-                  {' '}
-                  {tierFeePct(t.kind).toFixed(2)}
-                  % fees
-                </div>
-                {t.exists ? (
-                  <>
-                    <div className="lp">
-                      LP asset ID:
-                      {' '}
-                      {t.lpToken}
-                    </div>
-                    <div className="res">
-                      {fmtNum(t.r1, 2)}
-                      {' '}
-                      {sym1}
-                    </div>
-                    <div className="res">
-                      {fmtNum(t.r2, 2)}
-                      {' '}
-                      {sym2}
-                    </div>
-                    {inWallet && (
+            <TiersGrid>
+              {displayTiers.map((t) => (
+                <TierCard key={t.kind}>
+                  <div className="type">Pool type: {tierFeePct(t.kind).toFixed(2)}% fees</div>
+                  {t.exists ? (
+                    <>
+                      <div className="lp">LP asset ID: {t.lpToken}</div>
+                      <div className="res">
+                        {fmtNum(t.r1, 2)} {sym1}
+                      </div>
+                      <div className="res">
+                        {fmtNum(t.r2, 2)} {sym2}
+                      </div>
+                      {inWallet && (
+                        <TierActions>
+                          <TierBtn
+                            tone="add"
+                            type="button"
+                            onClick={() =>
+                              setLiqModal({
+                                mode: 'add',
+                                kind: t.kind,
+                                r1: t.r1,
+                                r2: t.r2,
+                              })
+                            }
+                          >
+                            Add Liquidity
+                          </TierBtn>
+                          <TierBtn
+                            tone="withdraw"
+                            type="button"
+                            onClick={() =>
+                              setLiqModal({
+                                mode: 'withdraw',
+                                kind: t.kind,
+                                r1: t.r1,
+                                r2: t.r2,
+                              })
+                            }
+                          >
+                            Withdraw
+                          </TierBtn>
+                        </TierActions>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="lp muted">not created</div>
                       <TierActions>
-                        <TierBtn
-                          tone="add"
-                          type="button"
-                          onClick={() => setLiqModal({
-                            mode: 'add', kind: t.kind, r1: t.r1, r2: t.r2,
-                          })}
-                        >
-                          Add Liquidity
-                        </TierBtn>
-                        <TierBtn
-                          tone="withdraw"
-                          type="button"
-                          onClick={() => setLiqModal({
-                            mode: 'withdraw', kind: t.kind, r1: t.r1, r2: t.r2,
-                          })}
-                        >
-                          Withdraw
+                        <TierBtn tone="add" type="button" onClick={() => setCreateKind(t.kind)}>
+                          Create pool
                         </TierBtn>
                       </TierActions>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <div className="lp muted">not created</div>
-                    <TierActions>
-                      <TierBtn tone="add" type="button" onClick={() => setCreateKind(t.kind)}>
-                        Create pool
-                      </TierBtn>
-                    </TierActions>
-                  </>
-                )}
-              </TierCard>
-            ))}
-          </TiersGrid>
+                    </>
+                  )}
+                </TierCard>
+              ))}
+            </TiersGrid>
 
-          <SectionTitle>Liquidity Providers</SectionTitle>
-          <TableWrap>
-            <table>
-              <thead>
-                <tr>
-                  <th>Time (UTC)</th>
-                  <th>Liquidity</th>
-                  <th>{`Amount ${sym1}`}</th>
-                  <th>{`Amount ${sym2}`}</th>
-                  <th>Change</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lpItems.map((e) => {
-                  const dep = e.kind === 'Deposit';
-                  const pct = e.liquidity_pct ?? null;
-                  return (
-                    <tr key={e.event_id}>
-                      <td>{fmtDateFull(e.timestamp)}</td>
-                      <td className={dep ? 'pos' : 'neg'}>{dep ? 'deposit' : 'withdraw'}</td>
-                      <td className={dep ? 'pos' : 'neg'}>{fmtNum(human(e.amount1, p.decimals1), 4)}</td>
-                      <td className={dep ? 'pos' : 'neg'}>{fmtNum(human(e.amount2, p.decimals2), 4)}</td>
-                      <td className={pct != null && pct < 0 ? 'neg' : 'pos'}>
-                        {pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}
+            <SectionTitle>Liquidity Providers</SectionTitle>
+            <TableWrap>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time (UTC)</th>
+                    <th>Liquidity</th>
+                    <th>{`Amount ${sym1}`}</th>
+                    <th>{`Amount ${sym2}`}</th>
+                    <th>Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lpItems.map((e) => {
+                    const dep = e.kind === 'Deposit';
+                    const pct = e.liquidity_pct ?? null;
+                    return (
+                      <tr key={e.event_id}>
+                        <td>{fmtDateFull(e.timestamp)}</td>
+                        <td className={dep ? 'pos' : 'neg'}>{dep ? 'deposit' : 'withdraw'}</td>
+                        <td className={dep ? 'pos' : 'neg'}>{fmtNum(human(e.amount1, p.decimals1), 4)}</td>
+                        <td className={dep ? 'pos' : 'neg'}>{fmtNum(human(e.amount2, p.decimals2), 4)}</td>
+                        <td className={pct != null && pct < 0 ? 'neg' : 'pos'}>
+                          {pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {lpItems.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.4)' }}
+                      >
+                        No liquidity events yet.
                       </td>
                     </tr>
-                  );
-                })}
-                {lpItems.length === 0 && (
-                  <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.4)' }}>
-                      No liquidity events yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </TableWrap>
-          <Pager
-            page={lpPage}
-            pageSize={LP_PAGE_SIZE}
-            total={lpTotal}
-            loadedCount={lpItems.length}
-            onChange={setLpPage}
-          />
-        </Body>
+                  )}
+                </tbody>
+              </table>
+            </TableWrap>
+            <Pager
+              page={lpPage}
+              pageSize={LP_PAGE_SIZE}
+              total={lpTotal}
+              loadedCount={lpItems.length}
+              onChange={setLpPage}
+            />
+          </Body>
+        )}
+      </Banner>
+      {liqModal && (
+        <LiquidityModal
+          mode={liqModal.mode}
+          pair={p}
+          kind={liqModal.kind}
+          reserve1Human={liqModal.r1}
+          reserve2Human={liqModal.r2}
+          onClose={() => setLiqModal(null)}
+        />
       )}
-    </Banner>
-    {liqModal && (
-      <LiquidityModal
-        mode={liqModal.mode}
-        pair={p}
-        kind={liqModal.kind}
-        reserve1Human={liqModal.r1}
-        reserve2Human={liqModal.r2}
-        onClose={() => setLiqModal(null)}
-      />
-    )}
-    {createKind !== null && (
-      <CreatePoolModal
-        initialAid1={p.aid1}
-        initialAid2={p.aid2}
-        initialKind={createKind}
-        lockPair
-        onClose={() => setCreateKind(null)}
-      />
-    )}
+      {createKind !== null && (
+        <CreatePoolModal
+          initialAid1={p.aid1}
+          initialAid2={p.aid2}
+          initialKind={createKind}
+          lockPair
+          onClose={() => setCreateKind(null)}
+        />
+      )}
     </>
   );
 };

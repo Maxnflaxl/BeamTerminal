@@ -8,27 +8,30 @@
   "scripts": {
     "commit-hook": "git add .",
     "lint": "eslint './src/**/*.ts{,x}' --fix",
+    "typecheck": "tsc --noEmit",
     "prettier": "prettier --write \"**/*.+(ts|tsx)\"",
     "build": "webpack --config webpack.common.js",
     "build:prod": "webpack --config webpack.prod.js",
     "start": "webpack serve --config webpack.common.js",
     "start:prod": "webpack serve --config webpack.prod.js",
-    "dev": "webpack serve --config webpack.common.js"
+    "dev": "webpack serve --config webpack.common.js",
+    "postinstall": "simple-git-hooks"
   },
-  "pre-commit": [
-    "prettier",
-    "lint",
-    "commit-hook"
+  "browserslist": [
+    "chrome >= 83",
+    "firefox >= 78",
+    "safari >= 13.1",
+    "edge >= 83"
   ],
   "devDependencies": {
-    "@babel/cli": "^7.14.8",
-    "@babel/core": "^7.14.8",
+    "@babel/cli": "^7.28.0",
+    "@babel/core": "^7.29.7",
     "@babel/plugin-transform-class-properties": "^7.25.0",
     "@babel/plugin-transform-object-rest-spread": "^7.25.0",
-    "@babel/plugin-transform-runtime": "^7.28.5",
-    "@babel/preset-env": "^7.25.0",
-    "@babel/preset-react": "^7.14.5",
-    "@babel/preset-typescript": "^7.15.0",
+    "@babel/plugin-transform-runtime": "^7.28.0",
+    "@babel/preset-env": "^7.28.0",
+    "@babel/preset-react": "^7.27.0",
+    "@babel/preset-typescript": "^7.27.0",
     "@linaria/babel-preset": "^3.0.0-beta.4",
     "@linaria/shaker": "^3.0.0-beta.7",
     "@linaria/webpack-loader": "^3.0.0-beta.7",
@@ -45,6 +48,7 @@
     "copy-webpack-plugin": "^9.0.1",
     "cross-env": "7.0.3",
     "css-loader": "^6.2.0",
+    "css-minimizer-webpack-plugin": "^7.0.4",
     "eslint": "^8.57.0",
     "eslint-config-airbnb": "^18.2.1",
     "eslint-config-airbnb-typescript": "^14.0.0",
@@ -54,20 +58,21 @@
     "eslint-plugin-prettier": "^3.1.4",
     "eslint-plugin-react": "^7.24.0",
     "eslint-plugin-react-hooks": "^4.2.0",
-    "file-loader": "^6.2.0",
+    "html-webpack-plugin": "^5.6.6",
     "mini-css-extract-plugin": "^2.2.0",
-    "prettier": "2.1.1",
+    "prettier": "^2.8.8",
     "react-grab": "^0.1.29",
     "sass": "^1.93.2",
     "sass-loader": "^16.0.7",
+    "simple-git-hooks": "^2.13.1",
     "style-loader": "^3.3.1",
     "svgo-loader": "^3.0.0",
     "tsconfig-paths-webpack-plugin": "^3.5.1",
-    "typescript": "4.4.3",
+    "typescript": "~5.3.3",
     "web-ext-types": "3.2.1",
     "webpack": "^5.104.1",
-    "webpack-cli": "^4.8.0",
-    "webpack-dev-server": "^4.7.0"
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.5"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",
@@ -88,7 +93,7 @@
     "react-highlight-words": "^0.18.0",
     "react-markdown": "^8.0.3",
     "react-redux": "^7.2.6",
-    "react-router-dom": "^6.0.2",
+    "react-router-dom": "^6.30.3",
     "react-select": "^5.7.0",
     "react-tiny-popover": "^7.0.1",
     "react-toastify": "^8.2.0",
@@ -99,5 +104,8 @@
     "reselect": "^4.1.3",
     "typesafe-actions": "^5.1.0",
     "util": "^0.12.4"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "cd frontend && yarn prettier && yarn lint && yarn typecheck"
   }
 }

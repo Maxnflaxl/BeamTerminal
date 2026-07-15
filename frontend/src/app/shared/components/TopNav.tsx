@@ -40,10 +40,12 @@ const brand = css`
   }
 
   @keyframes blink {
-    0%, 49.9% {
+    0%,
+    49.9% {
       opacity: 1;
     }
-    50%, 100% {
+    50%,
+    100% {
       opacity: 0;
     }
   }
@@ -156,7 +158,9 @@ const searchPill = css`
   cursor: pointer;
   background: transparent;
   color: inherit;
-  &:hover { opacity: 1; }
+  &:hover {
+    opacity: 1;
+  }
 
   @media (max-width: 600px) {
     font-size: 12px;
@@ -196,10 +200,7 @@ const TerminalLogo = () => (
       fill="#fff"
       d="M0 26V6a6 6 0 0 1 6-6h20a6 6 0 0 1 6 6v20a6 6 0 0 1-6 6H6a6 6 0 0 1-6-6Zm4 0a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v20Z"
     />
-    <path
-      fill="#a69eff"
-      d="M8 18h2v-2H8zm0-8h2V8H8zm2 6h2v-2h-2zm0-4h2v-2h-2zm2 2h2v-2h-2z"
-    />
+    <path fill="#a69eff" d="M8 18h2v-2H8zm0-8h2V8H8zm2 6h2v-2h-2zm0-4h2v-2h-2zm2 2h2v-2h-2z" />
     <path className="term-cursor" fill="var(--color-green)" d="M14 18h6v-2h-6z" />
   </svg>
 );
@@ -244,12 +245,7 @@ export const TopNav = () => {
 
           <div className={linksWrap}>
             {items.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === ROUTES.NAV.DEX}
-                className={navLink}
-              >
+              <NavLink key={item.to} to={item.to} end={item.to === ROUTES.NAV.DEX} className={navLink}>
                 {item.label}
               </NavLink>
             ))}
@@ -267,9 +263,13 @@ export const TopNav = () => {
           <button type="button" className={searchPill} onClick={() => setSearchOpen(true)}>
             {/* Magnifier from beam-ui (ui/view/assets/icon-search.svg), recoloured via currentColor. */}
             <svg className={pillIcon} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path fillRule="nonzero" d="M14.787 13.752l-3.451-3.466a5.519 5.519 0 0 0 1.373-3.634C12.71 3.536 10.083 1 6.855 1 3.626 1 1 3.536 1 6.652c0 3.117 2.626 5.653 5.855 5.653a5.936 5.936 0 0 0 3.354-1.023l3.477 3.492c.146.146.341.226.55.226a.774.774 0 0 0 .53-.206.72.72 0 0 0 .021-1.042zM6.855 2.475c2.386 0 4.327 1.874 4.327 4.177 0 2.304-1.941 4.178-4.327 4.178S2.527 8.956 2.527 6.652c0-2.303 1.942-4.177 4.328-4.177z" />
+              <path
+                fillRule="nonzero"
+                d="M14.787 13.752l-3.451-3.466a5.519 5.519 0 0 0 1.373-3.634C12.71 3.536 10.083 1 6.855 1 3.626 1 1 3.536 1 6.652c0 3.117 2.626 5.653 5.855 5.653a5.936 5.936 0 0 0 3.354-1.023l3.477 3.492c.146.146.341.226.55.226a.774.774 0 0 0 .53-.206.72.72 0 0 0 .021-1.042zM6.855 2.475c2.386 0 4.327 1.874 4.327 4.177 0 2.304-1.941 4.178-4.327 4.178S2.527 8.956 2.527 6.652c0-2.303 1.942-4.177 4.328-4.177z"
+              />
             </svg>
-            Search…<span className={pillKbd}>⌘K</span>
+            Search…
+            <span className={pillKbd}>⌘K</span>
           </button>
         </div>
       </nav>

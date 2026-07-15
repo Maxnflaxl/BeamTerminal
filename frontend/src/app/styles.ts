@@ -20,6 +20,18 @@ css`
       --color-opasity-0-1: rgba(255, 255, 255, 0.1);
 
       /*
+       * Typography — deliberate system-font stacks; no webfonts are shipped.
+       * --font-mono carries the terminal look of the data surfaces (tables,
+       * numerals, hashes). ui-monospace is unknown to the wallet's QtWebEngine
+       * 5.15 (Chrome 83) and is safely skipped there; the stack then falls
+       * through to SF Mono / Menlo / Consolas per platform.
+       */
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+        sans-serif;
+      --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+        'DejaVu Sans Mono', monospace;
+
+      /*
        * Spacing: fluid page gutter + stepped pool tokens.
        * Primary narrow breakpoint for pool spacing is 1080px (matches EmbeddedLayout column stack).
        * Legacy 913px remains for some grid/column switches only.
@@ -112,7 +124,7 @@ css`
       overflow-x: hidden;
       overscroll-behavior: none;
       touch-action: pan-y pinch-zoom;
-      font-family: 'ProximaNova', 'SFProDisplay', sans-serif;
+      font-family: var(--font-sans);
       font-weight: 600;
       font-size: 14px;
       color: white;
@@ -125,9 +137,11 @@ css`
       min-height: 100vh;
     }
 
-    html:has(body.web),
-    html:has(body.mobile) {
-      background-color: var(--color-dark-blue);
+    /* Desktop-wallet host: clear the dark first-paint background inlined in
+       index.html so the wallet supplies its own backdrop. Class-based on
+       purpose — html:has() is Chrome 105+ and silently dead in the wallet. */
+    html.desktop {
+      background: none;
     }
 
     #root {

@@ -6,10 +6,14 @@ const IMPOSTER_ASSET_ENTRIES: Array<[number, number]> = [
   [26, 7], // BEAMX
 
   // BRIDGE ASSETS
-  [40, 36], [17, 36], // bETH
-  [41, 37], [18, 37], // bUSDT
-  [42, 38], [19, 38], // bWBTC
-  [43, 39], [35, 39], // bDAI
+  [40, 36],
+  [17, 36], // bETH
+  [41, 37],
+  [18, 37], // bUSDT
+  [42, 38],
+  [19, 38], // bWBTC
+  [43, 39],
+  [35, 39], // bDAI
 
   // OTHER
   [25, 9], // TICO
@@ -30,9 +34,8 @@ export const getRealAssetIdForFake = (assetId: number | string | null | undefine
   return IMPOSTER_ASSET_MAP.get(normalized) ?? null;
 };
 
-export const isImposterAsset = (assetId: number | string | null | undefined): boolean => (
-  getRealAssetIdForFake(assetId) !== null
-);
+export const isImposterAsset = (assetId: number | string | null | undefined): boolean =>
+  getRealAssetIdForFake(assetId) !== null;
 
 export const poolHasImposterAsset = (
   aid1: number | string | null | undefined,

@@ -1,10 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ROUTES } from '@app/shared/constants';
-import {
-  MOBILE_MEDIA, DesktopOnly, MobileOnly, useIsMobile,
-} from '../components/responsive';
+import IconFavorite from '@app/shared/icons/icon-favorite.svg';
+import IconFavoriteFilled from '@app/shared/icons/icon-favorite-filled.svg';
+import { MOBILE_MEDIA, DesktopOnly, MobileOnly, useIsMobile } from '../components/responsive';
 import { usePairs, useStats } from '../hooks';
 import type { ApiPair, SortKey, SortOrder } from '../api/types';
 import { StatsBar } from '../components/StatsBar';
@@ -12,24 +12,28 @@ import { ScreenerTable } from '../components/ScreenerTable';
 import { IconsPair } from '../components/IconsPair';
 import { TiersBadge } from '../components/KindBadge';
 import { Sparkline } from '../components/Sparkline';
+import { fmt$, fmtPct, fmtPrice, pairKey } from '../components/format';
 import {
-  fmt$, fmtPct, fmtPrice, pairKey,
-} from '../components/format';
+  ListPage as Page,
+  SearchInput as Search,
+  TableWrap,
+  MobileCard as Card,
+  MobileCardMain as CardMain,
+  MobileCardTopRow as CardTopRow,
+  MobileCardTitle as CardTitle,
+  MobileCardSub as CardSub,
+  MobileCardStats as CardStats,
+  MobileCardStat as CardStat,
+} from '../components/listPage';
 import { useFavorites } from '../favorites';
+import { CenteredNote } from '../components/CenteredNote';
 import { useMyCreatedPairs, useWallet } from '../wallet';
 import { CreatePoolModal } from '../components/CreatePoolModal';
-import IconFavorite from '@app/shared/icons/icon-favorite.svg';
-import IconFavoriteFilled from '@app/shared/icons/icon-favorite-filled.svg';
 
 // DEX-page row filters. `mine` (pairs the connected wallet created) is sourced
 // from the AMM shader and only offered when a wallet is connected; the rest are
 // derived from the public pairs feed + localStorage favorites.
 type DexFilter = 'all' | 'mine' | 'liquid' | 'empty' | 'fav';
-
-const Page = styled.div`
-  width: 100%;
-  min-height: calc(100vh - 130px);
-`;
 
 const Header = styled.div`
   max-width: 1400px;
@@ -37,27 +41,15 @@ const Header = styled.div`
   padding: 0 20px;
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 16px; }
+  & > * + * {
+    margin-left: 16px;
+  }
 
   ${MOBILE_MEDIA} {
     padding: 0 12px;
-    & > * + * { margin-left: 10px; }
-  }
-`;
-
-const Search = styled.input`
-  flex: 1;
-  max-width: 400px;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: white;
-  font-size: 13px;
-  outline: none;
-  font-family: inherit;
-  &:focus {
-    border-color: var(--color-green);
+    & > * + * {
+      margin-left: 10px;
+    }
   }
 `;
 
@@ -65,7 +57,9 @@ const LpButton = styled(Link)`
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   padding: 8px 14px;
   background: rgba(0, 246, 210, 0.12);
   border: 1px solid rgba(0, 246, 210, 0.45);
@@ -75,7 +69,9 @@ const LpButton = styled(Link)`
   text-decoration: none;
   white-space: nowrap;
   transition: background 120ms, border-color 120ms;
-  &:hover { background: rgba(0, 246, 210, 0.22); }
+  &:hover {
+    background: rgba(0, 246, 210, 0.22);
+  }
 
   ${MOBILE_MEDIA} {
     font-size: 12px;
@@ -98,7 +94,9 @@ const CreatePoolBtn = styled.button`
   white-space: nowrap;
   cursor: pointer;
   transition: filter 120ms;
-  &:hover { filter: brightness(1.08); }
+  &:hover {
+    filter: brightness(1.08);
+  }
 
   ${MOBILE_MEDIA} {
     font-size: 12px;
@@ -106,21 +104,11 @@ const CreatePoolBtn = styled.button`
   }
 `;
 
-const TableWrap = styled.div`
-  max-width: 1400px;
-  margin: 16px auto;
-  padding: 0 20px;
-  overflow-x: auto;
-
-  ${MOBILE_MEDIA} {
-    padding: 0 12px;
-    overflow-x: visible;
-  }
-`;
-
 const SortBar = styled.div`
   display: flex;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   align-items: center;
   flex-wrap: wrap;
   margin: 0 0 12px;
@@ -139,77 +127,16 @@ const SortPill = styled.button<{ active?: boolean }>`
   cursor: pointer;
 `;
 
-const Card = styled.div`
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-gap: 10px;
-  padding: 12px;
-  margin-bottom: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  cursor: pointer;
-  &:hover { background: rgba(255, 255, 255, 0.05); }
-`;
-
-const CardMain = styled.div`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  & > * + * { margin-top: 4px; }
-`;
-
-const CardTopRow = styled.div`
-  display: flex;
-  align-items: baseline;
-  & > * + * { margin-left: 8px; }
-  flex-wrap: wrap;
-`;
-
-const CardTitle = styled.div`
-  font-weight: 600;
-  font-size: 14px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-const CardSub = styled.div`
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 11px;
-`;
-
-const CardStats = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  grid-gap: 2px 12px;
-  margin-top: 4px;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 12px;
-`;
-
-const CardStat = styled.div`
-  display: flex;
-  justify-content: space-between;
-  color: rgba(255, 255, 255, 0.8);
-
-  & > span:first-child {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-right: 8px;
-  }
-`;
-
 const CardSide = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   justify-content: space-between;
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
-  & > * + * { margin-top: 6px; }
+  & > * + * {
+    margin-top: 6px;
+  }
 `;
 
 // Sortable-header variant: every header is clickable and the active one turns green.
@@ -218,15 +145,21 @@ const Table = styled(ScreenerTable)`
   th {
     cursor: pointer;
     user-select: none;
-    &:hover { color: rgba(255, 255, 255, 0.8); }
-    &.sorted { color: var(--color-green); }
+    &:hover {
+      color: rgba(255, 255, 255, 0.8);
+    }
+    &.sorted {
+      color: var(--color-green);
+    }
   }
 `;
 
 const PairCell = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 10px; }
+  & > * + * {
+    margin-left: 10px;
+  }
 `;
 
 const PairName = styled.div`
@@ -239,18 +172,6 @@ const PairName = styled.div`
   }
 `;
 
-const Loading = styled.div`
-  text-align: center;
-  padding: 60px 20px;
-  color: rgba(255, 255, 255, 0.5);
-`;
-
-const Empty = styled.div`
-  text-align: center;
-  padding: 60px 20px;
-  color: rgba(255, 255, 255, 0.5);
-`;
-
 // Row-filter pills (All / My / Liquid / Empty / Favorites). Reuses the SortPill
 // look; visible on both desktop and mobile, unlike the mobile-only SortBar.
 const FilterBar = styled.div`
@@ -260,7 +181,9 @@ const FilterBar = styled.div`
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  & > * { margin: 0 6px 6px 0; }
+  & > * {
+    margin: 0 6px 6px 0;
+  }
 
   ${MOBILE_MEDIA} {
     padding: 0 12px;
@@ -277,8 +200,14 @@ const StarButton = styled.button`
   align-items: center;
   line-height: 0;
   opacity: 0.85;
-  &:hover { opacity: 1; }
-  svg { display: block; width: 16px; height: 16px; }
+  &:hover {
+    opacity: 1;
+  }
+  svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+  }
 `;
 
 interface SortableHeaderProps {
@@ -290,21 +219,152 @@ interface SortableHeaderProps {
   className?: string;
 }
 
-const SortableHeader: React.FC<SortableHeaderProps> = ({
-  field, current, order, onSort, children, className,
-}) => {
+const SortableHeader: React.FC<SortableHeaderProps> = ({ field, current, order, onSort, children, className }) => {
   const isActive = field === current;
   const arrow = isActive ? (order === 'desc' ? ' ▼' : ' ▲') : '';
   return (
-    <th
-      className={`${isActive ? 'sorted' : ''} ${className ?? ''}`}
-      onClick={() => onSort(field)}
-    >
+    <th className={`${isActive ? 'sorted' : ''} ${className ?? ''}`} onClick={() => onSort(field)}>
       {children}
       {arrow}
     </th>
   );
 };
+
+// Row/card extracted and memoized: the list re-renders on every search
+// keystroke, favorite toggle, and poll tick, and without the memo all ~500
+// rows (icons, sparkline paths, formatted cells) reconcile each time. `fav`
+// is passed as a boolean so only the toggled row's props change.
+interface PairRowProps {
+  p: ApiPair;
+  idx: number;
+  fav: boolean;
+  onOpen: (key: string) => void;
+  onToggleFav: (aid1: number, aid2: number) => void;
+}
+
+const PairCard = React.memo(({ p, idx, fav, onOpen, onToggleFav }: PairRowProps) => {
+  const chg = fmtPct(p.price_change_24h);
+  return (
+    <Card
+      sideColumn
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(pairKey(p.aid1, p.aid2))}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onOpen(pairKey(p.aid1, p.aid2));
+      }}
+    >
+      <IconsPair aid1={p.aid1} aid2={p.aid2} />
+      <CardMain>
+        <CardTopRow>
+          <CardTitle>
+            {p.symbol1 ?? `aid${p.aid1}`}/{p.symbol2 ?? `aid${p.aid2}`}
+          </CardTitle>
+          <CardSub>
+            #{p.aid2} · #{idx + 1}
+          </CardSub>
+          <TiersBadge kinds={p.tiers?.map((t) => t.kind) ?? [p.kind]} />
+        </CardTopRow>
+        <CardStats>
+          <CardStat>
+            <span>Price</span>
+            <span>{p.price_usd !== null ? fmt$(p.price_usd) : fmtPrice(p.price_native)}</span>
+          </CardStat>
+          <CardStat>
+            <span>24h</span>
+            <span className={chg.cls}>{chg.text}</span>
+          </CardStat>
+          <CardStat>
+            <span>Vol</span>
+            <span>{fmt$(p.volume_24h_usd)}</span>
+          </CardStat>
+          <CardStat>
+            <span>Liq</span>
+            <span>{fmt$(p.tvl_usd)}</span>
+          </CardStat>
+          <CardStat>
+            <span>Txns</span>
+            <span>
+              {p.trades_24h}{' '}
+              <span className="positive" style={{ color: 'var(--color-green)' }}>
+                {p.buys_24h}
+              </span>
+              /
+              <span className="negative" style={{ color: 'var(--color-red)' }}>
+                {p.sells_24h}
+              </span>
+            </span>
+          </CardStat>
+        </CardStats>
+      </CardMain>
+      <CardSide>
+        <StarButton
+          type="button"
+          aria-label="Toggle favorite"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFav(p.aid1, p.aid2);
+          }}
+        >
+          {fav ? <IconFavoriteFilled /> : <IconFavorite />}
+        </StarButton>
+        <Sparkline values={(p.sparkline_7d ?? []).map((v) => (v > 0 ? 1 / v : 0))} />
+      </CardSide>
+    </Card>
+  );
+});
+
+const PairRow = React.memo(({ p, idx, fav, onOpen, onToggleFav }: PairRowProps) => {
+  const chg = fmtPct(p.price_change_24h);
+  return (
+    <tr
+      onClick={(e) => {
+        // The favorite star handles (and stops) its own clicks; ignore any
+        // click that originated inside a button so cell padding stays inert.
+        if ((e.target as HTMLElement).closest('button')) return;
+        onOpen(pairKey(p.aid1, p.aid2));
+      }}
+    >
+      <td>
+        <StarButton
+          type="button"
+          aria-label="Toggle favorite"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFav(p.aid1, p.aid2);
+          }}
+        >
+          {fav ? <IconFavoriteFilled /> : <IconFavorite />}
+        </StarButton>
+      </td>
+      <td className="neutral">{idx + 1}</td>
+      <td>
+        <PairCell>
+          <IconsPair aid1={p.aid1} aid2={p.aid2} />
+          <PairName>
+            {p.symbol1 ?? `aid${p.aid1}`}/{p.symbol2 ?? `aid${p.aid2}`}
+            <small>#{p.aid2}</small>
+          </PairName>
+        </PairCell>
+      </td>
+      <td>
+        <TiersBadge kinds={p.tiers?.map((t) => t.kind) ?? [p.kind]} />
+      </td>
+      <td className="mono">{p.price_usd !== null ? fmt$(p.price_usd) : fmtPrice(p.price_native)}</td>
+      <td className={chg.cls}>{chg.text}</td>
+      <td className="mono">
+        {p.trades_24h} <span className="positive">{p.buys_24h}</span>/<span className="negative">{p.sells_24h}</span>
+      </td>
+      <td className="mono">{fmt$(p.volume_24h_usd)}</td>
+      <td className="mono">{fmt$(p.tvl_usd)}</td>
+      <td>
+        {/* Invert closes so the trend matches the PRICE column
+            (price of aid2). Backend serves raw aid2-per-aid1. */}
+        <Sparkline values={(p.sparkline_7d ?? []).map((v) => (v > 0 ? 1 / v : 0))} />
+      </td>
+    </tr>
+  );
+});
 
 export const PairsList: React.FC = () => {
   const navigate = useNavigate();
@@ -332,6 +392,7 @@ export const PairsList: React.FC = () => {
   // on the public web). `inWallet` is isInsideWallet() from walletEnv.
   const { inWallet } = useWallet();
   const { favorites, toggle } = useFavorites();
+  const onOpen = useCallback((key: string): void => navigate(`/pair/${key}`), [navigate]);
   // Only poll the AMM shader for "my created pools" while the MY filter is active.
   const { createdKeys } = useMyCreatedPairs(filter === 'mine');
 
@@ -370,11 +431,16 @@ export const PairsList: React.FC = () => {
 
   const filtered = useMemo(() => {
     switch (filter) {
-      case 'mine': return pairs.filter((p) => createdKeys.has(pairKey(p.aid1, p.aid2)));
-      case 'liquid': return pairs.filter((p) => p.tvl_usd != null && p.tvl_usd > 0);
-      case 'empty': return pairs.filter((p) => !p.tvl_usd);
-      case 'fav': return pairs.filter((p) => favorites.has(pairKey(p.aid1, p.aid2)));
-      default: return pairs;
+      case 'mine':
+        return pairs.filter((p) => createdKeys.has(pairKey(p.aid1, p.aid2)));
+      case 'liquid':
+        return pairs.filter((p) => p.tvl_usd != null && p.tvl_usd > 0);
+      case 'empty':
+        return pairs.filter((p) => !p.tvl_usd);
+      case 'fav':
+        return pairs.filter((p) => favorites.has(pairKey(p.aid1, p.aid2)));
+      default:
+        return pairs;
     }
   }, [pairs, filter, createdKeys, favorites]);
 
@@ -388,11 +454,16 @@ export const PairsList: React.FC = () => {
 
   const emptyMessage = (() => {
     switch (filter) {
-      case 'mine': return 'You haven’t created any pairs yet.';
-      case 'liquid': return 'No pairs with liquidity.';
-      case 'empty': return 'No empty pairs.';
-      case 'fav': return 'No favorite pairs yet — tap the ★ to add one.';
-      default: return 'No pairs found.';
+      case 'mine':
+        return 'You haven’t created any pairs yet.';
+      case 'liquid':
+        return 'No pairs with liquidity.';
+      case 'empty':
+        return 'No empty pairs.';
+      case 'fav':
+        return 'No favorite pairs yet — tap the ★ to add one.';
+      default:
+        return 'No pairs found.';
     }
   })();
 
@@ -408,194 +479,100 @@ export const PairsList: React.FC = () => {
         />
         <LpButton to={ROUTES.NAV.LIQUIDITY}>◆ Liquidity Positions</LpButton>
         {inWallet && (
-          <CreatePoolBtn type="button" onClick={() => setCreateOpen(true)}>+ Create Pool</CreatePoolBtn>
+          <CreatePoolBtn type="button" onClick={() => setCreateOpen(true)}>
+            + Create Pool
+          </CreatePoolBtn>
         )}
       </Header>
       <FilterBar>
         {filterPills.map(([value, label]) => (
-          <SortPill
-            key={value}
-            active={filter === value}
-            onClick={() => setFilter(value)}
-          >
+          <SortPill key={value} active={filter === value} onClick={() => setFilter(value)}>
             {label}
           </SortPill>
         ))}
       </FilterBar>
       <TableWrap>
         {error ? (
-          <Empty>
+          <CenteredNote>
             Failed to load pairs:
             {error}
-          </Empty>
+          </CenteredNote>
         ) : loading && pairs.length === 0 ? (
-          <Loading>Loading pairs…</Loading>
+          <CenteredNote>Loading pairs…</CenteredNote>
         ) : filtered.length === 0 ? (
-          <Empty>{emptyMessage}</Empty>
+          <CenteredNote>{emptyMessage}</CenteredNote>
         ) : (
           <>
-          <MobileOnly>
-            <SortBar>
-              <span>Sort:</span>
-              {([
-                ['tvl_usd', 'Liquidity'],
-                ['volume_24h_usd', 'Volume'],
-                ['price_change_24h', '24h %'],
-                ['trades_24h', 'Txns'],
-              ] as ReadonlyArray<[SortKey, string]>).map(([k, label]) => (
-                <SortPill
-                  key={k}
-                  active={sortBy === k}
-                  onClick={() => onSort(k)}
-                >
-                  {label}
-                  {sortBy === k ? (order === 'desc' ? ' ▼' : ' ▲') : ''}
-                </SortPill>
-              ))}
-            </SortBar>
-            {isMobile && filtered.map((p, idx) => {
-              const chg = fmtPct(p.price_change_24h);
-              return (
-                <Card
-                  key={p.pair_id}
-                  onClick={() => navigate(`/pair/${pairKey(p.aid1, p.aid2)}`)}
-                >
-                  <IconsPair aid1={p.aid1} aid2={p.aid2} />
-                  <CardMain>
-                    <CardTopRow>
-                      <CardTitle>
-                        {p.symbol1 ?? `aid${p.aid1}`}/{p.symbol2 ?? `aid${p.aid2}`}
-                      </CardTitle>
-                      <CardSub>#{p.aid2} · #{idx + 1}</CardSub>
-                      <TiersBadge kinds={p.tiers?.map((t) => t.kind) ?? [p.kind]} />
-                    </CardTopRow>
-                    <CardStats>
-                      <CardStat>
-                        <span>Price</span>
-                        <span>{p.price_usd !== null ? fmt$(p.price_usd) : fmtPrice(p.price_native)}</span>
-                      </CardStat>
-                      <CardStat>
-                        <span>24h</span>
-                        <span className={chg.cls}>{chg.text}</span>
-                      </CardStat>
-                      <CardStat>
-                        <span>Vol</span>
-                        <span>{fmt$(p.volume_24h_usd)}</span>
-                      </CardStat>
-                      <CardStat>
-                        <span>Liq</span>
-                        <span>{fmt$(p.tvl_usd)}</span>
-                      </CardStat>
-                      <CardStat>
-                        <span>Txns</span>
-                        <span>
-                          {p.trades_24h}{' '}
-                          <span className="positive" style={{ color: 'var(--color-green)' }}>{p.buys_24h}</span>
-                          /
-                          <span className="negative" style={{ color: 'var(--color-red)' }}>{p.sells_24h}</span>
-                        </span>
-                      </CardStat>
-                    </CardStats>
-                  </CardMain>
-                  <CardSide>
-                    <StarButton
-                      type="button"
-                      aria-label="Toggle favorite"
-                      onClick={(e) => { e.stopPropagation(); toggle(p.aid1, p.aid2); }}
-                    >
-                      {favorites.has(pairKey(p.aid1, p.aid2)) ? <IconFavoriteFilled /> : <IconFavorite />}
-                    </StarButton>
-                    <Sparkline values={(p.sparkline_7d ?? []).map((v) => (v > 0 ? 1 / v : 0))} />
-                  </CardSide>
-                </Card>
-              );
-            })}
-          </MobileOnly>
-          <DesktopOnly>
-          <Table>
-            <thead>
-              <tr>
-                <th style={{ width: 32 }} aria-label="Favorite" />
-                <th style={{ width: 40 }}>#</th>
-                <th>Pair</th>
-                <th style={{ width: 60 }}>Tier</th>
-                <SortableHeader field="aid2" current={sortBy} order={order} onSort={onSort}>
-                  Price
-                </SortableHeader>
-                <SortableHeader field="price_change_24h" current={sortBy} order={order} onSort={onSort}>
-                  24h
-                </SortableHeader>
-                <SortableHeader field="trades_24h" current={sortBy} order={order} onSort={onSort}>
-                  Txns
-                </SortableHeader>
-                <SortableHeader field="volume_24h_usd" current={sortBy} order={order} onSort={onSort}>
-                  Volume
-                </SortableHeader>
-                <SortableHeader field="tvl_usd" current={sortBy} order={order} onSort={onSort}>
-                  Liquidity
-                </SortableHeader>
-                <th style={{ width: 110 }}>7D</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!isMobile && filtered.map((p, idx) => {
-                const chg = fmtPct(p.price_change_24h);
-                return (
-                  <tr
+            <MobileOnly>
+              <SortBar>
+                <span>Sort:</span>
+                {(
+                  [
+                    ['tvl_usd', 'Liquidity'],
+                    ['volume_24h_usd', 'Volume'],
+                    ['price_change_24h', '24h %'],
+                    ['trades_24h', 'Txns'],
+                  ] as ReadonlyArray<[SortKey, string]>
+                ).map(([k, label]) => (
+                  <SortPill key={k} active={sortBy === k} onClick={() => onSort(k)}>
+                    {label}
+                    {sortBy === k ? (order === 'desc' ? ' ▼' : ' ▲') : ''}
+                  </SortPill>
+                ))}
+              </SortBar>
+              {isMobile &&
+                filtered.map((p, idx) => (
+                  <PairCard
                     key={p.pair_id}
-                    onClick={() => navigate(`/pair/${pairKey(p.aid1, p.aid2)}`)}
-                  >
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <StarButton
-                        type="button"
-                        aria-label="Toggle favorite"
-                        onClick={(e) => { e.stopPropagation(); toggle(p.aid1, p.aid2); }}
-                      >
-                        {favorites.has(pairKey(p.aid1, p.aid2)) ? <IconFavoriteFilled /> : <IconFavorite />}
-                      </StarButton>
-                    </td>
-                    <td className="neutral">{idx + 1}</td>
-                    <td>
-                      <PairCell>
-                        <IconsPair aid1={p.aid1} aid2={p.aid2} />
-                        <PairName>
-                          {p.symbol1 ?? `aid${p.aid1}`}
-                          /
-                          {p.symbol2 ?? `aid${p.aid2}`}
-                          <small>
-                            #
-                            {p.aid2}
-                          </small>
-                        </PairName>
-                      </PairCell>
-                    </td>
-                    <td><TiersBadge kinds={p.tiers?.map((t) => t.kind) ?? [p.kind]} /></td>
-                    <td className="mono">
-                      {p.price_usd !== null ? fmt$(p.price_usd) : fmtPrice(p.price_native)}
-                    </td>
-                    <td className={chg.cls}>{chg.text}</td>
-                    <td className="mono">
-                      {p.trades_24h}
-                      {' '}
-                      <span className="positive">{p.buys_24h}</span>
-                      /
-                      <span className="negative">{p.sells_24h}</span>
-                    </td>
-                    <td className="mono">{fmt$(p.volume_24h_usd)}</td>
-                    <td className="mono">{fmt$(p.tvl_usd)}</td>
-                    <td>
-                      {/* Invert closes so the trend matches the PRICE column
-                          (price of aid2). Backend serves raw aid2-per-aid1. */}
-                      <Sparkline
-                        values={(p.sparkline_7d ?? []).map((v) => (v > 0 ? 1 / v : 0))}
-                      />
-                    </td>
+                    p={p}
+                    idx={idx}
+                    fav={favorites.has(pairKey(p.aid1, p.aid2))}
+                    onOpen={onOpen}
+                    onToggleFav={toggle}
+                  />
+                ))}
+            </MobileOnly>
+            <DesktopOnly>
+              <Table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 32 }} aria-label="Favorite" />
+                    <th style={{ width: 40 }}>#</th>
+                    <th>Pair</th>
+                    <th style={{ width: 60 }}>Tier</th>
+                    <SortableHeader field="aid2" current={sortBy} order={order} onSort={onSort}>
+                      Price
+                    </SortableHeader>
+                    <SortableHeader field="price_change_24h" current={sortBy} order={order} onSort={onSort}>
+                      24h
+                    </SortableHeader>
+                    <SortableHeader field="trades_24h" current={sortBy} order={order} onSort={onSort}>
+                      Txns
+                    </SortableHeader>
+                    <SortableHeader field="volume_24h_usd" current={sortBy} order={order} onSort={onSort}>
+                      Volume
+                    </SortableHeader>
+                    <SortableHeader field="tvl_usd" current={sortBy} order={order} onSort={onSort}>
+                      Liquidity
+                    </SortableHeader>
+                    <th style={{ width: 110 }}>7D</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </Table>
-          </DesktopOnly>
+                </thead>
+                <tbody>
+                  {!isMobile &&
+                    filtered.map((p, idx) => (
+                      <PairRow
+                        key={p.pair_id}
+                        p={p}
+                        idx={idx}
+                        fav={favorites.has(pairKey(p.aid1, p.aid2))}
+                        onOpen={onOpen}
+                        onToggleFav={toggle}
+                      />
+                    ))}
+                </tbody>
+              </Table>
+            </DesktopOnly>
           </>
         )}
       </TableWrap>

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { styled } from '@linaria/react';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '../constants/routes';
+import { EXPLORER_API } from '../constants';
 
 // A block height rendered as an in-app link to the terminal's own Beam Smart
 // Explorer block view (`/explorer/beam?type=block&height=N`, deep-linkable via
@@ -15,7 +16,7 @@ import { ROUTES } from '../constants/routes';
 // callers showing a future height pass `tip` so the tooltip shows an ETA
 // instead of fetching a block that does not exist yet.
 
-const DEFAULT_EXPLORER_API = 'https://explorer.0xmx.net/api';
+const DEFAULT_EXPLORER_API = EXPLORER_API;
 const BLOCK_SECONDS = 60;
 
 // Resolved fetch URL -> unix-seconds timestamp (null = looked up, unavailable).
@@ -93,7 +94,9 @@ export function useBlockTimestamp(
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [enabled, height]);
 
   return { ts, loading };
@@ -110,7 +113,9 @@ const HeightLink = styled(Link)`
   text-decoration: none;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  &:hover { text-decoration: underline; }
+  &:hover {
+    text-decoration: underline;
+  }
 `;
 
 const Tip = styled.span`
@@ -194,12 +199,7 @@ export const BlockHeight: React.FC<BlockHeightProps> = ({
   };
 
   return (
-    <Wrap
-      ref={wrapRef}
-      className={className}
-      onMouseEnter={onEnter}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <Wrap ref={wrapRef} className={className} onMouseEnter={onEnter} onMouseLeave={() => setHovered(false)}>
       <HeightLink
         to={{ pathname: ROUTES.NAV.EXPLORER_BEAM, search }}
         title="Open block in explorer"
@@ -207,8 +207,10 @@ export const BlockHeight: React.FC<BlockHeightProps> = ({
       >
         {label}
       </HeightLink>
-      {tooltip && hovered && pos
-        && createPortal(<Tip style={{ left: pos.x, top: pos.y - 8 }}>{tipText}</Tip>, document.body)}
+      {tooltip &&
+        hovered &&
+        pos &&
+        createPortal(<Tip style={{ left: pos.x, top: pos.y - 8 }}>{tipText}</Tip>, document.body)}
     </Wrap>
   );
 };

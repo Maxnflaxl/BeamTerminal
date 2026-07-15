@@ -5,6 +5,7 @@
     "module": "commonjs",
     "moduleResolution": "Node",
     "esModuleInterop": true,
+    "skipLibCheck": true,
     "typeRoots": [
       "node_modules/@types",
       "node_modules/web-ext-types",

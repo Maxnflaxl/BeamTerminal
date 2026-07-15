@@ -1,5 +1,6 @@
 const path = require('path');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const TsconfigPathsPlugin = require('tsconfig-paths-webpack-plugin');
 
@@ -53,7 +54,12 @@ module.exports = {
   },
   output: {
     path: path.join(__dirname, 'html'),
-    filename: '[name].js',
+    // Content-hashed names + generated index.html make deploys atomic and let
+    // nginx/Cloudflare cache the assets immutably (index.html stays no-cache).
+    // publicPath stays at the default 'auto' so URLs resolve relative to the
+    // page in both hosts (site root and the wallet's /guid/app/ subpath).
+    filename: '[name].[contenthash:8].js',
+    chunkFilename: '[name].[contenthash:8].js',
     clean: true,
   },
   resolve: {
@@ -62,18 +68,6 @@ module.exports = {
   },
   module: {
     rules: [
-      {
-        test: /\.(woff|woff2|eot|ttf|otf)$/,
-        use: [
-          {
-            loader: 'file-loader',
-            options: {
-              name: '[name].[ext]',
-              outputPath: 'assets/fonts/', // the fonts will output in this directory
-            },
-          },
-        ],
-      },
       {
         test: /\.tsx?$/,
         use: ['babel-loader', '@linaria/webpack-loader'],
@@ -131,23 +125,16 @@ module.exports = {
   },
   plugins: [
     new MiniCssExtractPlugin({
-      filename: 'styles.css',
+      filename: 'styles.[contenthash:8].css',
+    }),
+    new HtmlWebpackPlugin({
+      template: path.join(__dirname, 'src/index.html'),
     }),
     new CopyWebpackPlugin({
       patterns: [
         {
           from: path.join(__dirname, 'src/wasm'),
           to: path.join(__dirname, 'html/'),
-          context: 'public',
-        },
-        {
-          from: path.join(__dirname, 'src/assets'),
-          to: path.join(__dirname, 'html/assets'),
-          context: 'public',
-        },
-        {
-          from: path.join(__dirname, 'src/index.html'),
-          to: path.join(__dirname, 'html'),
           context: 'public',
         },
         {

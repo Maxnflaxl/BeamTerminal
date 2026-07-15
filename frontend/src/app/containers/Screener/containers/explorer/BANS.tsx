@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
+import { EXPLORER_API } from '@app/shared/constants';
+import { CenteredNote } from '../../components/CenteredNote';
 import {
   Page,
   ExplorerHeader,
@@ -37,7 +39,7 @@ const CONTRACT_NMAXTXS = 0;
 const POLL_MS = 60_000;
 const BLOCK_SECONDS = 60;
 
-const EXPLORER_API_BASE = 'https://explorer.0xmx.net/api';
+const EXPLORER_API_BASE = EXPLORER_API;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,7 +59,10 @@ interface Domain {
 
 type SortKey = 'name' | 'owner' | 'expiration' | 'status' | 'price';
 
-interface SortState { key: SortKey; dir: 1 | -1 }
+interface SortState {
+  key: SortKey;
+  dir: 1 | -1;
+}
 
 type MethodTone = 'accent' | 'info' | 'warn' | 'purple' | 'danger' | 'neutral';
 
@@ -92,7 +97,9 @@ function truncBlob(hex: string): string {
 
 function copyText(text: string): void {
   if (!navigator.clipboard) return;
-  navigator.clipboard.writeText(text).catch(() => { /* ignore */ });
+  navigator.clipboard.writeText(text).catch(() => {
+    /* ignore */
+  });
 }
 
 function parseDomains(data: any): Domain[] {
@@ -104,8 +111,8 @@ function parseDomains(data: any): Domain[] {
     const r = rows[i];
     if (!Array.isArray(r) || r.length < 5) continue;
     const name = typeof r[0] === 'string' ? r[0] : String(r[0] || '');
-    const owner = (r[1] && typeof r[1] === 'object') ? r[1].value : (r[1] || '');
-    const expiration = (r[2] && typeof r[2] === 'object') ? Number(r[2].value) : Number(r[2] || 0);
+    const owner = r[1] && typeof r[1] === 'object' ? r[1].value : r[1] || '';
+    const expiration = r[2] && typeof r[2] === 'object' ? Number(r[2].value) : Number(r[2] || 0);
     const statusRaw = typeof r[3] === 'string' ? r[3] : '';
     let status: DomainStatus;
     if (statusRaw === '') status = 'active';
@@ -117,11 +124,19 @@ function parseDomains(data: any): Domain[] {
     if (Array.isArray(priceCell) && priceCell.length >= 2) {
       const a = priceCell[0];
       const b = priceCell[1];
-      priceAid = (a && typeof a === 'object') ? Number(a.value) : null;
-      const v = (b && typeof b === 'object') ? b.value : null;
+      priceAid = a && typeof a === 'object' ? Number(a.value) : null;
+      const v = b && typeof b === 'object' ? b.value : null;
       if (v !== null && v !== undefined) price = parseFloat(String(v).replace(/,/g, ''));
     }
-    out.push({ name: String(name), owner: String(owner), expiration, status, statusRaw, price, priceAid });
+    out.push({
+      name: String(name),
+      owner: String(owner),
+      expiration,
+      status,
+      statusRaw,
+      price,
+      priceAid,
+    });
   }
   return out;
 }
@@ -153,7 +168,9 @@ function methodTone(cls: string): MethodTone {
 const LogoArea = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
 `;
 
 const JumpNav = styled.nav`
@@ -163,7 +180,9 @@ const JumpNav = styled.nav`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   /* Match the page background so the sticky bar blends in (no visible band)
      while staying opaque enough to cover content scrolling under it. */
   background: ${theme.color.bg};
@@ -182,7 +201,9 @@ const JumpLabel = styled.span`
 const ContractBar = styled.div`
   display: flex;
   flex-wrap: wrap;
-  & > * + * { margin-left: 24px; }
+  & > * + * {
+    margin-left: 24px;
+  }
   align-items: center;
   background: ${theme.color.surface};
   border: 1px solid ${theme.color.borderDim};
@@ -214,7 +235,9 @@ const CidMono = styled.span`
   border: 1px solid ${theme.color.borderDim};
   cursor: pointer;
   word-break: break-all;
-  &:hover { background: ${theme.color.accentDim}; }
+  &:hover {
+    background: ${theme.color.accentDim};
+  }
 `;
 
 const Panel = styled.div`
@@ -232,7 +255,9 @@ const PanelHeader = styled.div`
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  & > * + * { margin-left: 10px; }
+  & > * + * {
+    margin-left: 10px;
+  }
 `;
 
 const PanelTitle = styled.div`
@@ -248,7 +273,9 @@ const PanelMeta = styled.div`
 const Toolbar = styled.div`
   display: flex;
   flex-wrap: wrap;
-  & > * + * { margin-left: 10px; }
+  & > * + * {
+    margin-left: 10px;
+  }
   align-items: center;
   padding: 12px 16px;
   border-bottom: 1px solid ${theme.color.borderDim};
@@ -263,10 +290,14 @@ const SearchWrap = styled.div`
 const ChipGroup = styled.div`
   display: flex;
   flex-wrap: wrap;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
 `;
 
-const Spacer = styled.div` flex: 1; `;
+const Spacer = styled.div`
+  flex: 1;
+`;
 
 const OwnerBlob = styled.span`
   font-size: 11px;
@@ -275,7 +306,10 @@ const OwnerBlob = styled.span`
   border-radius: 4px;
   border: 1px solid ${theme.color.borderDim};
   cursor: pointer;
-  &:hover { color: ${theme.color.text}; border-color: ${theme.color.border}; }
+  &:hover {
+    color: ${theme.color.text};
+    border-color: ${theme.color.border};
+  }
 `;
 
 const Eta = styled.div`
@@ -310,14 +344,14 @@ const Pagination = styled.div`
   font-size: 11px;
 `;
 
-const PageInfo = styled.div` color: ${theme.color.muted}; `;
-const PageBtns = styled.div` display: flex; & > * + * { margin-left: 6px; } `;
-
-const Empty = styled.div`
-  padding: 30px;
-  text-align: center;
+const PageInfo = styled.div`
   color: ${theme.color.muted};
-  font-size: 12px;
+`;
+const PageBtns = styled.div`
+  display: flex;
+  & > * + * {
+    margin-left: 6px;
+  }
 `;
 
 const ActivityRow = styled.div`
@@ -328,7 +362,9 @@ const ActivityRow = styled.div`
   border-bottom: 1px solid ${theme.color.borderDim};
   font-size: 12px;
   align-items: center;
-  &:last-child { border-bottom: 0; }
+  &:last-child {
+    border-bottom: 0;
+  }
 `;
 
 const HCell = styled.div`
@@ -366,7 +402,9 @@ const SubDetails = styled.details`
     color: ${theme.color.muted};
     list-style: none;
   }
-  & summary::-webkit-details-marker { display: none; }
+  & summary::-webkit-details-marker {
+    display: none;
+  }
   &[open] summary {
     border-bottom: 1px solid ${theme.color.borderDim};
     color: ${theme.color.text};
@@ -417,6 +455,15 @@ export const BANS: React.FC = () => {
   const [activityPage, setActivityPage] = useState(0);
 
   const apiBaseRef = useRef(apiBase);
+  // Guards the async loaders below — a poll resolving after navigate-away must
+  // not setState on the unmounted component.
+  const aliveRef = useRef(true);
+  useEffect(
+    () => () => {
+      aliveRef.current = false;
+    },
+    [],
+  );
   apiBaseRef.current = apiBase;
 
   // Section anchors for the jump-nav.
@@ -429,10 +476,7 @@ export const BANS: React.FC = () => {
   }, []);
 
   // Resolve block timestamps from the same explorer node the user picked.
-  const blockUrl = useCallback(
-    (h: number) => `${apiBase.replace(/\/$/, '')}/block?height=${h}`,
-    [apiBase],
-  );
+  const blockUrl = useCallback((h: number) => `${apiBase.replace(/\/$/, '')}/block?height=${h}`, [apiBase]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -440,7 +484,8 @@ export const BANS: React.FC = () => {
       const url = `${apiBaseRef.current.replace(/\/$/, '')}/contract?id=${CID}&exp_am=1&nMaxTxs=${CONTRACT_NMAXTXS}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
+      if (!aliveRef.current) return;
       setTipHeight(typeof data.h === 'number' ? data.h : null);
       setKind(data.kind || '—');
       setDomains(parseDomains(data));
@@ -449,12 +494,13 @@ export const BANS: React.FC = () => {
       if (Array.isArray(vh) && vh.length > 1) {
         const firstVer = vh[1];
         if (firstVer && Array.isArray(firstVer)) {
-          const h = (firstVer[0] && typeof firstVer[0] === 'object') ? firstVer[0].value : firstVer[0];
+          const h = firstVer[0] && typeof firstVer[0] === 'object' ? firstVer[0].value : firstVer[0];
           const n = Number(h);
           if (Number.isFinite(n)) setDeployedAt(n);
         }
       }
     } catch (err) {
+      if (!aliveRef.current) return;
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Failed to load contract data: ${msg}`);
     }
@@ -463,7 +509,10 @@ export const BANS: React.FC = () => {
   // Initial + polling
   useEffect(() => {
     void load();
-    const id = setInterval(() => { void load(); }, POLL_MS);
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      void load();
+    }, POLL_MS);
     return () => clearInterval(id);
   }, [load]);
 
@@ -472,27 +521,39 @@ export const BANS: React.FC = () => {
   const loadActions = useCallback(async () => {
     try {
       const res = await api.bansActions();
-      setApiActions(res.actions);
+      if (aliveRef.current) setApiActions(res.actions);
     } catch {
       /* keep last-good; list/timeline just stay on stale data until the next poll */
     }
   }, []);
   useEffect(() => {
     void loadActions();
-    const id = setInterval(() => { void loadActions(); }, POLL_MS);
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      void loadActions();
+    }, POLL_MS);
     return () => clearInterval(id);
   }, [loadActions]);
 
   // ---- KPIs ----
   const kpi = useMemo(() => {
-    let active = 0; let expired = 0; let hold = 0; let sale = 0;
+    let active = 0;
+    let expired = 0;
+    let hold = 0;
+    let sale = 0;
     for (const d of domains) {
       if (d.status === 'active') active++;
       else if (d.status === 'expired') expired++;
       else if (d.status === 'hold') hold++;
       if (d.price !== null && d.price > 0) sale++;
     }
-    return { total: domains.length, active, expired, hold, sale };
+    return {
+      total: domains.length,
+      active,
+      expired,
+      hold,
+      sale,
+    };
   }, [domains]);
 
   // ---- Filtered + sorted ----
@@ -506,12 +567,24 @@ export const BANS: React.FC = () => {
     if (saleOnly) arr = arr.filter((d) => d.price !== null && d.price > 0);
     const { key, dir } = sort;
     arr = arr.slice().sort((a, b) => {
-      let av: number | string; let bv: number | string;
-      if (key === 'name') { av = a.name; bv = b.name; }
-      else if (key === 'owner') { av = a.owner || ''; bv = b.owner || ''; }
-      else if (key === 'expiration') { av = a.expiration; bv = b.expiration; }
-      else if (key === 'status') { av = a.status; bv = b.status; }
-      else { av = a.price === null ? -1 : a.price; bv = b.price === null ? -1 : b.price; }
+      let av: number | string;
+      let bv: number | string;
+      if (key === 'name') {
+        av = a.name;
+        bv = b.name;
+      } else if (key === 'owner') {
+        av = a.owner || '';
+        bv = b.owner || '';
+      } else if (key === 'expiration') {
+        av = a.expiration;
+        bv = b.expiration;
+      } else if (key === 'status') {
+        av = a.status;
+        bv = b.status;
+      } else {
+        av = a.price === null ? -1 : a.price;
+        bv = b.price === null ? -1 : b.price;
+      }
       if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * dir;
       return ((av as number) - (bv as number)) * dir;
     });
@@ -531,7 +604,7 @@ export const BANS: React.FC = () => {
   function toggleSort(key: SortKey): void {
     setSort((prev) => {
       if (prev.key === key) return { key, dir: (prev.dir === 1 ? -1 : 1) as 1 | -1 };
-      const defaultDir: 1 | -1 = (key === 'expiration' || key === 'price') ? -1 : 1;
+      const defaultDir: 1 | -1 = key === 'expiration' || key === 'price' ? -1 : 1;
       return { key, dir: defaultDir };
     });
   }
@@ -554,13 +627,28 @@ export const BANS: React.FC = () => {
       <PageInfo>
         {filtered.length === 0
           ? 'Page 0 of 0'
-          : `Page ${safePage + 1} of ${pages} · ${start + 1}–${Math.min(start + PAGE_SIZE, filtered.length)} of ${filtered.length}`}
+          : `Page ${safePage + 1} of ${pages} · ${start + 1}–${Math.min(start + PAGE_SIZE, filtered.length)} of ${
+              filtered.length
+            }`}
       </PageInfo>
       <PageBtns>
-        <Btn type="button" data-variant="ghost" disabled={safePage === 0} onClick={() => setPage(0)}>⏮</Btn>
-        <Btn type="button" data-variant="ghost" disabled={safePage === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Prev</Btn>
-        <Btn type="button" data-variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage((p) => p + 1)}>Next ›</Btn>
-        <Btn type="button" data-variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage(pages - 1)}>⏭</Btn>
+        <Btn type="button" data-variant="ghost" disabled={safePage === 0} onClick={() => setPage(0)}>
+          ⏮
+        </Btn>
+        <Btn
+          type="button"
+          data-variant="ghost"
+          disabled={safePage === 0}
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+        >
+          ‹ Prev
+        </Btn>
+        <Btn type="button" data-variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage((p) => p + 1)}>
+          Next ›
+        </Btn>
+        <Btn type="button" data-variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage(pages - 1)}>
+          ⏭
+        </Btn>
       </PageBtns>
     </Pagination>
   );
@@ -570,13 +658,39 @@ export const BANS: React.FC = () => {
       <PageInfo>
         {apiActions.length === 0
           ? 'Page 0 of 0'
-          : `Page ${safeActivityPage + 1} of ${activityPages} · ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, apiActions.length)} of ${apiActions.length}`}
+          : `Page ${safeActivityPage + 1} of ${activityPages} · ${activityStart + 1}–${Math.min(
+              activityStart + ACTIVITY_PAGE_SIZE,
+              apiActions.length,
+            )} of ${apiActions.length}`}
       </PageInfo>
       <PageBtns>
-        <Btn type="button" data-variant="ghost" disabled={safeActivityPage === 0} onClick={() => setActivityPage(0)}>⏮</Btn>
-        <Btn type="button" data-variant="ghost" disabled={safeActivityPage === 0} onClick={() => setActivityPage((p) => Math.max(0, p - 1))}>‹ Prev</Btn>
-        <Btn type="button" data-variant="ghost" disabled={safeActivityPage >= activityPages - 1} onClick={() => setActivityPage((p) => p + 1)}>Next ›</Btn>
-        <Btn type="button" data-variant="ghost" disabled={safeActivityPage >= activityPages - 1} onClick={() => setActivityPage(activityPages - 1)}>⏭</Btn>
+        <Btn type="button" data-variant="ghost" disabled={safeActivityPage === 0} onClick={() => setActivityPage(0)}>
+          ⏮
+        </Btn>
+        <Btn
+          type="button"
+          data-variant="ghost"
+          disabled={safeActivityPage === 0}
+          onClick={() => setActivityPage((p) => Math.max(0, p - 1))}
+        >
+          ‹ Prev
+        </Btn>
+        <Btn
+          type="button"
+          data-variant="ghost"
+          disabled={safeActivityPage >= activityPages - 1}
+          onClick={() => setActivityPage((p) => p + 1)}
+        >
+          Next ›
+        </Btn>
+        <Btn
+          type="button"
+          data-variant="ghost"
+          disabled={safeActivityPage >= activityPages - 1}
+          onClick={() => setActivityPage(activityPages - 1)}
+        >
+          ⏭
+        </Btn>
       </PageBtns>
     </Pagination>
   );
@@ -594,10 +708,18 @@ export const BANS: React.FC = () => {
 
       <JumpNav>
         <JumpLabel>Jump to</JumpLabel>
-        <TabBtn type="button" onClick={() => scrollTo(overviewRef)}>Overview</TabBtn>
-        <TabBtn type="button" onClick={() => scrollTo(timelineRef)}>Timeline</TabBtn>
-        <TabBtn type="button" onClick={() => scrollTo(domainsRef)}>Domains</TabBtn>
-        <TabBtn type="button" onClick={() => scrollTo(activityRef)}>Activity</TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(overviewRef)}>
+          Overview
+        </TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(timelineRef)}>
+          Timeline
+        </TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(domainsRef)}>
+          Domains
+        </TabBtn>
+        <TabBtn type="button" onClick={() => scrollTo(activityRef)}>
+          Activity
+        </TabBtn>
       </JumpNav>
 
       {error && <ErrorBox>{error}</ErrorBox>}
@@ -605,11 +727,26 @@ export const BANS: React.FC = () => {
       <ContractBar>
         <div>
           <BarLabel>Contract</BarLabel>
-          <CidMono onClick={() => copyText(CID)} title="Click to copy">{CID}</CidMono>
+          <CidMono onClick={() => copyText(CID)} title="Click to copy">
+            {CID}
+          </CidMono>
         </div>
-        <div><BarLabel>Kind</BarLabel><BarValue>{kind || '—'}</BarValue></div>
-        <div><BarLabel>Tip height</BarLabel><BarValue><BlockHeight height={tipHeight} resolveUrl={blockUrl} /></BarValue></div>
-        <div><BarLabel>Deployed at</BarLabel><BarValue><BlockHeight height={deployedAt} resolveUrl={blockUrl} /></BarValue></div>
+        <div>
+          <BarLabel>Kind</BarLabel>
+          <BarValue>{kind || '—'}</BarValue>
+        </div>
+        <div>
+          <BarLabel>Tip height</BarLabel>
+          <BarValue>
+            <BlockHeight height={tipHeight} resolveUrl={blockUrl} />
+          </BarValue>
+        </div>
+        <div>
+          <BarLabel>Deployed at</BarLabel>
+          <BarValue>
+            <BlockHeight height={deployedAt} resolveUrl={blockUrl} />
+          </BarValue>
+        </div>
       </ContractBar>
 
       <StatGrid ref={overviewRef}>
@@ -664,35 +801,105 @@ export const BANS: React.FC = () => {
               placeholder="Search by name…"
               autoComplete="off"
               value={search}
-              onChange={(e) => { setSearch(e.target.value.trim()); setPage(0); }}
+              onChange={(e) => {
+                setSearch(e.target.value.trim());
+                setPage(0);
+              }}
             />
           </SearchWrap>
           <ChipGroup>
-            <TabBtn type="button" data-active={statusFilter === 'all'} onClick={() => { setStatusFilter('all'); setPage(0); }}>All</TabBtn>
-            <TabBtn type="button" data-active={statusFilter === 'active'} onClick={() => { setStatusFilter('active'); setPage(0); }}>Active</TabBtn>
-            <TabBtn type="button" data-active={statusFilter === 'hold'} onClick={() => { setStatusFilter('hold'); setPage(0); }}>On hold</TabBtn>
-            <TabBtn type="button" data-active={statusFilter === 'expired'} onClick={() => { setStatusFilter('expired'); setPage(0); }}>Expired</TabBtn>
+            <TabBtn
+              type="button"
+              data-active={statusFilter === 'all'}
+              onClick={() => {
+                setStatusFilter('all');
+                setPage(0);
+              }}
+            >
+              All
+            </TabBtn>
+            <TabBtn
+              type="button"
+              data-active={statusFilter === 'active'}
+              onClick={() => {
+                setStatusFilter('active');
+                setPage(0);
+              }}
+            >
+              Active
+            </TabBtn>
+            <TabBtn
+              type="button"
+              data-active={statusFilter === 'hold'}
+              onClick={() => {
+                setStatusFilter('hold');
+                setPage(0);
+              }}
+            >
+              On hold
+            </TabBtn>
+            <TabBtn
+              type="button"
+              data-active={statusFilter === 'expired'}
+              onClick={() => {
+                setStatusFilter('expired');
+                setPage(0);
+              }}
+            >
+              Expired
+            </TabBtn>
           </ChipGroup>
-          <TabBtn type="button" data-active={saleOnly} onClick={() => { setSaleOnly((s) => !s); setPage(0); }}>For sale only</TabBtn>
+          <TabBtn
+            type="button"
+            data-active={saleOnly}
+            onClick={() => {
+              setSaleOnly((s) => !s);
+              setPage(0);
+            }}
+          >
+            For sale only
+          </TabBtn>
           <Spacer />
-          <Btn type="button" data-variant="ghost" onClick={() => { void load(); }}>Refresh</Btn>
+          <Btn
+            type="button"
+            data-variant="ghost"
+            onClick={() => {
+              void load();
+            }}
+          >
+            Refresh
+          </Btn>
         </Toolbar>
         {domainsPager}
         <ScrollX>
           <DataTable>
             <thead>
               <tr>
-                <th data-sortable onClick={() => toggleSort('name')}>Name {sortArrow('name') && <SortArrow>{sortArrow('name')}</SortArrow>}</th>
-                <th data-sortable onClick={() => toggleSort('owner')}>Owner</th>
-                <th data-sortable onClick={() => toggleSort('expiration')}>Expires at {sortArrow('expiration') && <SortArrow>{sortArrow('expiration')}</SortArrow>}</th>
-                <th data-sortable onClick={() => toggleSort('status')}>Status</th>
-                <th data-sortable className="right" onClick={() => toggleSort('price')}>Sell price</th>
+                <th data-sortable onClick={() => toggleSort('name')}>
+                  Name {sortArrow('name') && <SortArrow>{sortArrow('name')}</SortArrow>}
+                </th>
+                <th data-sortable onClick={() => toggleSort('owner')}>
+                  Owner
+                </th>
+                <th data-sortable onClick={() => toggleSort('expiration')}>
+                  Expires at {sortArrow('expiration') && <SortArrow>{sortArrow('expiration')}</SortArrow>}
+                </th>
+                <th data-sortable onClick={() => toggleSort('status')}>
+                  Status
+                </th>
+                <th data-sortable className="right" onClick={() => toggleSort('price')}>
+                  Sell price
+                </th>
               </tr>
             </thead>
             <tbody>
               {slice.length === 0 ? (
                 <tr>
-                  <td colSpan={5}><Empty>No domains match the current filters.</Empty></td>
+                  <td colSpan={5}>
+                    <CenteredNote pad="30px" size={12}>
+                      No domains match the current filters.
+                    </CenteredNote>
+                  </td>
                 </tr>
               ) : (
                 slice.map((d, idx) => {
@@ -702,10 +909,7 @@ export const BANS: React.FC = () => {
                     <tr key={`${d.name}-${idx}`}>
                       <td style={{ color: theme.color.accent, fontWeight: 600 }}>{d.name}</td>
                       <td className="muted">
-                        <OwnerBlob
-                          onClick={() => copyText(d.owner)}
-                          title={`${d.owner} — click to copy`}
-                        >
+                        <OwnerBlob onClick={() => copyText(d.owner)} title={`${d.owner} — click to copy`}>
                           {truncBlob(d.owner)}
                         </OwnerBlob>
                       </td>
@@ -717,13 +921,19 @@ export const BANS: React.FC = () => {
                         {d.status === 'active' && <Pill data-tone="accent">Active</Pill>}
                         {d.status === 'hold' && <Pill data-tone="warn">On hold</Pill>}
                         {d.status === 'expired' && <Pill data-tone="danger">Expired</Pill>}
-                        {d.price !== null && d.price > 0 && <SaleSpacer><Pill data-tone="purple">For sale</Pill></SaleSpacer>}
+                        {d.price !== null && d.price > 0 && (
+                          <SaleSpacer>
+                            <Pill data-tone="purple">For sale</Pill>
+                          </SaleSpacer>
+                        )}
                       </td>
                       <td className="right">
                         {d.price !== null && d.price > 0 ? (
                           <>
                             <Price>{d.price.toLocaleString('en-US', { maximumFractionDigits: 8 })}</Price>
-                            <PriceAid>{d.priceAid === 0 ? 'BEAM' : `aid:${d.priceAid !== null ? d.priceAid : '?'}`}</PriceAid>
+                            <PriceAid>
+                              {d.priceAid === 0 ? 'BEAM' : `aid:${d.priceAid !== null ? d.priceAid : '?'}`}
+                            </PriceAid>
                           </>
                         ) : (
                           <MutedInline>—</MutedInline>
@@ -744,14 +954,18 @@ export const BANS: React.FC = () => {
           <PanelTitle>Recent registry activity</PanelTitle>
           <PanelMeta>
             {apiActions.length > 0
-              ? `Showing ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, apiActions.length)} of ${apiActions.length} loaded calls`
+              ? `Showing ${activityStart + 1}–${Math.min(activityStart + ACTIVITY_PAGE_SIZE, apiActions.length)} of ${
+                  apiActions.length
+                } loaded calls`
               : '—'}
           </PanelMeta>
         </PanelHeader>
         {apiActions.length > 0 && activityPager}
         <div>
           {recent.length === 0 ? (
-            <Empty>No recent activity loaded.</Empty>
+            <CenteredNote pad="30px" size={12}>
+              No recent activity loaded.
+            </CenteredNote>
           ) : (
             recent.map((a, idx) => {
               const cls = methodClass(a.method);
@@ -763,7 +977,9 @@ export const BANS: React.FC = () => {
                     h <BlockHeight height={a.height} tip={tipHeight} resolveUrl={blockUrl} />
                     <Eta>{new Date(a.block_ts).toLocaleDateString()}</Eta>
                   </HCell>
-                  <div><Pill data-tone={methodTone(cls)}>{a.method || '—'}</Pill></div>
+                  <div>
+                    <Pill data-tone={methodTone(cls)}>{a.method || '—'}</Pill>
+                  </div>
                   <Target>
                     {a.name ? (
                       <NameTag>{a.name}</NameTag>

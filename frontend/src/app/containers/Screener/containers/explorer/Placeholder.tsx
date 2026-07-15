@@ -8,7 +8,7 @@ const Box = styled.div`
   padding: 40px 0;
   text-align: center;
   color: rgba(255, 255, 255, 0.5);
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
 `;
 

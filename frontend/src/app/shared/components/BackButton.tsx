@@ -39,7 +39,9 @@ export const BackButton: React.FC<BackButtonProps> = ({ to, onClick, label = 'Ba
   const cls = cx(pill, className);
   const inner = (
     <>
-      <span aria-hidden="true" style={arrowStyle}>←</span>
+      <span aria-hidden="true" style={arrowStyle}>
+        ←
+      </span>
       {label}
     </>
   );

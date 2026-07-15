@@ -8,9 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import connector from '@core/connector';
 import { ensureConnected, isInsideWallet } from '@core/walletEnv';
-import {
-  AddLiquidityApi, CreatePoolApi, LoadPoolsList, TradePoolApi, WithdrawApi,
-} from '@core/api';
+import { AddLiquidityApi, CreatePoolApi, LoadPoolsList, TradePoolApi, WithdrawApi } from '@core/api';
 import { pairKey } from './components/format';
 
 interface WalletState {
@@ -51,7 +49,10 @@ export function useWallet(): WalletState & { connect: () => Promise<boolean> } {
       }
     };
     tick();
-    const t = setInterval(tick, 3000);
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      tick();
+    }, 3000);
     return () => clearInterval(t);
   }, [state.connecting]);
 
@@ -113,7 +114,10 @@ export function useMyCreatedPairs(enabled: boolean): { createdKeys: Set<string>;
       }
     };
     void fetchPools();
-    const t = setInterval(() => { void fetchPools(); }, 30_000);
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      void fetchPools();
+    }, 30_000);
     return () => {
       cancelled = true;
       clearInterval(t);

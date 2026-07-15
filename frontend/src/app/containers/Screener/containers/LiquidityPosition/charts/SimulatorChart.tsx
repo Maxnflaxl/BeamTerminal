@@ -1,32 +1,13 @@
 import React, { useState } from 'react';
 import { styled } from '@linaria/react';
 import { simulatorData, fmtAmount, fmtPct, type Metrics, type Unit } from '../compute';
-import { useContainerWidth, CHART } from './chartUtils';
-
-const Wrap = styled.div`
-  position: relative;
-  width: 100%;
-`;
-
-const Tip = styled.div`
-  position: absolute;
-  z-index: 30;
-  pointer-events: none;
-  transform: translate(-50%, -100%);
-  background: #021b35;
-  border: 1px solid rgba(0, 246, 210, 0.4);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.85);
-  white-space: nowrap;
-  & b { color: #00f6d2; }
-`;
+import { useContainerWidth, CHART, Wrap, Tip } from './chartUtils';
 
 const Controls = styled.div`
   display: flex;
-  & > * + * { margin-left: 24px; }
+  & > * + * {
+    margin-left: 24px;
+  }
   flex-wrap: wrap;
   margin-top: 12px;
 `;
@@ -38,16 +19,25 @@ const Control = styled.label`
   color: rgba(255, 255, 255, 0.7);
   display: flex;
   flex-direction: column;
-  & > * + * { margin-top: 6px; }
-  & b { color: #00f6d2; }
-  & input[type='range'] { width: 100%; accent-color: #00f6d2; }
+  & > * + * {
+    margin-top: 6px;
+  }
+  & b {
+    color: #00f6d2;
+  }
+  & input[type='range'] {
+    width: 100%;
+    accent-color: #00f6d2;
+  }
 `;
 
 const Info = styled.div`
   margin-top: 10px;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
-  & b { color: #00f6d2; }
+  & b {
+    color: #00f6d2;
+  }
 `;
 
 interface Props {
@@ -67,7 +57,7 @@ export const SimulatorChart: React.FC<Props> = ({ metrics, unit, name1, name2, u
   const usageMultiplier = usageStep === 0 ? 0.5 : usageStep;
   const d = simulatorData(metrics, unit, durationMonths, usageMultiplier);
 
-  const height = CHART.height;
+  const { height } = CHART;
   const padT = 20;
   const padB = 40;
   const padL = 40;
@@ -136,7 +126,9 @@ export const SimulatorChart: React.FC<Props> = ({ metrics, unit, name1, name2, u
           return (
             <g key={`r${r}`}>
               <line x1={x} y1={padT} x2={x} y2={height - padB} stroke={r === 1 ? CHART.gridBold : CHART.grid} />
-              <text x={x} y={height - padB + 15} fontSize="10" fill={CHART.label} textAnchor="middle">{d.labels[i]}</text>
+              <text x={x} y={height - padB + 15} fontSize="10" fill={CHART.label} textAnchor="middle">
+                {d.labels[i]}
+              </text>
             </g>
           );
         })}
@@ -163,22 +155,39 @@ export const SimulatorChart: React.FC<Props> = ({ metrics, unit, name1, name2, u
           onMouseMove={onMove}
           onMouseLeave={() => setHoverIdx(null)}
         />
-        {hovered && hoverIdx !== null && (
-          <circle cx={getX(hoverIdx)} cy={getY(hovered.y)} r={5} fill={CHART.line} />
-        )}
+        {hovered && hoverIdx !== null && <circle cx={getX(hoverIdx)} cy={getY(hovered.y)} r={5} fill={CHART.line} />}
       </svg>
       {hovered && hoverIdx !== null && (
         <Tip style={{ left: getX(hoverIdx), top: getY(hovered.y) - 8 }}>
-          <div>Price {d.labels[hoverIdx]}</div>
-          <div>Next profit: <b>{fmtPct(hovered.y)}</b></div>
-          <div>Principal: <b>{fmtAmount(hovered.principal)} {unitName}</b></div>
-          <div>+ Fees: <b>{fmtAmount(hovered.fees)} {unitName}</b></div>
+          <div>
+            Price
+            {d.labels[hoverIdx]}
+          </div>
+          <div>
+            Next profit:
+            <b>{fmtPct(hovered.y)}</b>
+          </div>
+          <div>
+            Principal:
+            <b>
+              {fmtAmount(hovered.principal)} {unitName}
+            </b>
+          </div>
+          <div>
+            + Fees:
+            <b>
+              {fmtAmount(hovered.fees)} {unitName}
+            </b>
+          </div>
         </Tip>
       )}
 
       <Controls>
         <Control>
-          <span>Next duration: <b>{durationMonths} months</b></span>
+          <span>
+            Next duration:
+            <b>{durationMonths} months</b>
+          </span>
           <input
             type="range"
             min={0}
@@ -189,7 +198,10 @@ export const SimulatorChart: React.FC<Props> = ({ metrics, unit, name1, name2, u
           />
         </Control>
         <Control>
-          <span>Change in fees: <b>x{usageMultiplier.toFixed(1)}</b></span>
+          <span>
+            Change in fees:
+            <b>x{usageMultiplier.toFixed(1)}</b>
+          </span>
           <input
             type="range"
             min={0}
@@ -202,7 +214,10 @@ export const SimulatorChart: React.FC<Props> = ({ metrics, unit, name1, name2, u
       </Controls>
       <Info>
         {d.breakevenDays !== null ? (
-          <>At the current price and average fees, you offset the IL in <b>{d.breakevenDays} days</b>.</>
+          <>
+            At the current price and average fees, you offset the IL in
+            <b>{d.breakevenDays} days</b>.
+          </>
         ) : (
           <>Your position is currently profitable compared to the initial deposit.</>
         )}

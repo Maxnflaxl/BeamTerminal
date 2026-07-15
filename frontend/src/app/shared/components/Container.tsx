@@ -31,9 +31,7 @@ const ContainerStyled = styled.div<ContainerProps>`
   }
 `;
 
-const Container: React.FC<ContainerProps> = ({
-  children, variant, main, jystify, wide,
-}) => (
+const Container: React.FC<ContainerProps> = ({ children, variant, main, jystify, wide }) => (
   <ContainerStyled variant={variant} jystify={jystify} main={main} wide={wide}>
     {children}
   </ContainerStyled>

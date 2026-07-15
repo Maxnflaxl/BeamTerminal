@@ -1,38 +1,30 @@
 import React, { useState } from 'react';
 import { styled } from '@linaria/react';
 import { ilCurveData, fmtAmount, fmtPct, type Metrics, type Unit } from '../compute';
-import { useContainerWidth, CHART } from './chartUtils';
-
-const Wrap = styled.div`
-  position: relative;
-  width: 100%;
-`;
-
-const Tip = styled.div`
-  position: absolute;
-  z-index: 30;
-  pointer-events: none;
-  transform: translate(-50%, -100%);
-  background: #021b35;
-  border: 1px solid rgba(0, 246, 210, 0.4);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.85);
-  white-space: nowrap;
-  & b { color: #00f6d2; }
-`;
+import { useContainerWidth, CHART, Wrap, Tip } from './chartUtils';
 
 const Legend = styled.div`
   display: flex;
-  & > * + * { margin-left: 16px; }
+  & > * + * {
+    margin-left: 16px;
+  }
   flex-wrap: wrap;
   margin-top: 8px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.6);
-  & span { display: inline-flex; align-items: center; & > * + * { margin-left: 5px; } }
-  & i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  & span {
+    display: inline-flex;
+    align-items: center;
+    & > * + * {
+      margin-left: 5px;
+    }
+  }
+  & i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+  }
 `;
 
 interface Props {
@@ -50,7 +42,7 @@ export const ILCurveChart: React.FC<Props> = ({ metrics, unit, name1, name2 }) =
   const assetOf = unit === 1 ? name2 : name1;
   const inAsset = unit === 1 ? name1 : name2;
 
-  const height = CHART.height;
+  const { height } = CHART;
   const padding = 32;
   const chartW = width - padding * 2;
   const chartH = height - padding * 2;
@@ -79,15 +71,37 @@ export const ILCurveChart: React.FC<Props> = ({ metrics, unit, name1, name2 }) =
       y: atY,
       html: withFees ? (
         <>
-          <div>Position <b>with</b> fees</div>
-          <div>Net vs HODL: <b>{fmtPct(d.netResult)}</b></div>
-          <div>Worth: <b>{fmtAmount(d.currentValue)} {unit === 1 ? name1 : name2}</b></div>
+          <div>
+            Position
+            <b>with</b> fees
+          </div>
+          <div>
+            Net vs HODL:
+            <b>{fmtPct(d.netResult)}</b>
+          </div>
+          <div>
+            Worth:
+            <b>
+              {fmtAmount(d.currentValue)} {unit === 1 ? name1 : name2}
+            </b>
+          </div>
         </>
       ) : (
         <>
-          <div>Position <b>without</b> fees</div>
-          <div>Impermanent loss: <b>{fmtPct(d.currentIL)}</b></div>
-          <div>Principal: <b>{fmtAmount(d.principalValue)} {unit === 1 ? name1 : name2}</b></div>
+          <div>
+            Position
+            <b>without</b> fees
+          </div>
+          <div>
+            Impermanent loss:
+            <b>{fmtPct(d.currentIL)}</b>
+          </div>
+          <div>
+            Principal:
+            <b>
+              {fmtAmount(d.principalValue)} {unit === 1 ? name1 : name2}
+            </b>
+          </div>
         </>
       ),
     });
@@ -119,10 +133,34 @@ export const ILCurveChart: React.FC<Props> = ({ metrics, unit, name1, name2 }) =
         {/* axes */}
         <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke={CHART.axis} />
         <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke={CHART.axis} />
-        <text x={padding} y={padding - 9} fontSize="10" fill={CHART.label} textAnchor="middle">x0</text>
-        <text x={width - padding} y={padding - 9} fontSize="10" fill={CHART.label} textAnchor="middle">{`x${d.maxRatio}`}</text>
-        <text x={padding} y={height - padding + 16} fontSize="10" fontWeight={600} fill={CHART.labelBold} textAnchor="start">IL</text>
-        <text x={width - padding} y={padding - 20} fontSize="10" fontWeight={600} fill={CHART.labelBold} textAnchor="end">
+        <text x={padding} y={padding - 9} fontSize="10" fill={CHART.label} textAnchor="middle">
+          x0
+        </text>
+        <text
+          x={width - padding}
+          y={padding - 9}
+          fontSize="10"
+          fill={CHART.label}
+          textAnchor="middle"
+        >{`x${d.maxRatio}`}</text>
+        <text
+          x={padding}
+          y={height - padding + 16}
+          fontSize="10"
+          fontWeight={600}
+          fill={CHART.labelBold}
+          textAnchor="start"
+        >
+          IL
+        </text>
+        <text
+          x={width - padding}
+          y={padding - 20}
+          fontSize="10"
+          fontWeight={600}
+          fill={CHART.labelBold}
+          textAnchor="end"
+        >
           {`Price change of ${assetOf} in ${inAsset}`}
         </text>
         {/* curve */}
@@ -148,23 +186,15 @@ export const ILCurveChart: React.FC<Props> = ({ metrics, unit, name1, name2 }) =
           onMouseLeave={() => setTip(null)}
         />
       </svg>
-      {tip && (
-        <Tip style={{ left: tip.x, top: tip.y - 8 }}>{tip.html}</Tip>
-      )}
+      {tip && <Tip style={{ left: tip.x, top: tip.y - 8 }}>{tip.html}</Tip>}
       <Legend>
-        <span><i style={{ background: CHART.line }} /> IL curve</span>
-        <span
-          onMouseMove={() => showTip(dotY, false)}
-          onMouseLeave={() => setTip(null)}
-          style={{ cursor: 'help' }}
-        >
+        <span>
+          <i style={{ background: CHART.line }} /> IL curve
+        </span>
+        <span onMouseMove={() => showTip(dotY, false)} onMouseLeave={() => setTip(null)} style={{ cursor: 'help' }}>
           <i style={{ background: CHART.line }} /> Position without fees
         </span>
-        <span
-          onMouseMove={() => showTip(netDotY, true)}
-          onMouseLeave={() => setTip(null)}
-          style={{ cursor: 'help' }}
-        >
+        <span onMouseMove={() => showTip(netDotY, true)} onMouseLeave={() => setTip(null)} style={{ cursor: 'help' }}>
           <i style={{ background: CHART.fees }} /> Position with fees
         </span>
       </Legend>

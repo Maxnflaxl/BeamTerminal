@@ -1,17 +1,11 @@
-import React, {
-  useCallback, useEffect, useMemo, useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  usePair, useOhlcv, usePagedTrades, useAssetHistory,
-} from '../hooks';
-import type {
-  ApiCandle, ApiPair, Interval, Denom,
-} from '../api/types';
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import { ROUTES } from '@app/shared/constants';
 import { BackButton } from '@app/shared/components/BackButton';
+import type { ApiCandle, ApiPair, Interval, Denom } from '../api/types';
+import { usePair, useOhlcv, usePagedTrades, useAssetHistory } from '../hooks';
 import { Chart } from '../components/Chart';
 import { CenterOnControl } from '../components/CenterOnControl';
 import { IconsPair } from '../components/IconsPair';
@@ -21,9 +15,18 @@ import { useAssetColor } from '../assetColors';
 import { AssetMetaBanner } from '../components/AssetMetaBanner';
 import { LiquidityBanner } from '../components/LiquidityBanner';
 import { Pager } from '../components/Pager';
+import { CenteredNote } from '../components/CenteredNote';
 import { tierFeePct } from '../components/modalChrome';
 import {
-  fmt$, fmtPct, fmtPrice, fmtDate, fmtDateFull, fmtNum, fmtPriceImpact, pairUrlId,
+  fmt$,
+  fmtPct,
+  fmtPrice,
+  fmtDate,
+  fmtDateFull,
+  fmtGrouped,
+  fmtNum,
+  fmtPriceImpact,
+  pairUrlId,
 } from '../components/format';
 
 const TRADES_PAGE_SIZE = 50;
@@ -121,7 +124,9 @@ const Left = styled.div`
 const TopBar = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 12px; }
+  & > * + * {
+    margin-left: 12px;
+  }
   /* 14px (not 12) so this row's height matches the sidebar's price section,
      aligning the first divider across the chart column and the sidebar. */
   padding: 14px 16px;
@@ -149,7 +154,9 @@ const ChartArea = styled.div`
 const Toolbar = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 4px; }
+  & > * + * {
+    margin-left: 4px;
+  }
   padding: 8px 14px;
   flex-wrap: wrap;
   button {
@@ -224,13 +231,19 @@ const TradesWrap = styled.div`
     td {
       padding: 6px 10px;
       font-size: 12px;
-      font-family: 'SFProDisplay', monospace;
+      font-family: var(--font-mono);
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       white-space: nowrap;
     }
   }
-  .buy { color: #00f6d2; font-weight: 600; }
-  .sell { color: #f25f5b; font-weight: 600; }
+  .buy {
+    color: #00f6d2;
+    font-weight: 600;
+  }
+  .sell {
+    color: #f25f5b;
+    font-weight: 600;
+  }
 `;
 
 const Sidebar = styled.div`
@@ -257,10 +270,25 @@ const PriceRow = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  & > * + * { margin-left: 8px; }
-  .lbl { font-size: 11px; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; }
-  .val { font-family: 'SFProDisplay', monospace; font-size: 18px; font-weight: 700; color: white; }
-  .native { font-family: 'SFProDisplay', monospace; font-size: 13px; color: rgba(255, 255, 255, 0.6); }
+  & > * + * {
+    margin-left: 8px;
+  }
+  .lbl {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    text-transform: uppercase;
+  }
+  .val {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: white;
+  }
+  .native {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+  }
 `;
 
 const ChangeGrid = styled.div`
@@ -278,9 +306,19 @@ const ChangeGrid = styled.div`
     text-align: center;
     padding: 10px 4px;
     border-right: 1px solid rgba(255, 255, 255, 0.06);
-    &:last-child { border-right: none; }
-    .lbl { font-size: 10px; color: rgba(255, 255, 255, 0.4); text-transform: uppercase; }
-    .val { font-family: 'SFProDisplay', monospace; font-size: 13px; font-weight: 600; }
+    &:last-child {
+      border-right: none;
+    }
+    .lbl {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.4);
+      text-transform: uppercase;
+    }
+    .val {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+    }
   }
 `;
 
@@ -289,8 +327,13 @@ const StatRow = styled.div`
   justify-content: space-between;
   padding: 5px 0;
   font-size: 13px;
-  .lbl { color: rgba(255, 255, 255, 0.5); }
-  .val { font-family: 'SFProDisplay', monospace; color: white; }
+  .lbl {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .val {
+    font-family: var(--font-mono);
+    color: white;
+  }
 `;
 
 const PoolRow = styled.div`
@@ -299,33 +342,58 @@ const PoolRow = styled.div`
   align-items: center;
   padding: 5px 0;
   font-size: 13px;
-  & > * + * { margin-left: 8px; }
-  .name { display: flex; align-items: center; min-width: 0; }
+  & > * + * {
+    margin-left: 8px;
+  }
+  .name {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
   .lbl {
     color: rgba(255, 255, 255, 0.85);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .lbl small { color: rgba(255, 255, 255, 0.4); margin-left: 4px; }
-  .val { font-family: 'SFProDisplay', monospace; text-align: right; white-space: nowrap; }
-  .usd { color: rgba(255, 255, 255, 0.4); font-size: 11px; margin-left: 6px; }
+  .lbl small {
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 4px;
+  }
+  .val {
+    font-family: var(--font-mono);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .usd {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    margin-left: 6px;
+  }
 `;
 
 // Same icon the trade panel / lists render; trimmed to a tight 20px slot with
 // a small right gap to the symbol label.
 const PoolAssetIcon = styled(AssetIcon)`
-  && { margin-right: 8px; }
+  && {
+    margin-right: 8px;
+  }
   flex-shrink: 0;
 `;
 
 const RateLine = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   font-size: 13px;
-  font-family: 'SFProDisplay', monospace;
-  .lbl { color: rgba(255, 255, 255, 0.5); font-family: 'ProximaNova', sans-serif; font-size: 13px; }
+  font-family: var(--font-mono);
+  .lbl {
+    color: rgba(255, 255, 255, 0.5);
+    font-family: var(--font-sans);
+    font-size: 13px;
+  }
 `;
 
 const FlipRateBtn = styled.button`
@@ -340,7 +408,10 @@ const FlipRateBtn = styled.button`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  &:hover { background: rgba(255, 255, 255, 0.12); color: white; }
+  &:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+  }
 `;
 
 const TxnsBar = styled.div`
@@ -349,20 +420,20 @@ const TxnsBar = styled.div`
   border-radius: 3px;
   overflow: hidden;
   margin-bottom: 4px;
-  .buy-fill { background: #00f6d2; }
-  .sell-fill { background: #f25f5b; }
-`;
-
-const Loading = styled.div`
-  text-align: center;
-  padding: 60px 20px;
-  color: rgba(255, 255, 255, 0.5);
+  .buy-fill {
+    background: #00f6d2;
+  }
+  .sell-fill {
+    background: #f25f5b;
+  }
 `;
 
 const TierBar = styled.div`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   padding: 8px 16px;
   flex-wrap: wrap;
   .lbl {
@@ -383,7 +454,9 @@ const TierPill = styled.button<{ active?: boolean }>`
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  &:hover { border-color: rgba(0, 246, 210, 0.5); }
+  &:hover {
+    border-color: rgba(0, 246, 210, 0.5);
+  }
 `;
 
 export const PairDetail: React.FC = () => {
@@ -424,14 +497,17 @@ export const PairDetail: React.FC = () => {
   const tiers = combined?.tiers ?? [];
 
   // Reset the tier selection whenever we navigate to a different pair.
-  useEffect(() => { setSelectedKind(null); setTradesPage(0); }, [id]);
+  useEffect(() => {
+    setSelectedKind(null);
+    setTradesPage(0);
+  }, [id]);
   // Switching tier swaps the underlying dataset → restart trade pagination.
-  useEffect(() => { setTradesPage(0); }, [selectedKind]);
+  useEffect(() => {
+    setTradesPage(0);
+  }, [selectedKind]);
 
   // When a specific tier is picked, fetch that tier; otherwise show combined.
-  const tierId = selectedKind !== null && combined
-    ? pairUrlId(combined.aid1, combined.aid2, selectedKind)
-    : undefined;
+  const tierId = selectedKind !== null && combined ? pairUrlId(combined.aid1, combined.aid2, selectedKind) : undefined;
   const { data: tierPair } = usePair(tierId);
   const pair = (selectedKind !== null ? tierPair : null) ?? combined;
   // Drives chart + trades: the selected tier, else the combined pair.
@@ -449,19 +525,18 @@ export const PairDetail: React.FC = () => {
     if (d !== 'usd' && metric === 'mc') setMetric('price');
   };
 
-  const { candles: rawCandles, loadOlder, hasMore: chartHasMore } = useOhlcv(dataId, { interval, denom: effectiveDenom, limit: 500 });
+  const {
+    candles: rawCandles,
+    loadOlder,
+    hasMore: chartHasMore,
+  } = useOhlcv(dataId, { interval, denom: effectiveDenom, limit: 500 });
 
   // For BEAM/X pairs we chart MC of the non-BEAM side; for X/Y MC is ambiguous
   // (which side?) so the toggle is hidden and this resolves to `undefined`.
-  const nonBeamAid = pair
-    ? pair.aid1 === 0 ? pair.aid2 : pair.aid2 === 0 ? pair.aid1 : undefined
-    : undefined;
-  const nonBeamDecimals = pair && nonBeamAid !== undefined
-    ? (pair.aid1 === nonBeamAid ? pair.decimals1 : pair.decimals2)
-    : 8;
-  const { data: assetHistory } = useAssetHistory(
-    metric === 'mc' && nonBeamAid !== undefined ? nonBeamAid : undefined,
-  );
+  const nonBeamAid = pair ? (pair.aid1 === 0 ? pair.aid2 : pair.aid2 === 0 ? pair.aid1 : undefined) : undefined;
+  const nonBeamDecimals =
+    pair && nonBeamAid !== undefined ? (pair.aid1 === nonBeamAid ? pair.decimals1 : pair.decimals2) : 8;
+  const { data: assetHistory } = useAssetHistory(metric === 'mc' && nonBeamAid !== undefined ? nonBeamAid : undefined);
 
   // Sorted [ts, supply] timeline for the non-BEAM asset. Each event records
   // cumulative supply *after* that event, so for candle at time T we want
@@ -479,6 +554,19 @@ export const PairDetail: React.FC = () => {
   // back to native restores the user's preferred orientation. Flip is also
   // disabled in MC mode (we're charting a single asset's market cap).
   const chartFlipped = flipChart && effectiveDenom === 'native' && metric === 'price';
+
+  // Swap-preview overlay projected into the chart's Y-axis frame. Memoized so
+  // Chart's [tradePreview] effect doesn't tear down and recreate its price
+  // line on every unrelated PairDetail render. SwapPanel reports the impact in
+  // the canonical aid1/aid2 frame; when the chart shows aid2/aid1
+  // (chartFlipped === false) the sign flips along with the visible direction
+  // of the effective-rate line.
+  const chartTradePreview = useMemo(() => {
+    if (!tradePreview || metric !== 'price' || effectiveDenom !== 'native') return null;
+    const effChart = chartFlipped ? 1 / tradePreview.effectiveRate : tradePreview.effectiveRate;
+    const impactPct = chartFlipped ? tradePreview.impactPct : -tradePreview.impactPct;
+    return { effectiveRate: effChart, impactPct, label: fmtPriceImpact(impactPct) };
+  }, [tradePreview, metric, effectiveDenom, chartFlipped]);
   const candles = useMemo<ApiCandle[]>(() => {
     // Fill no-trade buckets first so the flip/MC transforms below carry through
     // to the synthetic candles too (a flat candle inverts/scales to a flat one).
@@ -500,12 +588,14 @@ export const PairDetail: React.FC = () => {
       out = out.map((c) => {
         const t = c.time as number;
         while (cursor + 1 < supplyTimeline.length && supplyTimeline[cursor + 1]![0] <= t) cursor++;
-        const supply = supplyTimeline[cursor] && supplyTimeline[cursor]![0] <= t
-          ? supplyTimeline[cursor]![1]
-          : null;
+        const supply = supplyTimeline[cursor] && supplyTimeline[cursor]![0] <= t ? supplyTimeline[cursor]![1] : null;
         if (supply === null) {
           return {
-            ...c, open: 0, high: 0, low: 0, close: 0,
+            ...c,
+            open: 0,
+            high: 0,
+            low: 0,
+            close: 0,
           };
         }
         return {
@@ -522,7 +612,7 @@ export const PairDetail: React.FC = () => {
   const { items: tradeItems, total: tradesTotal } = usePagedTrades(dataId, tradesPage, TRADES_PAGE_SIZE);
 
   if (pairLoading || !pair) {
-    return <Loading>Loading pair…</Loading>;
+    return <CenteredNote>Loading pair…</CenteredNote>;
   }
 
   const p: ApiPair = pair;
@@ -535,9 +625,8 @@ export const PairDetail: React.FC = () => {
   const sym1 = p.symbol1 ?? `aid${p.aid1}`;
   const sym2 = p.symbol2 ?? `aid${p.aid2}`;
   const nativeUnit = chartFlipped ? sym1 : sym2;
-  const denomSym = metric === 'mc'
-    ? `MC ${(p.aid1 === 0 ? sym2 : sym1)} USD`
-    : effectiveDenom === 'usd' ? 'USD' : nativeUnit;
+  const denomSym =
+    metric === 'mc' ? `MC ${p.aid1 === 0 ? sym2 : sym1} USD` : effectiveDenom === 'usd' ? 'USD' : nativeUnit;
 
   const isBeamPair = p.aid1 === 0 || p.aid2 === 0;
 
@@ -546,339 +635,310 @@ export const PairDetail: React.FC = () => {
       <AssetMetaBanner aid1={p.aid1} aid2={p.aid2} sym1={sym1} sym2={sym2} />
       <LiquidityBanner id={dataId ?? ''} pair={p} />
       <Layout>
-      <Left>
-        <TopBar>
-          <BackButton onClick={() => navigate(ROUTES.NAV.DEX)} label="Back" />
-          <IconsPair aid1={p.aid1} aid2={p.aid2} size={32} />
-          <div>
-            <TopTitle>
-              {p.symbol1 ?? `aid${p.aid1}`}
-              /
-              {p.symbol2 ?? `aid${p.aid2}`}
-              {' '}
-              {selectedKind === null && tiers.length > 1
-                ? <TiersBadge kinds={tiers.map((t) => t.kind)} />
-                : <KindBadge kind={p.kind} />}
-            </TopTitle>
-            <TopSubtitle>BEAM DEX</TopSubtitle>
-          </div>
-        </TopBar>
-
-        {tiers.length > 1 && (
-          <TierBar>
-            <span className="lbl">Fee tier</span>
-            <TierPill active={selectedKind === null} onClick={() => setSelectedKind(null)} title="Auto-route to the best pool per trade">
-              Auto
-            </TierPill>
-            {tiers.map((t) => (
-              <TierPill
-                key={t.kind}
-                active={selectedKind === t.kind}
-                onClick={() => setSelectedKind(t.kind)}
-              >
-                {tierFeePct(t.kind).toFixed(2)}
-                %
-              </TierPill>
-            ))}
-          </TierBar>
-        )}
-
-        <ChartArea>
-          <Toolbar>
-            {INTERVALS.map((iv) => (
-              <button
-                key={iv}
-                type="button"
-                className={iv === interval ? 'active' : ''}
-                onClick={() => setInterval_(iv)}
-              >
-                {iv}
-              </button>
-            ))}
-            <div className="sep" />
-            <button
-              type="button"
-              className={chartStyle === 'candle' ? 'active' : ''}
-              onClick={() => setChartStyle('candle')}
-            >
-              Candle
-            </button>
-            <button
-              type="button"
-              className={chartStyle === 'area' ? 'active' : ''}
-              onClick={() => setChartStyle('area')}
-            >
-              Area
-            </button>
-            {isBeamPair && (
-              <>
-                <div className="sep" />
-                <button
-                  type="button"
-                  className={metric === 'price' ? 'active' : ''}
-                  onClick={() => setMetric('price')}
-                >
-                  Price
-                </button>
-                <button
-                  type="button"
-                  className={metric === 'mc' ? 'active' : ''}
-                  onClick={() => setMetric('mc')}
-                  title={`Market cap of ${p.aid1 === 0 ? sym2 : sym1} (price×supply)`}
-                >
-                  MC
-                </button>
-                <div className="sep" />
-                <button
-                  type="button"
-                  className={effectiveDenom === 'native' ? 'active' : ''}
-                  onClick={() => setDenom('native')}
-                  disabled={metric === 'mc'}
-                  title={metric === 'mc' ? 'MC is USD-only' : undefined}
-                >
-                  {nativeUnit}
-                </button>
-                <button
-                  type="button"
-                  className={effectiveDenom === 'usd' ? 'active' : ''}
-                  onClick={() => setDenom('usd')}
-                >
-                  USD
-                </button>
-              </>
-            )}
-            {effectiveDenom === 'native' && metric === 'price' && (
-              <>
-                <div className="sep" />
-                <button
-                  type="button"
-                  onClick={() => setFlipChart((f) => !f)}
-                  title={`Flip to ${chartFlipped ? `${sym2}/${sym1}` : `${sym1}/${sym2}`}`}
-                >
-                  {chartFlipped ? `${sym1}/${sym2}` : `${sym2}/${sym1}`}
-                  {' '}
-                  ⇄
-                </button>
-              </>
-            )}
-            <CenterOnControl
-              onCenter={setChartCenterOn}
-              onClear={() => setChartCenterOn(null)}
-              onReset={() => { setChartCenterOn(null); setChartFitNonce((n) => n + 1); }}
-            />
-          </Toolbar>
-          <ChartContainer>
-            <Chart
-              candles={candles}
-              style={chartStyle}
-              denomSymbol={denomSym}
-              volumeDecimals={p.decimals1}
-              volumeSymbol={sym1}
-              onReachStart={chartHasMore ? loadOlder : undefined}
-              centerOn={chartCenterOn}
-              fitNonce={chartFitNonce}
-              tradePreview={(() => {
-                if (!tradePreview || metric !== 'price' || effectiveDenom !== 'native') return null;
-                // Project the effective rate + signed impact into the chart's
-                // Y-axis. SwapPanel gives us the impact in the canonical
-                // aid1/aid2 frame; when the chart is showing aid2/aid1
-                // (chartFlipped === false) the sign flips along with the
-                // visible direction of the effective-rate line.
-                const effChart  = chartFlipped ? 1 / tradePreview.effectiveRate : tradePreview.effectiveRate;
-                const impactPct = chartFlipped ? tradePreview.impactPct         : -tradePreview.impactPct;
-                const label = fmtPriceImpact(impactPct);
-                return { effectiveRate: effChart, impactPct, label };
-              })()}
-            />
-          </ChartContainer>
-        </ChartArea>
-
-        <TradesPanel>
-          <FeedHeader>Recent Trades</FeedHeader>
-          <TradesWrap>
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Price USD</th>
-                  <th>{p.symbol1}</th>
-                  <th>{p.symbol2}</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tradeItems.map((t) => (
-                  <tr key={t.trade_id} title={fmtDateFull(t.timestamp)}>
-                    <td>{fmtDate(t.timestamp)}</td>
-                    <td>
-                      <span className={t.side === 'buy' ? 'buy' : 'sell'}>
-                        {t.side === 'buy' ? 'Buy' : 'Sell'}
-                      </span>
-                    </td>
-                    <td>{fmt$(t.price_usd)}</td>
-                    <td>{fmtAmt(t.aid_in === p.aid1 ? t.amount_in : t.amount_out, p.decimals1)}</td>
-                    <td>{fmtAmt(t.aid_in === p.aid1 ? t.amount_out : t.amount_in, p.decimals2)}</td>
-                    <td>{fmt$(t.value_usd)}</td>
-                  </tr>
-                ))}
-                {tradeItems.length === 0 && (
-                  <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.4)' }}>
-                      No trades yet.
-                    </td>
-                  </tr>
+        <Left>
+          <TopBar>
+            <BackButton onClick={() => navigate(ROUTES.NAV.DEX)} label="Back" />
+            <IconsPair aid1={p.aid1} aid2={p.aid2} size={32} />
+            <div>
+              <TopTitle>
+                {p.symbol1 ?? `aid${p.aid1}`}/{p.symbol2 ?? `aid${p.aid2}`}{' '}
+                {selectedKind === null && tiers.length > 1 ? (
+                  <TiersBadge kinds={tiers.map((t) => t.kind)} />
+                ) : (
+                  <KindBadge kind={p.kind} />
                 )}
-              </tbody>
-            </table>
-          </TradesWrap>
-          <Pager
-            page={tradesPage}
-            pageSize={TRADES_PAGE_SIZE}
-            total={tradesTotal}
-            loadedCount={tradeItems.length}
-            onChange={setTradesPage}
-          />
-        </TradesPanel>
-      </Left>
+              </TopTitle>
+              <TopSubtitle>BEAM DEX</TopSubtitle>
+            </div>
+          </TopBar>
 
-      <Sidebar>
-        <SidebarSection>
-          <PriceRow>
-            <span className="lbl">Price USD</span>
-            <span className="lbl">
-              Price
-              {' '}
-              {p.symbol1}
-            </span>
-          </PriceRow>
-          <PriceRow>
-            <span className="val">{fmt$(p.price_usd)}</span>
-            <span className="native">
-              {/* `Price (sym1)` means price denominated in sym1 — i.e.,
+          {tiers.length > 1 && (
+            <TierBar>
+              <span className="lbl">Fee tier</span>
+              <TierPill
+                active={selectedKind === null}
+                onClick={() => setSelectedKind(null)}
+                title="Auto-route to the best pool per trade"
+              >
+                Auto
+              </TierPill>
+              {tiers.map((t) => (
+                <TierPill key={t.kind} active={selectedKind === t.kind} onClick={() => setSelectedKind(t.kind)}>
+                  {tierFeePct(t.kind).toFixed(2)}%
+                </TierPill>
+              ))}
+            </TierBar>
+          )}
+
+          <ChartArea>
+            <Toolbar>
+              {INTERVALS.map((iv) => (
+                <button
+                  key={iv}
+                  type="button"
+                  className={iv === interval ? 'active' : ''}
+                  onClick={() => setInterval_(iv)}
+                >
+                  {iv}
+                </button>
+              ))}
+              <div className="sep" />
+              <button
+                type="button"
+                className={chartStyle === 'candle' ? 'active' : ''}
+                onClick={() => setChartStyle('candle')}
+              >
+                Candle
+              </button>
+              <button
+                type="button"
+                className={chartStyle === 'area' ? 'active' : ''}
+                onClick={() => setChartStyle('area')}
+              >
+                Area
+              </button>
+              {isBeamPair && (
+                <>
+                  <div className="sep" />
+                  <button
+                    type="button"
+                    className={metric === 'price' ? 'active' : ''}
+                    onClick={() => setMetric('price')}
+                  >
+                    Price
+                  </button>
+                  <button
+                    type="button"
+                    className={metric === 'mc' ? 'active' : ''}
+                    onClick={() => setMetric('mc')}
+                    title={`Market cap of ${p.aid1 === 0 ? sym2 : sym1} (price×supply)`}
+                  >
+                    MC
+                  </button>
+                  <div className="sep" />
+                  <button
+                    type="button"
+                    className={effectiveDenom === 'native' ? 'active' : ''}
+                    onClick={() => setDenom('native')}
+                    disabled={metric === 'mc'}
+                    title={metric === 'mc' ? 'MC is USD-only' : undefined}
+                  >
+                    {nativeUnit}
+                  </button>
+                  <button
+                    type="button"
+                    className={effectiveDenom === 'usd' ? 'active' : ''}
+                    onClick={() => setDenom('usd')}
+                  >
+                    USD
+                  </button>
+                </>
+              )}
+              {effectiveDenom === 'native' && metric === 'price' && (
+                <>
+                  <div className="sep" />
+                  <button
+                    type="button"
+                    onClick={() => setFlipChart((f) => !f)}
+                    title={`Flip to ${chartFlipped ? `${sym2}/${sym1}` : `${sym1}/${sym2}`}`}
+                  >
+                    {chartFlipped ? `${sym1}/${sym2}` : `${sym2}/${sym1}`} ⇄
+                  </button>
+                </>
+              )}
+              <CenterOnControl
+                onCenter={setChartCenterOn}
+                onClear={() => setChartCenterOn(null)}
+                onReset={() => {
+                  setChartCenterOn(null);
+                  setChartFitNonce((n) => n + 1);
+                }}
+              />
+            </Toolbar>
+            <ChartContainer>
+              <Chart
+                candles={candles}
+                style={chartStyle}
+                denomSymbol={denomSym}
+                volumeDecimals={p.decimals1}
+                volumeSymbol={sym1}
+                onReachStart={chartHasMore ? loadOlder : undefined}
+                centerOn={chartCenterOn}
+                fitNonce={chartFitNonce}
+                tradePreview={chartTradePreview}
+              />
+            </ChartContainer>
+          </ChartArea>
+
+          <TradesPanel>
+            <FeedHeader>Recent Trades</FeedHeader>
+            <TradesWrap>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Price USD</th>
+                    <th>{p.symbol1}</th>
+                    <th>{p.symbol2}</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tradeItems.map((t) => (
+                    <tr key={t.trade_id} title={fmtDateFull(t.timestamp)}>
+                      <td>{fmtDate(t.timestamp)}</td>
+                      <td>
+                        <span className={t.side === 'buy' ? 'buy' : 'sell'}>{t.side === 'buy' ? 'Buy' : 'Sell'}</span>
+                      </td>
+                      <td>{fmt$(t.price_usd)}</td>
+                      <td>{fmtAmt(t.aid_in === p.aid1 ? t.amount_in : t.amount_out, p.decimals1)}</td>
+                      <td>{fmtAmt(t.aid_in === p.aid1 ? t.amount_out : t.amount_in, p.decimals2)}</td>
+                      <td>{fmt$(t.value_usd)}</td>
+                    </tr>
+                  ))}
+                  {tradeItems.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.4)' }}
+                      >
+                        No trades yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </TradesWrap>
+            <Pager
+              page={tradesPage}
+              pageSize={TRADES_PAGE_SIZE}
+              total={tradesTotal}
+              loadedCount={tradeItems.length}
+              onChange={setTradesPage}
+            />
+          </TradesPanel>
+        </Left>
+
+        <Sidebar>
+          <SidebarSection>
+            <PriceRow>
+              <span className="lbl">Price USD</span>
+              <span className="lbl">Price {p.symbol1}</span>
+            </PriceRow>
+            <PriceRow>
+              <span className="val">{fmt$(p.price_usd)}</span>
+              <span className="native">
+                {/* `Price (sym1)` means price denominated in sym1 — i.e.,
                   how many sym1 you get per 1 sym2. price_native is the
                   reverse (sym2 per sym1) so invert. */}
-              {fmtPrice(p.price_native && p.price_native > 0 ? 1 / p.price_native : null)}
-              {' '}
-              {p.symbol1}
-            </span>
-          </PriceRow>
-        </SidebarSection>
-
-        <ChangeGrid>
-          <div className="cell">
-            <div className="lbl">24h</div>
-            <div className={`val ${chg24.cls}`}>{chg24.text}</div>
-          </div>
-          <div className="cell">
-            <div className="lbl">TVL</div>
-            <div className="val">{fmt$(p.tvl_usd)}</div>
-          </div>
-          <div className="cell">
-            <div className="lbl">Vol 24h</div>
-            <div className="val">{fmt$(p.volume_24h_usd)}</div>
-          </div>
-          <div className="cell">
-            <div className="lbl">Txns 24h</div>
-            <div className="val">{p.trades_24h}</div>
-          </div>
-        </ChangeGrid>
-
-        <SidebarSection>
-          <h4>Txns 24h</h4>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ fontFamily: 'SFProDisplay,monospace', fontWeight: 700 }}>{totalTxns}</span>
-            <span style={{ color: '#00f6d2', fontFamily: 'SFProDisplay,monospace' }}>{p.buys_24h}</span>
-            <span style={{ color: '#f25f5b', fontFamily: 'SFProDisplay,monospace' }}>{p.sells_24h}</span>
-          </div>
-          <TxnsBar>
-            <div className="buy-fill" style={{ width: `${buyPct}%` }} />
-            <div className="sell-fill" style={{ width: `${100 - buyPct}%` }} />
-          </TxnsBar>
-        </SidebarSection>
-
-        <SidebarSection>
-          <h4>Pooled Tokens</h4>
-          <PoolRow>
-            <div className="name">
-              <PoolAssetIcon asset_id={p.aid1} size={20} color={poolColor1} />
-              <span className="lbl">
-                {p.symbol1 ?? `aid${p.aid1}`}
-                {' '}
-                <small>
-                  (#
-                  {p.aid1}
-                  )
-                </small>
+                {fmtPrice(p.price_native && p.price_native > 0 ? 1 / p.price_native : null)} {p.symbol1}
               </span>
+            </PriceRow>
+          </SidebarSection>
+
+          <ChangeGrid>
+            <div className="cell">
+              <div className="lbl">24h</div>
+              <div className={`val ${chg24.cls}`}>{chg24.text}</div>
             </div>
-            <span className="val">
-              {fmtNum(p.reserve1_human, 2)}
-              <span className="usd">{fmt$(p.reserve1_usd)}</span>
-            </span>
-          </PoolRow>
-          <PoolRow>
-            <div className="name">
-              <PoolAssetIcon asset_id={p.aid2} size={20} color={poolColor2} />
-              <span className="lbl">
-                {p.symbol2 ?? `aid${p.aid2}`}
-                {' '}
-                <small>
-                  (#
-                  {p.aid2}
-                  )
-                </small>
-              </span>
+            <div className="cell">
+              <div className="lbl">TVL</div>
+              <div className="val">{fmt$(p.tvl_usd)}</div>
             </div>
-            <span className="val">
-              {fmtNum(p.reserve2_human, 2)}
-              <span className="usd">{fmt$(p.reserve2_usd)}</span>
-            </span>
-          </PoolRow>
-        </SidebarSection>
+            <div className="cell">
+              <div className="lbl">Vol 24h</div>
+              <div className="val">{fmt$(p.volume_24h_usd)}</div>
+            </div>
+            <div className="cell">
+              <div className="lbl">Txns 24h</div>
+              <div className="val">{p.trades_24h}</div>
+            </div>
+          </ChangeGrid>
 
-        <SidebarSection>
-          <h4>Pair Info</h4>
-          <StatRow>
-            <span className="lbl">LP Token</span>
-            <span className="val">
-              aid #
-              {p.lp_token}
-            </span>
-          </StatRow>
-          <StatRow>
-            <span className="lbl">Fee tier</span>
-            <span className="val">
-              {selectedKind === null && tiers.length > 1
-                ? `Auto · ${tiers.map((t) => `${tierFeePct(t.kind).toFixed(2)}%`).join(' / ')}`
-                : `${tierFeePct(p.kind).toFixed(2)}%`}
-            </span>
-          </StatRow>
-          <StatRow>
-            <span className="lbl">Rate</span>
-            <RateLine>
-              <FlipRateBtn type="button" onClick={() => setFlipRate((f) => !f)} title="Flip">⇄</FlipRateBtn>
-              <span>
-                1
-                {' '}
-                {flipRate ? p.symbol2 : p.symbol1}
-                {' '}
-                =
-                {' '}
-                {fmtPrice(flipRate ? 1 / (p.price_native ?? 1) : p.price_native)}
-                {' '}
-                {flipRate ? p.symbol1 : p.symbol2}
+          <SidebarSection>
+            <h4>Txns 24h</h4>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{totalTxns}</span>
+              <span style={{ color: '#00f6d2', fontFamily: 'var(--font-mono)' }}>{p.buys_24h}</span>
+              <span style={{ color: '#f25f5b', fontFamily: 'var(--font-mono)' }}>{p.sells_24h}</span>
+            </div>
+            <TxnsBar>
+              <div className="buy-fill" style={{ width: `${buyPct}%` }} />
+              <div className="sell-fill" style={{ width: `${100 - buyPct}%` }} />
+            </TxnsBar>
+          </SidebarSection>
+
+          <SidebarSection>
+            <h4>Pooled Tokens</h4>
+            <PoolRow>
+              <div className="name">
+                <PoolAssetIcon asset_id={p.aid1} size={20} color={poolColor1} />
+                <span className="lbl">
+                  {p.symbol1 ?? `aid${p.aid1}`}{' '}
+                  <small>
+                    (#
+                    {p.aid1})
+                  </small>
+                </span>
+              </div>
+              <span className="val">
+                {fmtNum(p.reserve1_human, 2)}
+                <span className="usd">{fmt$(p.reserve1_usd)}</span>
               </span>
-            </RateLine>
-          </StatRow>
-        </SidebarSection>
+            </PoolRow>
+            <PoolRow>
+              <div className="name">
+                <PoolAssetIcon asset_id={p.aid2} size={20} color={poolColor2} />
+                <span className="lbl">
+                  {p.symbol2 ?? `aid${p.aid2}`}{' '}
+                  <small>
+                    (#
+                    {p.aid2})
+                  </small>
+                </span>
+              </div>
+              <span className="val">
+                {fmtNum(p.reserve2_human, 2)}
+                <span className="usd">{fmt$(p.reserve2_usd)}</span>
+              </span>
+            </PoolRow>
+          </SidebarSection>
 
-        <SwapPanel
-          pair={p}
-          tiers={selectedKind === null ? combined?.tiers : undefined}
-          onPreviewChange={onPreviewChange}
-        />
-      </Sidebar>
+          <SidebarSection>
+            <h4>Pair Info</h4>
+            <StatRow>
+              <span className="lbl">LP Token</span>
+              <span className="val">aid #{p.lp_token}</span>
+            </StatRow>
+            <StatRow>
+              <span className="lbl">Fee tier</span>
+              <span className="val">
+                {selectedKind === null && tiers.length > 1
+                  ? `Auto · ${tiers.map((t) => `${tierFeePct(t.kind).toFixed(2)}%`).join(' / ')}`
+                  : `${tierFeePct(p.kind).toFixed(2)}%`}
+              </span>
+            </StatRow>
+            <StatRow>
+              <span className="lbl">Rate</span>
+              <RateLine>
+                <FlipRateBtn type="button" onClick={() => setFlipRate((f) => !f)} title="Flip">
+                  ⇄
+                </FlipRateBtn>
+                <span>
+                  1 {flipRate ? p.symbol2 : p.symbol1} ={' '}
+                  {fmtPrice(flipRate ? 1 / (p.price_native ?? 1) : p.price_native)} {flipRate ? p.symbol1 : p.symbol2}
+                </span>
+              </RateLine>
+            </StatRow>
+          </SidebarSection>
+
+          <SwapPanel
+            pair={p}
+            tiers={selectedKind === null ? combined?.tiers : undefined}
+            onPreviewChange={onPreviewChange}
+          />
+        </Sidebar>
       </Layout>
     </Page>
   );
@@ -894,8 +954,8 @@ function fmtAmt(s: string | null | undefined, decimals: number): string {
   if (!Number.isFinite(n)) return s;
   if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
-  if (n >= 1) return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n >= 1) return fmtGrouped(n, 2);
   if (n === 0) return '0';
   const dec = Math.min(decimals, 6);
-  return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  return fmtGrouped(n, dec);
 }

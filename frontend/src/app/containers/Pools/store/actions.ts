@@ -40,13 +40,13 @@ export const loadAppParams = createAsyncAction(
   MainActionsTypes.LOAD_PARAMS,
   MainActionsTypes.LOAD_PARAMS_SUCCESS,
   MainActionsTypes.LOAD_PARAMS_FAILURE,
-)<ArrayBuffer, any>();
+)<ShaderRuntimeMap, any>();
 
 export const loadPoolsList = createAsyncAction(
   MainActionsTypes.LOAD_POOLS_LIST,
   MainActionsTypes.LOAD_POOLS_LIST_SUCCESS,
   MainActionsTypes.LOAD_POOLS_LIST_FAILURE,
-)<ArrayBuffer, any>();
+)<void, any>();
 export const onCreatePool = createAsyncAction(
   MainActionsTypes.CREATE_POOL,
   MainActionsTypes.CREATE_POOL_SUCCESS,

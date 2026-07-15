@@ -20,10 +20,7 @@ export interface TableScrollViewportProps {
   children: React.ReactNode;
 }
 
-const TableScrollViewport: React.FC<TableScrollViewportProps> = ({
-  tableMinWidth = 720,
-  children,
-}) => (
+const TableScrollViewport: React.FC<TableScrollViewportProps> = ({ tableMinWidth = 720, children }) => (
   <Viewport tableMinWidth={tableMinWidth}>{children}</Viewport>
 );
 

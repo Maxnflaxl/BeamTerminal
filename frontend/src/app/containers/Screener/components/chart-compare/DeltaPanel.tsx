@@ -17,12 +17,21 @@ const arrow = (sign?: -1 | 0 | 1): string => (sign === 1 ? '▲ ' : sign === -1 
 const deltaColor = (sign?: -1 | 0 | 1): string => (sign === 1 ? C.accent : sign === -1 ? C.danger : C.muted);
 
 const th: React.CSSProperties = {
-  fontSize: 10, color: C.muted, fontWeight: 600, padding: '4px 8px',
-  textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
-  borderBottom: `1px solid ${C.border}`, cursor: 'default',
+  fontSize: 10,
+  color: C.muted,
+  fontWeight: 600,
+  padding: '4px 8px',
+  textAlign: 'right',
+  whiteSpace: 'nowrap',
+  fontVariantNumeric: 'tabular-nums',
+  borderBottom: `1px solid ${C.border}`,
+  cursor: 'default',
 };
 const td: React.CSSProperties = {
-  fontSize: 11, padding: '3px 8px', textAlign: 'right', whiteSpace: 'nowrap',
+  fontSize: 11,
+  padding: '3px 8px',
+  textAlign: 'right',
+  whiteSpace: 'nowrap',
   fontVariantNumeric: 'tabular-nums',
 };
 
@@ -48,17 +57,20 @@ export const DeltaPanel: React.FC<{
               background: mode === m ? C.accent : 'transparent',
               color: mode === m ? '#04222f' : C.muted,
               border: `1px solid ${mode === m ? C.accent : C.border}`,
-              borderRadius: 4, font: 'inherit', fontSize: 11, lineHeight: 1,
-              padding: '3px 8px', marginRight: 6, cursor: 'pointer',
+              borderRadius: 4,
+              font: 'inherit',
+              fontSize: 11,
+              lineHeight: 1,
+              padding: '3px 8px',
+              marginRight: 6,
+              cursor: 'pointer',
             }}
           >
             {m === 'consecutive' ? 'Consecutive' : 'Baseline'}
           </button>
         ))}
         {mode === 'baseline' && (
-          <span style={{ fontSize: 10, color: C.muted, marginLeft: 4 }}>
-            click a column header to re-base
-          </span>
+          <span style={{ fontSize: 10, color: C.muted, marginLeft: 4 }}>click a column header to re-base</span>
         )}
       </div>
       <table style={{ borderCollapse: 'collapse', minWidth: '100%' }}>
@@ -74,10 +86,13 @@ export const DeltaPanel: React.FC<{
                   background: c.isToday ? C.todayBg : undefined,
                   cursor: mode === 'baseline' && !c.isToday ? 'pointer' : 'default',
                 }}
-                onClick={() => { if (mode === 'baseline' && !c.isToday) onBaselineChange(i); }}
+                onClick={() => {
+                  if (mode === 'baseline' && !c.isToday) onBaselineChange(i);
+                }}
                 title={mode === 'baseline' && !c.isToday ? 'Set as baseline' : undefined}
               >
-                {c.isBaseline ? '◎ ' : ''}{c.isToday ? 'today' : c.xLabel}
+                {c.isBaseline ? '◎ ' : ''}
+                {c.isToday ? 'today' : c.xLabel}
               </th>
             ))}
           </tr>
@@ -85,7 +100,14 @@ export const DeltaPanel: React.FC<{
         <tbody>
           {model.rows.map((r) => (
             <tr key={r.series.id}>
-              <td style={{ ...td, textAlign: 'left', color: r.series.color, fontWeight: 600 }}>
+              <td
+                style={{
+                  ...td,
+                  textAlign: 'left',
+                  color: r.series.color,
+                  fontWeight: 600,
+                }}
+              >
                 {r.series.label}
               </td>
               {r.cells.map((cell, i) => (
@@ -93,7 +115,8 @@ export const DeltaPanel: React.FC<{
                   <span style={{ color: C.text }}>{cell.text}</span>
                   {cell.deltaText && (
                     <span style={{ color: deltaColor(cell.sign), display: 'block', fontSize: 10 }}>
-                      {arrow(cell.sign)}{cell.deltaText}
+                      {arrow(cell.sign)}
+                      {cell.deltaText}
                       {cell.deltaPctText ? ` (${cell.deltaPctText})` : ''}
                     </span>
                   )}

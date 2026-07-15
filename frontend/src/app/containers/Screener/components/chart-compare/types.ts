@@ -26,10 +26,10 @@ export interface ResolvedPoint {
 }
 
 export interface DeltaCell {
-  text: string;            // formatted value
-  deltaText?: string;      // signed Δ vs the reference column (undefined for the reference itself)
-  deltaPctText?: string;   // signed Δ% (omitted when !percentable or undefined ref)
-  sign?: -1 | 0 | 1;       // drives arrow + colour
+  text: string; // formatted value
+  deltaText?: string; // signed Δ vs the reference column (undefined for the reference itself)
+  deltaPctText?: string; // signed Δ% (omitted when !percentable or undefined ref)
+  sign?: -1 | 0 | 1; // drives arrow + colour
 }
 
 export interface DeltaColumn {
@@ -40,10 +40,10 @@ export interface DeltaColumn {
 
 export interface DeltaRow {
   series: SeriesDescriptor;
-  cells: DeltaCell[];       // one per column, aligned to DeltaTableModel.columns
+  cells: DeltaCell[]; // one per column, aligned to DeltaTableModel.columns
 }
 
 export interface DeltaTableModel {
-  columns: DeltaColumn[];   // points (x-sorted) … then today
-  rows: DeltaRow[];         // one per series
+  columns: DeltaColumn[]; // points (x-sorted) … then today
+  rows: DeltaRow[]; // one per series
 }

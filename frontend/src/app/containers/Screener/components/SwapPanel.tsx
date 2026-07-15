@@ -1,12 +1,9 @@
-import React, {
-  useState, useEffect, useMemo, useCallback,
-} from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { styled } from '@linaria/react';
-import AssetIcon from '@app/shared/components/AssetsIcon';
 import type { ApiPair, ApiPairTier } from '../api/types';
-import {
-  fmt$, fmtPrice, fmtPriceImpact, toGroths, fromGroths,
-} from './format';
+import { fmt$, fmtPrice, fmtPriceImpact, toGroths, fromGroths } from './format';
+import { Box, BoxHeader, Row, Input, TokenBadge, BadgeAssetIcon, InfoRow } from './amountBox';
+import { Btn, actionButtonState } from './modalChrome';
 import { useWallet, invokeTrade } from '../wallet';
 import { useAssetColor } from '../assetColors';
 
@@ -21,79 +18,10 @@ const Panel = styled.div`
   }
 `;
 
-const Box = styled.div`
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 4px;
-  transition: border-color 0.15s;
-  &:focus-within {
-    border-color: var(--color-green);
-  }
-`;
-
-const BoxHeader = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-`;
-
 const UsdHint = styled.span`
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);
-`;
-
-const Row = styled.div`
-  display: flex;
-  align-items: center;
-  & > * + * { margin-left: 8px; }
-  min-width: 0;
-`;
-
-const Input = styled.input`
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: white;
-  font-family: 'SFProDisplay', monospace;
-  font-size: 20px;
-  font-weight: 600;
-  outline: none;
-  min-width: 0;
-  &::placeholder {
-    color: rgba(255, 255, 255, 0.3);
-  }
-  &:read-only {
-    color: rgba(255, 255, 255, 0.7);
-  }
-`;
-
-const TokenBadge = styled.div`
-  display: flex;
-  align-items: center;
-  & > * + * { margin-left: 6px; }
-  background: rgba(255, 255, 255, 0.06);
-  padding: 6px 10px;
-  border-radius: 20px;
-  flex-shrink: 0;
-  font-weight: 600;
-  font-size: 13px;
-  small {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
-    font-weight: 400;
-  }
-`;
-
-const BadgeAssetIcon = styled(AssetIcon)`
-  && {
-    margin-right: 0;
-  }
 `;
 
 const FlipWrap = styled.div`
@@ -120,54 +48,6 @@ const FlipBtn = styled.button`
   &:hover {
     background: var(--color-green);
     color: var(--color-dark-blue);
-  }
-`;
-
-const InfoRow = styled.div`
-  display: flex;
-  justify-content: space-between;
-  padding: 3px 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  span:last-child {
-    font-family: 'SFProDisplay', monospace;
-    color: rgba(255, 255, 255, 0.8);
-  }
-`;
-
-const Btn = styled.button<{ variant: 'primary' | 'muted' | 'error' | 'success' }>`
-  width: 100%;
-  padding: 12px;
-  margin-top: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  border-radius: 10px;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s;
-
-  background: ${(p) => (p.variant === 'primary'
-    ? 'var(--color-green)'
-    : p.variant === 'success'
-      ? 'var(--color-green)'
-      : p.variant === 'error'
-        ? 'var(--color-red)'
-        : 'rgba(255, 255, 255, 0.08)')};
-  color: ${(p) => (p.variant === 'primary'
-    ? 'var(--color-dark-blue)'
-    : p.variant === 'success'
-      ? 'var(--color-dark-blue)'
-      : p.variant === 'error'
-        ? 'white'
-        : 'rgba(255, 255, 255, 0.5)')};
-
-  &:hover:not(:disabled) {
-    filter: brightness(1.1);
-  }
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.8;
   }
 `;
 
@@ -209,7 +89,7 @@ interface Side {
  */
 function estimateOut(r1: number, r2: number, dx: number, fee: number): number {
   if (r1 <= 0 || r2 <= 0 || dx <= 0) return 0;
-  return (r2 * dx) / (r1 + dx) * (1 - fee);
+  return ((r2 * dx) / (r1 + dx)) * (1 - fee);
 }
 
 const TIER_FEE: Record<number, number> = { 0: 0.0005, 1: 0.003, 2: 0.01 };
@@ -226,7 +106,13 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
   // Tier that the local (constant-product) estimate picked as best — used to
   // route the swap before an authoritative wallet quote arrives.
   const [localBestKind, setLocalBestKind] = useState<0 | 1 | 2 | null>(null);
-  const [confirmedQuote, setConfirmedQuote] = useState<{ buy: number; pay: number; kind: 0 | 1 | 2; fee_dao?: number; fee_pool?: number } | null>(null);
+  const [confirmedQuote, setConfirmedQuote] = useState<{
+    buy: number;
+    pay: number;
+    kind: 0 | 1 | 2;
+    fee_dao?: number;
+    fee_pool?: number;
+  } | null>(null);
   // Default to flipped so the rate reads "1 receive = N pay" — same
   // orientation as the OHLCV chart on a BEAM-quoted pair (BEAM per
   // other-asset). Users can toggle.
@@ -235,12 +121,14 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
   const [executing, setExecuting] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
-  const pay: Side = direction === 'buy_aid2'
-    ? { aid: pair.aid1, symbol: pair.symbol1 ?? `aid${pair.aid1}`, decimals: pair.decimals1 }
-    : { aid: pair.aid2, symbol: pair.symbol2 ?? `aid${pair.aid2}`, decimals: pair.decimals2 };
-  const receive: Side = direction === 'buy_aid2'
-    ? { aid: pair.aid2, symbol: pair.symbol2 ?? `aid${pair.aid2}`, decimals: pair.decimals2 }
-    : { aid: pair.aid1, symbol: pair.symbol1 ?? `aid${pair.aid1}`, decimals: pair.decimals1 };
+  const pay: Side =
+    direction === 'buy_aid2'
+      ? { aid: pair.aid1, symbol: pair.symbol1 ?? `aid${pair.aid1}`, decimals: pair.decimals1 }
+      : { aid: pair.aid2, symbol: pair.symbol2 ?? `aid${pair.aid2}`, decimals: pair.decimals2 };
+  const receive: Side =
+    direction === 'buy_aid2'
+      ? { aid: pair.aid2, symbol: pair.symbol2 ?? `aid${pair.aid2}`, decimals: pair.decimals2 }
+      : { aid: pair.aid1, symbol: pair.symbol1 ?? `aid${pair.aid1}`, decimals: pair.decimals1 };
   const payColor = useAssetColor(pay.aid);
   const receiveColor = useAssetColor(receive.aid);
 
@@ -254,9 +142,14 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
         fee: TIER_FEE[t.kind] ?? 0,
       }));
     }
-    return [{
-      kind: pair.kind, r1: pair.reserve1_human ?? 0, r2: pair.reserve2_human ?? 0, fee: TIER_FEE[pair.kind] ?? 0,
-    }];
+    return [
+      {
+        kind: pair.kind,
+        r1: pair.reserve1_human ?? 0,
+        r2: pair.reserve2_human ?? 0,
+        fee: TIER_FEE[pair.kind] ?? 0,
+      },
+    ];
   }, [tiers, pair.kind, pair.reserve1_human, pair.reserve2_human]);
 
   const routing = candidates.length > 1;
@@ -264,7 +157,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
   // have one, else the local estimate's pick, else the only/declared tier.
   const execKind = confirmedQuote?.kind ?? localBestKind ?? pair.kind;
   const active = candidates.find((c) => c.kind === execKind) ?? candidates[0]!;
-  const fee = active.fee;
+  const { fee } = active;
   const reserves = useMemo(() => ({ r1: active.r1, r2: active.r2 }), [active.r1, active.r2]);
 
   // Local estimate updates synchronously as the user types. With multiple tiers
@@ -280,10 +173,11 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
     let best = -1;
     let bestKind = candidates[0]!.kind;
     for (const c of candidates) {
-      const out = direction === 'buy_aid2'
-        ? estimateOut(c.r1, c.r2, v, c.fee)
-        : estimateOut(c.r2, c.r1, v, c.fee);
-      if (out > best) { best = out; bestKind = c.kind; }
+      const out = direction === 'buy_aid2' ? estimateOut(c.r1, c.r2, v, c.fee) : estimateOut(c.r2, c.r1, v, c.fee);
+      if (out > best) {
+        best = out;
+        bestKind = c.kind;
+      }
     }
     setEstimatedOut(best > 0 ? best : null);
     setLocalBestKind(bestKind);
@@ -291,11 +185,11 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
 
   // Debounced authoritative quote once a wallet is reachable.
   useEffect(() => {
-    if (headless) return;
+    if (headless) return undefined;
     const v = parseFloat(amountIn);
     if (!Number.isFinite(v) || v <= 0) {
       setConfirmedQuote(null);
-      return;
+      return undefined;
     }
     let cancelled = false;
     const t = setTimeout(async () => {
@@ -309,31 +203,40 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
         const val2_pay = toGroths(v, pay.decimals);
         // Quote every candidate tier in parallel, then keep the highest `buy`
         // (exactly dex-app's findBestPool rule). Single-tier views quote once.
-        const quotes = await Promise.all(candidates.map(async (c) => {
-          try {
-            const res = await invokeTrade({
-              aid1: callAid1,
-              aid2: callAid2,
-              kind: c.kind,
-              val1_buy: 0,
-              val2_pay,
-              bPredictOnly: 1,
-            });
-            // dex-app's TradePoolApi returns the shader's parsed result:
-            // the AMM predict returns { res: { buy, pay, fee } } or similar.
-            const r = (res as { res?: { buy?: number; pay?: number; fee_dao?: number; fee_pool?: number } })?.res
-              ?? (res as { buy?: number; pay?: number; fee_dao?: number; fee_pool?: number });
-            return {
-              kind: c.kind,
-              buy: r?.buy ?? 0,
-              pay: r?.pay ?? val2_pay,
-              fee_dao: r?.fee_dao,
-              fee_pool: r?.fee_pool,
-            };
-          } catch {
-            return { kind: c.kind, buy: 0, pay: val2_pay, fee_dao: undefined, fee_pool: undefined };
-          }
-        }));
+        const quotes = await Promise.all(
+          candidates.map(async (c) => {
+            try {
+              const res = await invokeTrade({
+                aid1: callAid1,
+                aid2: callAid2,
+                kind: c.kind,
+                val1_buy: 0,
+                val2_pay,
+                bPredictOnly: 1,
+              });
+              // dex-app's TradePoolApi returns the shader's parsed result:
+              // the AMM predict returns { res: { buy, pay, fee } } or similar.
+              const r =
+                (res as { res?: { buy?: number; pay?: number; fee_dao?: number; fee_pool?: number } })?.res ??
+                (res as { buy?: number; pay?: number; fee_dao?: number; fee_pool?: number });
+              return {
+                kind: c.kind,
+                buy: r?.buy ?? 0,
+                pay: r?.pay ?? val2_pay,
+                fee_dao: r?.fee_dao,
+                fee_pool: r?.fee_pool,
+              };
+            } catch {
+              return {
+                kind: c.kind,
+                buy: 0,
+                pay: val2_pay,
+                fee_dao: undefined,
+                fee_pool: undefined,
+              };
+            }
+          }),
+        );
         if (cancelled) return;
         const best = quotes.reduce((a, b) => (b.buy > a.buy ? b : a));
         if (best.buy > 0) {
@@ -408,20 +311,14 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
     await connect();
   }, [connect]);
 
-  const displayedOut = confirmedQuote
-    ? fromGroths(confirmedQuote.buy, receive.decimals)
-    : estimatedOut;
-  const ratePerUnit = displayedOut !== null && parseFloat(amountIn) > 0
-    ? displayedOut / parseFloat(amountIn)
-    : null;
+  const displayedOut = confirmedQuote ? fromGroths(confirmedQuote.buy, receive.decimals) : estimatedOut;
+  const ratePerUnit = displayedOut !== null && parseFloat(amountIn) > 0 ? displayedOut / parseFloat(amountIn) : null;
 
   // Spot rate (no slippage) for the user's current direction, plus the
   // effective rate they'd actually get. Both are in *receive-per-pay* units.
   const spotPerPayUnit = useMemo<number | null>(() => {
     if (reserves.r1 <= 0 || reserves.r2 <= 0) return null;
-    return direction === 'buy_aid2'
-      ? reserves.r2 / reserves.r1
-      : reserves.r1 / reserves.r2;
+    return direction === 'buy_aid2' ? reserves.r2 / reserves.r1 : reserves.r1 / reserves.r2;
   }, [reserves, direction]);
 
   // Price impact magnitude in the pay→receive frame: the pure pool-curvature
@@ -469,28 +366,22 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
   // Button state machine.
   const v = parseFloat(amountIn);
   const hasAmount = Number.isFinite(v) && v > 0;
-  const btn = (() => {
-    if (feedback?.kind === 'success') {
-      return { text: feedback.text, variant: 'success' as const, disabled: true };
-    }
-    if (feedback?.kind === 'error') {
-      return { text: feedback.text, variant: 'error' as const, disabled: true };
-    }
-    if (headless) {
-      if (connecting) return { text: 'Connecting…', variant: 'muted' as const, disabled: true };
-      return { text: 'Connect Wallet to Swap', variant: 'primary' as const, disabled: false };
-    }
-    if (executing) return { text: 'Swapping…', variant: 'muted' as const, disabled: true };
-    if (!hasAmount) return { text: 'Enter amount', variant: 'muted' as const, disabled: true };
-    if (quoting && !confirmedQuote) return { text: 'Fetching quote…', variant: 'muted' as const, disabled: true };
-    return { text: 'Swap', variant: 'primary' as const, disabled: false };
-  })();
+  const btn = actionButtonState({
+    feedback,
+    headless,
+    connecting,
+    executing,
+    busyLabel: 'Swapping…',
+    disabledReason: !hasAmount ? 'Enter amount' : quoting && !confirmedQuote ? 'Fetching quote…' : null,
+    actionLabel: 'Swap',
+    connectLabel: 'Connect Wallet to Swap',
+  });
 
   return (
     <Panel>
       <h4>Trade</h4>
 
-      <Box>
+      <Box mb={4}>
         <BoxHeader>
           <span>You Pay</span>
           <UsdHint>
@@ -510,12 +401,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
           <TokenBadge>
             <BadgeAssetIcon asset_id={pay.aid} color={payColor} />
             <div>
-              {pay.symbol}
-              {' '}
-              <small>
-                #
-                {pay.aid}
-              </small>
+              {pay.symbol} <small>#{pay.aid}</small>
             </div>
           </TokenBadge>
         </Row>
@@ -527,7 +413,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
         </FlipBtn>
       </FlipWrap>
 
-      <Box>
+      <Box mb={4}>
         <BoxHeader>
           <span>You Receive</span>
           <UsdHint />
@@ -537,19 +423,16 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
             type="text"
             readOnly
             placeholder="0"
-            value={displayedOut !== null
-              ? (confirmedQuote ? '' : '~') + (displayedOut >= 1 ? displayedOut.toFixed(4) : displayedOut.toFixed(8))
-              : ''}
+            value={
+              displayedOut !== null
+                ? (confirmedQuote ? '' : '~') + (displayedOut >= 1 ? displayedOut.toFixed(4) : displayedOut.toFixed(8))
+                : ''
+            }
           />
           <TokenBadge>
             <BadgeAssetIcon asset_id={receive.aid} color={receiveColor} />
             <div>
-              {receive.symbol}
-              {' '}
-              <small>
-                #
-                {receive.aid}
-              </small>
+              {receive.symbol} <small>#{receive.aid}</small>
             </div>
           </TokenBadge>
         </Row>
@@ -559,8 +442,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
         <div style={{ padding: '8px 0' }}>
           <InfoRow>
             <span>
-              Rate
-              {' '}
+              Rate{' '}
               <button
                 type="button"
                 onClick={() => setFlipRate((f) => !f)}
@@ -582,15 +464,16 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
             </span>
             <span>
               {flipRate
-                ? `1 ${receive.symbol} ${confirmedQuote ? '=' : '≈'} ${fmtPrice(ratePerUnit > 0 ? 1 / ratePerUnit : 0)} ${pay.symbol}`
+                ? `1 ${receive.symbol} ${confirmedQuote ? '=' : '≈'} ${fmtPrice(
+                    ratePerUnit > 0 ? 1 / ratePerUnit : 0,
+                  )} ${pay.symbol}`
                 : `1 ${pay.symbol} ${confirmedQuote ? '=' : '≈'} ${fmtPrice(ratePerUnit)} ${receive.symbol}`}
             </span>
           </InfoRow>
           <InfoRow>
             <span>{routing ? 'Fee tier (best)' : 'Fee tier'}</span>
             <span>
-              {(fee * 100).toFixed(2)}
-              %
+              {(fee * 100).toFixed(2)}%
               {routing ? ` · ${active.kind === 0 ? 'Low' : active.kind === 1 ? 'Medium' : 'High'}` : ''}
             </span>
           </InfoRow>
@@ -602,11 +485,8 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
                   // Severity colour follows magnitude (regardless of sign),
                   // mirroring the thresholds traders expect elsewhere:
                   // <1% neutral, 1–5% amber, ≥5% red.
-                  color: impactMagnitudePct < 1
-                    ? 'rgba(255,255,255,0.8)'
-                    : impactMagnitudePct < 5
-                      ? '#f0c14b'
-                      : '#f25f5b',
+                  color:
+                    impactMagnitudePct < 1 ? 'rgba(255,255,255,0.8)' : impactMagnitudePct < 5 ? '#f0c14b' : '#f25f5b',
                 }}
               >
                 {fmtPriceImpact(chartAxisImpactPct)}
@@ -617,9 +497,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
             <InfoRow>
               <span>DAO fee</span>
               <span>
-                {fromGroths(confirmedQuote.fee_dao, pay.decimals).toFixed(Math.min(pay.decimals, 6))}
-                {' '}
-                {pay.symbol}
+                {fromGroths(confirmedQuote.fee_dao, pay.decimals).toFixed(Math.min(pay.decimals, 6))} {pay.symbol}
               </span>
             </InfoRow>
           )}
@@ -627,21 +505,14 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
             <InfoRow>
               <span>LP fee</span>
               <span>
-                {fromGroths(confirmedQuote.fee_pool, pay.decimals).toFixed(Math.min(pay.decimals, 6))}
-                {' '}
-                {pay.symbol}
+                {fromGroths(confirmedQuote.fee_pool, pay.decimals).toFixed(Math.min(pay.decimals, 6))} {pay.symbol}
               </span>
             </InfoRow>
           )}
         </div>
       )}
 
-      <Btn
-        type="button"
-        variant={btn.variant}
-        disabled={btn.disabled}
-        onClick={headless ? onConnect : onSwap}
-      >
+      <Btn type="button" variant={btn.variant} disabled={btn.disabled} onClick={headless ? onConnect : onSwap}>
         {btn.text}
       </Btn>
     </Panel>

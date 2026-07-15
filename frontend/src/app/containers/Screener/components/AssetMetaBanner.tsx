@@ -22,7 +22,9 @@ const Banner = styled.div`
 const Bar = styled.button`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 16px; }
+  & > * + * {
+    margin-left: 16px;
+  }
   width: 100%;
   padding: 12px 16px;
   background: none;
@@ -31,23 +33,36 @@ const Bar = styled.button`
   font-family: inherit;
   text-align: left;
   cursor: pointer;
-  &:hover { background: rgba(255, 255, 255, 0.02); }
+  &:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
   .asset {
     display: flex;
     align-items: center;
-    & > * + * { margin-left: 8px; }
+    & > * + * {
+      margin-left: 8px;
+    }
     font-size: 14px;
-    .id { color: rgba(255, 255, 255, 0.45); }
-    .nm { color: white; font-weight: 600; }
+    .id {
+      color: rgba(255, 255, 255, 0.45);
+    }
+    .nm {
+      color: white;
+      font-weight: 600;
+    }
   }
-  .sep { color: rgba(255, 255, 255, 0.2); }
+  .sep {
+    color: rgba(255, 255, 255, 0.2);
+  }
   .chevron {
     margin-left: auto;
     color: rgba(255, 255, 255, 0.4);
     font-size: 12px;
     transition: transform 0.15s;
   }
-  .chevron.open { transform: rotate(180deg); }
+  .chevron.open {
+    transform: rotate(180deg);
+  }
 `;
 
 const Body = styled.div`
@@ -69,14 +84,30 @@ const Compare = styled.table`
     text-align: left;
     vertical-align: top;
   }
-  thead th { padding-top: 6px; }
+  thead th {
+    padding-top: 6px;
+  }
   thead .head {
     display: flex;
     align-items: center;
-    & > * + * { margin-left: 8px; }
-    .icon { width: 26px; height: 26px; flex-shrink: 0; }
-    .icon svg { display: block; width: 26px; height: 26px; }
-    .nm { font-size: 15px; font-weight: 700; color: white; }
+    & > * + * {
+      margin-left: 8px;
+    }
+    .icon {
+      width: 26px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+    .icon svg {
+      display: block;
+      width: 26px;
+      height: 26px;
+    }
+    .nm {
+      font-size: 15px;
+      font-weight: 700;
+      color: white;
+    }
   }
   tbody th {
     color: rgba(255, 255, 255, 0.45);
@@ -86,7 +117,7 @@ const Compare = styled.table`
   }
   tbody td {
     color: white;
-    font-family: 'SFProDisplay', monospace;
+    font-family: var(--font-mono);
     word-break: break-word;
   }
   tbody tr + tr th,
@@ -110,9 +141,16 @@ const Desc = styled.div`
   font-size: 13px;
   color: rgba(255, 255, 255, 0.7);
   line-height: 1.55;
-  & > * + * { margin-top: 10px; }
-  .who { color: rgba(255, 255, 255, 0.45); margin-right: 6px; }
-  .txt { white-space: pre-wrap; }
+  & > * + * {
+    margin-top: 10px;
+  }
+  .who {
+    color: rgba(255, 255, 255, 0.45);
+    margin-right: 6px;
+  }
+  .txt {
+    white-space: pre-wrap;
+  }
 `;
 
 // UTC date+time, matching the explorer's "YYYY-MM-DD HH:MM (UTC)" presentation.
@@ -120,7 +158,9 @@ function fmtUtc(ts: number | null): string {
   if (!ts) return '—';
   const d = new Date(ts * 1000);
   const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} (UTC)`;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(
+    d.getUTCMinutes(),
+  )} (UTC)`;
 }
 
 interface AssetDates {
@@ -133,14 +173,21 @@ interface AssetDates {
 function deriveDates(history: ApiAssetHistoryItem[] | undefined): AssetDates {
   if (!history || history.length === 0) {
     return {
-      createdTs: null, createdHeight: null, lastTs: null, lastHeight: null,
+      createdTs: null,
+      createdHeight: null,
+      lastTs: null,
+      lastHeight: null,
     };
   }
-  const created = history.find((h) => h.event === 'Create')
-    ?? history.reduce((min, h) => (h.height < min.height ? h : min), history[0]!);
+  const created =
+    history.find((h) => h.event === 'Create') ??
+    history.reduce((min, h) => (h.height < min.height ? h : min), history[0]!);
   const last = history.reduce((mx, h) => (h.height > mx.height ? h : mx), history[0]!);
   return {
-    createdTs: created.ts, createdHeight: created.height, lastTs: last.ts, lastHeight: last.height,
+    createdTs: created.ts,
+    createdHeight: created.height,
+    lastTs: last.ts,
+    lastHeight: last.height,
   };
 }
 
@@ -164,9 +211,7 @@ interface Props {
 
 /** Expandable asset-metadata banner. Collapsed it shows both pair assets;
  *  expanded it shows both assets' metadata side by side as a comparison table. */
-export const AssetMetaBanner: React.FC<Props> = ({
-  aid1, aid2, sym1, sym2,
-}) => {
+export const AssetMetaBanner: React.FC<Props> = ({ aid1, aid2, sym1, sym2 }) => {
   const [open, setOpen] = useState(false);
 
   const { data: asset1 } = useAsset(aid1);
@@ -181,16 +226,15 @@ export const AssetMetaBanner: React.FC<Props> = ({
 
   // BEAM is mined from genesis and changes every block, so it has no history
   // rows: its "since" is block 1 and its "last change" is the chain tip.
-  const datesFor = (aid: number, hist: ApiAssetHistoryItem[] | undefined): AssetDates => (
+  const datesFor = (aid: number, hist: ApiAssetHistoryItem[] | undefined): AssetDates =>
     aid === 0
       ? {
-        createdTs: BEAM_GENESIS_TS,
-        createdHeight: 1,
-        lastTs: stats?.block_ts ?? null,
-        lastHeight: stats?.last_indexed_height ?? null,
-      }
-      : deriveDates(hist)
-  );
+          createdTs: BEAM_GENESIS_TS,
+          createdHeight: 1,
+          lastTs: stats?.block_ts ?? null,
+          lastHeight: stats?.last_indexed_height ?? null,
+        }
+      : deriveDates(hist);
   const dates1 = datesFor(aid1, hist1?.history);
   const dates2 = datesFor(aid2, hist2?.history);
 
@@ -221,8 +265,22 @@ export const AssetMetaBanner: React.FC<Props> = ({
   if (color1 || color2) {
     rows.push({
       label: 'Color',
-      v1: color1 ? <span><span className="swatch" style={{ background: color1 }} />{color1}</span> : '—',
-      v2: color2 ? <span><span className="swatch" style={{ background: color2 }} />{color2}</span> : '—',
+      v1: color1 ? (
+        <span>
+          <span className="swatch" style={{ background: color1 }} />
+          {color1}
+        </span>
+      ) : (
+        '—'
+      ),
+      v2: color2 ? (
+        <span>
+          <span className="swatch" style={{ background: color2 }} />
+          {color2}
+        </span>
+      ) : (
+        '—'
+      ),
     });
   }
 
@@ -240,30 +298,20 @@ export const AssetMetaBanner: React.FC<Props> = ({
         <span className="asset">
           <span className="id">
             Asset ID:
-            {' '}
             {aid1}
           </span>
           <span className="nm">
-            {name1}
-            {' '}
-            (
-            {sym1}
-            )
+            {name1} ({sym1})
           </span>
         </span>
         <span className="sep">·</span>
         <span className="asset">
           <span className="id">
             Asset ID:
-            {' '}
             {aid2}
           </span>
           <span className="nm">
-            {name2}
-            {' '}
-            (
-            {sym2}
-            )
+            {name2} ({sym2})
           </span>
         </span>
         <span className={`chevron ${open ? 'open' : ''}`}>▼</span>
@@ -292,19 +340,13 @@ export const AssetMetaBanner: React.FC<Props> = ({
             <Desc>
               {desc1 && (
                 <div>
-                  <span className="who">
-                    {name1}
-                    :
-                  </span>
+                  <span className="who">{name1}:</span>
                   <span className="txt">{desc1}</span>
                 </div>
               )}
               {desc2 && (
                 <div>
-                  <span className="who">
-                    {name2}
-                    :
-                  </span>
+                  <span className="who">{name2}:</span>
                   <span className="txt">{desc2}</span>
                 </div>
               )}

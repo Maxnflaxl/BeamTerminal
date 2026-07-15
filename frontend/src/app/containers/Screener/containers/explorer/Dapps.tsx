@@ -1,18 +1,25 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
+import BeamDappConnector from '@core/BeamDappConnector.js';
 import {
-  Page, Card, ExplorerHeader, H1, H3, Subtitle, Muted, TabBtn,
-  Pill, DataTable, ScrollX, ErrorBox, theme,
+  Page,
+  Card,
+  ExplorerHeader,
+  H1,
+  H3,
+  Subtitle,
+  Muted,
+  TabBtn,
+  Pill,
+  DataTable,
+  ScrollX,
+  ErrorBox,
+  theme,
 } from './shared';
 import { api } from '../../api/client';
-import type {
-  ApiDapp,
-  ApiDappDetail,
-  ApiDappPublisher,
-  ApiDappVersion,
-} from '../../api/types';
-import BeamDappConnector from '@core/BeamDappConnector.js';
+import { Overlay, useEscapeClose } from '../../components/modalChrome';
+import type { ApiDapp, ApiDappDetail, ApiDappPublisher, ApiDappVersion } from '../../api/types';
 import CopyIcon from './shared/icons/copy.svg';
 import DownloadIcon from './shared/icons/download.svg';
 import TwitterIcon from './shared/icons/social-twitter.svg';
@@ -67,11 +74,13 @@ const Toolbar = styled.div`
   margin: 5px 0 12px;
   margin-right: -3px;
   margin-left: -3px;
-  & > * { margin: 3px; }
+  & > * {
+    margin: 3px;
+  }
 `;
 
 const Mono = styled.span`
-  font-family: monospace;
+  font-family: var(--font-mono);
   word-break: break-all;
 `;
 
@@ -94,8 +103,13 @@ const DappCard = styled.button`
   color: ${theme.color.text};
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
-  & > * + * { margin-left: 12px; }
-  &:hover { border-color: ${theme.color.accent}; background: rgba(0, 246, 210, 0.04); }
+  & > * + * {
+    margin-left: 12px;
+  }
+  &:hover {
+    border-color: ${theme.color.accent};
+    background: rgba(0, 246, 210, 0.04);
+  }
 `;
 
 const Icon48 = styled.div`
@@ -110,7 +124,11 @@ const Icon48 = styled.div`
   overflow: hidden;
   font-size: 22px;
   line-height: 1;
-  img { width: 100%; height: 100%; object-fit: contain; }
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
 `;
 
 const Icon32 = styled.div`
@@ -125,7 +143,11 @@ const Icon32 = styled.div`
   overflow: hidden;
   font-size: 16px;
   line-height: 1;
-  img { width: 100%; height: 100%; object-fit: contain; }
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
 `;
 
 const CardBody = styled.div`
@@ -161,7 +183,9 @@ const CardMeta = styled.div`
   align-items: center;
   margin-right: -5px;
   margin-left: -5px;
-  & > * { margin: 3px 5px; }
+  & > * {
+    margin: 3px 5px;
+  }
 `;
 
 const PublisherChip = styled.span`
@@ -176,7 +200,9 @@ const PublisherChip = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  & > * + * { margin-left: 4px; }
+  & > * + * {
+    margin-left: 4px;
+  }
 `;
 
 const IconButton = styled.button`
@@ -191,8 +217,14 @@ const IconButton = styled.button`
   padding: 3px 6px;
   font: inherit;
   transition: color 0.15s, border-color 0.15s;
-  svg { width: 12px; height: 12px; }
-  &:hover { color: ${theme.color.accent}; border-color: ${theme.color.accent}; }
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+  &:hover {
+    color: ${theme.color.accent};
+    border-color: ${theme.color.accent};
+  }
 `;
 
 // Anchor styled to match IconButton — used by the .dapp Download link so the
@@ -210,8 +242,14 @@ const IconLink = styled.a`
   font: inherit;
   text-decoration: none;
   transition: color 0.15s, border-color 0.15s;
-  svg { width: 12px; height: 12px; }
-  &:hover { color: ${theme.color.accent}; border-color: ${theme.color.accent}; }
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+  &:hover {
+    color: ${theme.color.accent};
+    border-color: ${theme.color.accent};
+  }
   &[aria-disabled='true'] {
     opacity: 0.45;
     cursor: not-allowed;
@@ -230,8 +268,15 @@ const SocialLink = styled.a`
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid ${theme.color.borderDim};
   transition: color 0.15s, border-color 0.15s, background 0.15s;
-  svg { width: 14px; height: 14px; }
-  &:hover { color: ${theme.color.accent}; border-color: ${theme.color.accent}; background: rgba(0, 246, 210, 0.06); }
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+  &:hover {
+    color: ${theme.color.accent};
+    border-color: ${theme.color.accent};
+    background: rgba(0, 246, 210, 0.06);
+  }
 `;
 
 const KeyRow = styled.div`
@@ -240,7 +285,9 @@ const KeyRow = styled.div`
   flex-wrap: wrap;
   margin-right: -3px;
   margin-left: -3px;
-  & > * { margin: 3px; }
+  & > * {
+    margin: 3px;
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -249,20 +296,6 @@ const KeyRow = styled.div`
 
 // `inset: 0` shorthand isn't supported in QtWebEngine 5.15.2 (Chrome 83),
 // so the backdrop would collapse to 0x0 and the modal becomes invisible.
-const ModalBackdrop = styled.div`
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(2, 16, 31, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  z-index: 200;
-`;
-
 const ModalShell = styled.div`
   background: ${theme.color.bg};
   border: 1px solid ${theme.color.border};
@@ -282,7 +315,9 @@ const ModalHeader = styled.div`
   align-items: center;
   padding: 16px 20px 12px;
   border-bottom: 1px solid ${theme.color.divider};
-  & > * + * { margin-left: 14px; }
+  & > * + * {
+    margin-left: 14px;
+  }
 `;
 
 const ModalBody = styled.div`
@@ -304,7 +339,10 @@ const ModalClose = styled.button`
   cursor: pointer;
   font: inherit;
   line-height: 1;
-  &:hover { color: ${theme.color.accent}; border-color: ${theme.color.accent}; }
+  &:hover {
+    color: ${theme.color.accent};
+    border-color: ${theme.color.accent};
+  }
 `;
 
 const Field = styled.div`
@@ -325,7 +363,9 @@ const FieldRow = styled.div`
   flex-wrap: wrap;
   margin-right: -12px;
   margin-left: -12px;
-  & > * { margin: 0 12px; }
+  & > * {
+    margin: 0 12px;
+  }
 `;
 
 const SocialRow = styled.div`
@@ -333,7 +373,9 @@ const SocialRow = styled.div`
   flex-wrap: wrap;
   margin-right: -3px;
   margin-left: -3px;
-  & > * { margin: 3px; }
+  & > * {
+    margin: 3px;
+  }
 `;
 
 const Toast = styled.div`
@@ -371,14 +413,17 @@ function fmtRelative(iso: string | null | undefined): string | null {
   if (s < 60) return `${s}s ago`;
 
   const Y = 365 * 24 * 3600;
-  const M = 30  * 24 * 3600;
+  const M = 30 * 24 * 3600;
   const D = 24 * 3600;
   const H = 3600;
   const MIN = 60;
   const parts: string[] = [];
   const take = (size: number, suf: string) => {
     const n = Math.floor(s / size);
-    if (n > 0) { parts.push(`${n}${suf}`); s -= n * size; }
+    if (n > 0) {
+      parts.push(`${n}${suf}`);
+      s -= n * size;
+    }
   };
   take(Y, 'y');
   take(M, 'mo');
@@ -388,14 +433,14 @@ function fmtRelative(iso: string | null | undefined): string | null {
   take(MIN, 'm');
   // Keep at most two units (biggest first) so older entries read like
   // "2y 2mo" and recent ones like "3h 12m". Single-unit ("4d") is fine too.
-  return parts.slice(0, 2).join(' ') + ' ago';
+  return `${parts.slice(0, 2).join(' ')} ago`;
 }
 
 function fmtAbsolute(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  return `${d.toISOString().replace('T', ' ').slice(0, 16)} UTC`;
 }
 
 // Explanation shown on hover when a per-dapp first_seen is null. The
@@ -407,13 +452,16 @@ function fmtAbsolute(iso: string | null | undefined): string | null {
 // explorer feed. We only fill first_seen when the mapping is unambiguous —
 // a publisher with exactly one current dapp and one add_dapp call.
 const UNKNOWN_TOOLTIP =
-  "Original add-date unknown — this publisher has more than one dapp, and the "
-  + "DApp Store contract is wrapped by upgradable2 so the explorer can't "
-  + "decode which add_dapp call refers to which dapp. (Last-updated is "
-  + "always known: the contract stamps it on the dapp record itself.)";
+  'Original add-date unknown — this publisher has more than one dapp, and the ' +
+  'DApp Store contract is wrapped by upgradable2 so the explorer can\'t ' +
+  'decode which add_dapp call refers to which dapp. (Last-updated is ' +
+  'always known: the contract stamps it on the dapp record itself.)';
 
 const Unknown: React.FC<{ reason?: string }> = ({ reason = UNKNOWN_TOOLTIP }) => (
-  <span style={{ color: 'rgba(255,255,255,0.4)', borderBottom: '1px dashed rgba(255,255,255,0.25)', cursor: 'help' }} title={reason}>
+  <span
+    style={{ color: 'rgba(255,255,255,0.4)', borderBottom: '1px dashed rgba(255,255,255,0.25)', cursor: 'help' }}
+    title={reason}
+  >
     unknown
   </span>
 );
@@ -426,7 +474,11 @@ const RelDate: React.FC<{ iso: string | null; reason?: string }> = ({ iso, reaso
 };
 
 // Two-line absolute+relative date block used inside the modals.
-const DateBlock: React.FC<{ iso: string | null; height: number | null; reason?: string }> = ({ iso, height, reason }) => {
+const DateBlock: React.FC<{ iso: string | null; height: number | null; reason?: string }> = ({
+  iso,
+  height,
+  reason,
+}) => {
   const abs = fmtAbsolute(iso);
   if (abs == null) return <Unknown reason={reason} />;
   return (
@@ -503,7 +555,13 @@ function safeIconSrc(raw: string | null | undefined): string | undefined {
 // underscore, space; collapse other chars to '-' so the OS save dialog gets
 // something legible regardless of what the publisher put in the name.
 function sanitizeFilename(s: string): string {
-  return s.replace(/[^A-Za-z0-9._\- ]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'dapp';
+  return (
+    s
+      .replace(/[^A-Za-z0-9._\- ]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'dapp'
+  );
 }
 
 function dappFilename(name: string | null, version: string | null): string {
@@ -531,7 +589,11 @@ const DappIcon: React.FC<{ icon: string | null; size?: 'sm' | 'md' }> = ({ icon,
   return <Wrapper>{src ? <img src={src} alt="" loading="lazy" /> : <span aria-hidden>🧩</span>}</Wrapper>;
 };
 
-const CopyKey: React.FC<{ value: string; onCopy: (msg: string) => void; show?: 'full' | 'short' }> = ({ value, onCopy, show = 'short' }) => (
+const CopyKey: React.FC<{ value: string; onCopy: (msg: string) => void; show?: 'full' | 'short' }> = ({
+  value,
+  onCopy,
+  show = 'short',
+}) => (
   <KeyRow>
     <Mono style={{ fontSize: 11 }}>{show === 'full' ? value : shortKey(value)}</Mono>
     <IconButton
@@ -582,10 +644,7 @@ const DownloadBtn: React.FC<{
 // accidentally inject a path into the platform URL.
 const HANDLE_RE = /^@?[A-Za-z0-9._-]+$/;
 
-function socialUrl(
-  raw: string | null | undefined,
-  composeFromHandle: (h: string) => string,
-): string | undefined {
+function socialUrl(raw: string | null | undefined, composeFromHandle: (h: string) => string): string | undefined {
   if (!raw) return undefined;
   const s = raw.trim();
   if (!s) return undefined;
@@ -601,17 +660,59 @@ function socialUrl(
 
 const SocialLinks: React.FC<{ social: ApiDappPublisher['social']; website: string | null }> = ({ social, website }) => {
   const links: Array<{ key: string; href: string; label: string; Icon: React.FC<React.SVGProps<SVGSVGElement>> }> = [];
-  const x  = socialUrl(social.twitter,   (h) => `https://x.com/${h}`);
-  const tg = socialUrl(social.telegram,  (h) => `https://t.me/${h}`);
-  const dc = socialUrl(social.discord,   (h) => `https://discord.gg/${h}`);
-  const li = socialUrl(social.linkedin,  (h) => `https://www.linkedin.com/in/${h}`);
+  const x = socialUrl(social.twitter, (h) => `https://x.com/${h}`);
+  const tg = socialUrl(social.telegram, (h) => `https://t.me/${h}`);
+  const dc = socialUrl(social.discord, (h) => `https://discord.gg/${h}`);
+  const li = socialUrl(social.linkedin, (h) => `https://www.linkedin.com/in/${h}`);
   const ig = socialUrl(social.instagram, (h) => `https://www.instagram.com/${h}`);
-  if (safeHttpUrl(website)) links.push({ key: 'site',  href: safeHttpUrl(website)!,  label: 'Website',     Icon: WebsiteIcon   });
-  if (x)                    links.push({ key: 'x',     href: x,                      label: 'X / Twitter', Icon: TwitterIcon   });
-  if (tg)                   links.push({ key: 'tg',    href: tg,                     label: 'Telegram',    Icon: TelegramIcon  });
-  if (dc)                   links.push({ key: 'dc',    href: dc,                     label: 'Discord',     Icon: DiscordIcon   });
-  if (li)                   links.push({ key: 'li',    href: li,                     label: 'LinkedIn',    Icon: LinkedinIcon  });
-  if (ig)                   links.push({ key: 'ig',    href: ig,                     label: 'Instagram',   Icon: InstagramIcon });
+  if (safeHttpUrl(website)) {
+    links.push({
+      key: 'site',
+      href: safeHttpUrl(website)!,
+      label: 'Website',
+      Icon: WebsiteIcon,
+    });
+  }
+  if (x) {
+    links.push({
+      key: 'x',
+      href: x,
+      label: 'X / Twitter',
+      Icon: TwitterIcon,
+    });
+  }
+  if (tg) {
+    links.push({
+      key: 'tg',
+      href: tg,
+      label: 'Telegram',
+      Icon: TelegramIcon,
+    });
+  }
+  if (dc) {
+    links.push({
+      key: 'dc',
+      href: dc,
+      label: 'Discord',
+      Icon: DiscordIcon,
+    });
+  }
+  if (li) {
+    links.push({
+      key: 'li',
+      href: li,
+      label: 'LinkedIn',
+      Icon: LinkedinIcon,
+    });
+  }
+  if (ig) {
+    links.push({
+      key: 'ig',
+      href: ig,
+      label: 'Instagram',
+      Icon: InstagramIcon,
+    });
+  }
   if (links.length === 0) return <Muted style={{ margin: 0 }}>No social links.</Muted>;
   return (
     // Stop propagation here so the link click doesn't bubble to a parent
@@ -627,7 +728,6 @@ const SocialLinks: React.FC<{ social: ApiDappPublisher['social']; website: strin
   );
 };
 
-
 // ---------------------------------------------------------------------------
 // Publisher modal
 // ---------------------------------------------------------------------------
@@ -641,9 +741,11 @@ const PublisherModal: React.FC<{
 }> = ({ publisher, dapps, onClose, onCopy, onPickDapp }) => {
   const own = dapps.filter((d) => d.publisher.pubkey === publisher.pubkey);
   return (
-    <ModalBackdrop onClick={onClose}>
+    <Overlay z={200} backdrop="rgba(2, 16, 31, 0.75)" pad="24px" onClick={onClose}>
       <ModalShell onClick={(e) => e.stopPropagation()}>
-        <ModalClose type="button" onClick={onClose} aria-label="Close">×</ModalClose>
+        <ModalClose type="button" onClick={onClose} aria-label="Close">
+          ×
+        </ModalClose>
         <ModalHeader>
           <div style={{ flex: 1, minWidth: 0 }}>
             <H1 style={{ fontSize: 18 }}>{publisher.name ?? 'Unnamed publisher'}</H1>
@@ -699,7 +801,7 @@ const PublisherModal: React.FC<{
               <DataTable>
                 <thead>
                   <tr>
-                    <th></th>
+                    <th aria-label="dApp icon" />
                     <th>Name</th>
                     <th>Category</th>
                     <th>Version</th>
@@ -708,19 +810,26 @@ const PublisherModal: React.FC<{
                 </thead>
                 <tbody>
                   {own.map((d) => (
-                    <tr
-                      key={d.id}
-                      onClick={() => onPickDapp(d)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <td><DappIcon icon={d.icon} size="sm" /></td>
+                    <tr key={d.id} onClick={() => onPickDapp(d)} style={{ cursor: 'pointer' }}>
+                      <td>
+                        <DappIcon icon={d.icon} size="sm" />
+                      </td>
                       <td>
                         {d.name ?? <Mono>{shortKey(d.id)}</Mono>}
-                        {d.deleted_at ? <> {' '}<Pill data-tone="danger">deleted</Pill></> : null}
+                        {d.deleted_at ? (
+                          <>
+                            {' '}
+                            <Pill data-tone="danger">deleted</Pill>
+                          </>
+                        ) : null}
                       </td>
-                      <td className="muted">{d.category != null ? (CATEGORY_LABEL[d.category] ?? `#${d.category}`) : '—'}</td>
+                      <td className="muted">
+                        {d.category != null ? CATEGORY_LABEL[d.category] ?? `#${d.category}` : '—'}
+                      </td>
                       <td className="mono">v{d.version ?? '—'}</td>
-                      <td><RelDate iso={d.last_updated_at} /></td>
+                      <td>
+                        <RelDate iso={d.last_updated_at} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -729,7 +838,7 @@ const PublisherModal: React.FC<{
           )}
         </ModalBody>
       </ModalShell>
-    </ModalBackdrop>
+    </Overlay>
   );
 };
 
@@ -754,17 +863,24 @@ const DappModal: React.FC<{
   }, [detail]);
 
   return (
-    <ModalBackdrop onClick={onClose}>
+    <Overlay z={200} backdrop="rgba(2, 16, 31, 0.75)" pad="24px" onClick={onClose}>
       <ModalShell onClick={(e) => e.stopPropagation()}>
-        <ModalClose type="button" onClick={onClose} aria-label="Close">×</ModalClose>
+        <ModalClose type="button" onClick={onClose} aria-label="Close">
+          ×
+        </ModalClose>
         <ModalHeader>
           <DappIcon icon={dapp.icon} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <H1 style={{ fontSize: 18 }}>{dapp.name ?? 'Untitled dapp'}</H1>
             <Subtitle>
               v{dapp.version ?? '—'}
-              {dapp.category != null ? <> · {CATEGORY_LABEL[dapp.category] ?? `#${dapp.category}`}</> : null}
-              {dapp.deleted_at ? <> · <Pill data-tone="danger">deleted</Pill></> : null}
+              {dapp.category != null ? <> ·{CATEGORY_LABEL[dapp.category] ?? `#${dapp.category}`}</> : null}
+              {dapp.deleted_at ? (
+                <>
+                  {' '}
+                  · <Pill data-tone="danger">deleted</Pill>
+                </>
+              ) : null}
             </Subtitle>
           </div>
         </ModalHeader>
@@ -812,7 +928,10 @@ const DappModal: React.FC<{
             <Field>
               <FieldLabel>API version</FieldLabel>
               <Mono>{dapp.api_version ?? '—'}</Mono>
-              <Muted style={{ margin: '2px 0 0', fontSize: 10 }}>min: {dapp.min_api_version ?? '—'}</Muted>
+              <Muted style={{ margin: '2px 0 0', fontSize: 10 }}>
+                min:
+                {dapp.min_api_version ?? '—'}
+              </Muted>
             </Field>
           </FieldRow>
 
@@ -821,20 +940,18 @@ const DappModal: React.FC<{
               <FieldLabel>IPFS CID</FieldLabel>
               <KeyRow>
                 <Mono style={{ fontSize: 11 }}>{dapp.ipfs_id}</Mono>
-                <DownloadBtn
-                  cid={dapp.ipfs_id}
-                  filename={dappFilename(dapp.name, dapp.version)}
-                />
+                <DownloadBtn cid={dapp.ipfs_id} filename={dappFilename(dapp.name, dapp.version)} />
               </KeyRow>
             </Field>
           ) : null}
 
           <H3>Version history</H3>
-          {loading ? <Muted>Loading…</Muted> : versions.length === 0 ? (
+          {loading ? (
+            <Muted>Loading…</Muted>
+          ) : versions.length === 0 ? (
             <Muted>
-              No version history captured yet. The projection layer currently sees only the
-              current version — older versions are mined incrementally as the indexer ingests
-              new calls.
+              No version history captured yet. The projection layer currently sees only the current version — older
+              versions are mined incrementally as the indexer ingests new calls.
             </Muted>
           ) : (
             <ScrollX>
@@ -858,24 +975,23 @@ const DappModal: React.FC<{
                         </Pill>
                       </td>
                       <td className="mono">{v.height || '—'}</td>
-                      <td>{
-                        // The append-only projector inserts a sentinel row with height=0
-                        // for the current version when no real call attribution exists.
-                        // Show the dapp's last_updated date instead (RelDate handles null).
-                        v.height === 0
-                          ? <RelDate iso={dapp.last_updated_at} />
-                          : <RelDate iso={v.block_ts} />
-                      }</td>
+                      <td>
+                        {
+                          // The append-only projector inserts a sentinel row with height=0
+                          // for the current version when no real call attribution exists.
+                          // Show the dapp's last_updated date instead (RelDate handles null).
+                          v.height === 0 ? <RelDate iso={dapp.last_updated_at} /> : <RelDate iso={v.block_ts} />
+                        }
+                      </td>
                       <td className="mono">
                         {v.ipfs_hash ? (
                           <KeyRow>
                             <span>{shortKey(v.ipfs_hash)}</span>
-                            <DownloadBtn
-                              cid={v.ipfs_hash}
-                              filename={dappFilename(dapp.name, v.version)}
-                            />
+                            <DownloadBtn cid={v.ipfs_hash} filename={dappFilename(dapp.name, v.version)} />
                           </KeyRow>
-                        ) : '—'}
+                        ) : (
+                          '—'
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -885,7 +1001,7 @@ const DappModal: React.FC<{
           )}
         </ModalBody>
       </ModalShell>
-    </ModalBackdrop>
+    </Overlay>
   );
 };
 
@@ -921,7 +1037,10 @@ export const Dapps: React.FC = () => {
     const dappId = searchParams.get('dapp');
     if (dappId && dapps) {
       const d = dapps.find((x) => x.id === dappId);
-      if (d) { setOpenDapp(d); return; }
+      if (d) {
+        setOpenDapp(d);
+        return;
+      }
     }
     const pub = searchParams.get('publisher');
     if (pub && publishers) {
@@ -935,20 +1054,35 @@ export const Dapps: React.FC = () => {
     window.setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), 1800);
   }, []);
 
+  // Guards refresh below — a poll resolving after navigate-away must not
+  // setState on the unmounted component.
+  const aliveRef = useRef(true);
+  useEffect(
+    () => () => {
+      aliveRef.current = false;
+    },
+    [],
+  );
+
   const refresh = useCallback(async () => {
     try {
       const [d, p] = await Promise.all([api.dapps(), api.dappPublishers()]);
+      if (!aliveRef.current) return;
       setDapps(d.dapps);
       setPublishers(p.publishers);
       setErr(null);
     } catch (e) {
+      if (!aliveRef.current) return;
       setErr(e instanceof Error ? e.message : String(e));
     }
   }, []);
 
   useEffect(() => {
     void refresh();
-    const id = setInterval(() => { void refresh(); }, REFRESH_MS);
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      void refresh();
+    }, REFRESH_MS);
     return () => clearInterval(id);
   }, [refresh]);
 
@@ -957,32 +1091,39 @@ export const Dapps: React.FC = () => {
     if (!openDapp) {
       setOpenDappDetail(null);
       setDappDetailErr(null);
-      return;
+      return undefined;
     }
     let cancelled = false;
     setDappDetailLoading(true);
     setDappDetailErr(null);
     api.dapp(openDapp.id).then(
-      (d) => { if (!cancelled) { setOpenDappDetail(d); setDappDetailLoading(false); } },
-      (e) => { if (!cancelled) {
-        setDappDetailErr(e instanceof Error ? e.message : String(e));
-        setDappDetailLoading(false);
-      } },
+      (d) => {
+        if (!cancelled) {
+          setOpenDappDetail(d);
+          setDappDetailLoading(false);
+        }
+      },
+      (e) => {
+        if (!cancelled) {
+          setDappDetailErr(e instanceof Error ? e.message : String(e));
+          setDappDetailLoading(false);
+        }
+      },
     );
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [openDapp]);
 
   // ESC closes whichever modal is open (dapp wins over publisher).
-  useEffect(() => {
-    if (!openDapp && !openPublisher) return undefined;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (openDapp) setOpenDapp(null);
-      else setOpenPublisher(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [openDapp, openPublisher]);
+  const closeTopmost = useCallback(() => {
+    setOpenDapp((cur) => {
+      if (cur) return null;
+      setOpenPublisher(null);
+      return cur;
+    });
+  }, []);
+  useEscapeClose(closeTopmost, Boolean(openDapp || openPublisher));
 
   const publishersByKey = useMemo(() => {
     const m = new Map<string, ApiDappPublisher>();
@@ -1001,82 +1142,104 @@ export const Dapps: React.FC = () => {
 
       <Card>
         <Toolbar>
-          <TabBtn type="button" data-active={tab === 'dapps'}      onClick={() => setTab('dapps')}>Dapps {dapps ? `(${dapps.length})` : ''}</TabBtn>
-          <TabBtn type="button" data-active={tab === 'publishers'} onClick={() => setTab('publishers')}>Publishers {publishers ? `(${publishers.length})` : ''}</TabBtn>
+          <TabBtn type="button" data-active={tab === 'dapps'} onClick={() => setTab('dapps')}>
+            Dapps {dapps ? `(${dapps.length})` : ''}
+          </TabBtn>
+          <TabBtn type="button" data-active={tab === 'publishers'} onClick={() => setTab('publishers')}>
+            Publishers {publishers ? `(${publishers.length})` : ''}
+          </TabBtn>
         </Toolbar>
         {err ? <ErrorBox>{err}</ErrorBox> : null}
 
-        {tab === 'dapps' && (
-          dapps === null ? <Muted>Loading…</Muted>
-            : dapps.length === 0 ? <Muted>No dapps registered yet.</Muted>
-              : (
-                <DappGrid>
-                  {dapps.map((d) => (
-                    <DappCard id={`dapp-${d.id}`} key={d.id} type="button" onClick={() => setOpenDapp(d)}>
-                      <DappIcon icon={d.icon} />
-                      <CardBody>
-                        <CardName>{d.name ?? `Dapp ${shortKey(d.id)}`}</CardName>
-                        <CardDesc>{d.description ?? ' '}</CardDesc>
-                        <CardMeta>
-                          <PublisherChip
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const p = publishersByKey.get(d.publisher.pubkey);
-                              if (p) setOpenPublisher(p);
-                            }}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            {d.publisher.name ?? shortKey(d.publisher.pubkey)}
-                          </PublisherChip>
-                          <span>v{d.version ?? '—'}</span>
-                          {d.category != null ? <span>· {CATEGORY_LABEL[d.category] ?? `#${d.category}`}</span> : null}
-                          <span>· <RelDate iso={d.last_updated_at} /></span>
-                          {d.deleted_at ? <Pill data-tone="danger">deleted</Pill> : null}
-                        </CardMeta>
-                      </CardBody>
-                    </DappCard>
-                  ))}
-                </DappGrid>
-              )
-        )}
+        {tab === 'dapps' &&
+          (dapps === null ? (
+            <Muted>Loading…</Muted>
+          ) : dapps.length === 0 ? (
+            <Muted>No dapps registered yet.</Muted>
+          ) : (
+            <DappGrid>
+              {dapps.map((d) => (
+                <DappCard id={`dapp-${d.id}`} key={d.id} type="button" onClick={() => setOpenDapp(d)}>
+                  <DappIcon icon={d.icon} />
+                  <CardBody>
+                    <CardName>{d.name ?? `Dapp ${shortKey(d.id)}`}</CardName>
+                    <CardDesc>{d.description ?? ' '}</CardDesc>
+                    <CardMeta>
+                      <PublisherChip
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const p = publishersByKey.get(d.publisher.pubkey);
+                          if (p) setOpenPublisher(p);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {d.publisher.name ?? shortKey(d.publisher.pubkey)}
+                      </PublisherChip>
+                      <span>v{d.version ?? '—'}</span>
+                      {d.category != null ? <span>·{CATEGORY_LABEL[d.category] ?? `#${d.category}`}</span> : null}
+                      <span>
+                        · <RelDate iso={d.last_updated_at} />
+                      </span>
+                      {d.deleted_at ? <Pill data-tone="danger">deleted</Pill> : null}
+                    </CardMeta>
+                  </CardBody>
+                </DappCard>
+              ))}
+            </DappGrid>
+          ))}
 
-        {tab === 'publishers' && (
-          publishers === null ? <Muted>Loading…</Muted>
-            : publishers.length === 0 ? <Muted>No publishers registered yet.</Muted>
-              : (
-                <ScrollX>
-                  <DataTable>
-                    <thead>
-                      <tr>
-                        <th>Publisher</th>
-                        <th>Key</th>
-                        <th>Dapps</th>
-                        <th>First seen</th>
-                        <th>Updated</th>
-                        <th>Links</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {publishers.map((p) => (
-                        <tr
-                          id={`pub-${p.pubkey}`}
-                          key={p.pubkey}
-                          onClick={() => setOpenPublisher(p)}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <td>{p.name ?? '—'}</td>
-                          <td><CopyKey value={p.pubkey} onCopy={showToast} /></td>
-                          <td className="mono">{p.dapps_count}</td>
-                          <td><RelDate iso={p.first_seen_at} reason="No DApp Store calls have been observed from this publisher yet." /></td>
-                          <td><RelDate iso={p.last_updated_at} reason="No DApp Store calls have been observed from this publisher yet." /></td>
-                          <td><SocialLinks social={p.social} website={p.website} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </DataTable>
-                </ScrollX>
-              )
-        )}
+        {tab === 'publishers' &&
+          (publishers === null ? (
+            <Muted>Loading…</Muted>
+          ) : publishers.length === 0 ? (
+            <Muted>No publishers registered yet.</Muted>
+          ) : (
+            <ScrollX>
+              <DataTable>
+                <thead>
+                  <tr>
+                    <th>Publisher</th>
+                    <th>Key</th>
+                    <th>Dapps</th>
+                    <th>First seen</th>
+                    <th>Updated</th>
+                    <th>Links</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {publishers.map((p) => (
+                    <tr
+                      id={`pub-${p.pubkey}`}
+                      key={p.pubkey}
+                      onClick={() => setOpenPublisher(p)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td>{p.name ?? '—'}</td>
+                      <td>
+                        <CopyKey value={p.pubkey} onCopy={showToast} />
+                      </td>
+                      <td className="mono">{p.dapps_count}</td>
+                      <td>
+                        <RelDate
+                          iso={p.first_seen_at}
+                          reason="No DApp Store calls have been observed from this publisher yet."
+                        />
+                      </td>
+                      <td>
+                        <RelDate
+                          iso={p.last_updated_at}
+                          reason="No DApp Store calls have been observed from this publisher yet."
+                        />
+                      </td>
+                      <td>
+                        <SocialLinks social={p.social} website={p.website} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </DataTable>
+            </ScrollX>
+          ))}
       </Card>
 
       {openDapp ? (

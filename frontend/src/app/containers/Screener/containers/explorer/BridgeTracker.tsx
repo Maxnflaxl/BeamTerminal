@@ -1,8 +1,27 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { styled } from '@linaria/react';
+import { EXPLORER_API } from '@app/shared/constants';
+import { fmtNum } from '../../components/format';
 import {
-  Page, Card, ExplorerHeader, H1, H2, H3, Subtitle, Muted, Btn, TabBtn,
-  Input, Pill, DataTable, ScrollX, ErrorBox, WarnBox, Row, Grid2, theme,
+  Page,
+  Card,
+  ExplorerHeader,
+  H1,
+  H2,
+  H3,
+  Subtitle,
+  Muted,
+  Btn,
+  TabBtn,
+  Input,
+  Pill,
+  DataTable,
+  ScrollX,
+  ErrorBox,
+  WarnBox,
+  Row,
+  Grid2,
+  theme,
 } from './shared';
 
 // ---------------------------------------------------------------------------
@@ -17,7 +36,7 @@ const WBEAM_DECIMALS = 8;
 const ETHERSCAN_V2 = 'https://api.etherscan.io/v2/api';
 const ETHERSCAN_MIN_INTERVAL_MS = 340;
 const EXPLORER_UI = 'https://explorer.0xmx.net/';
-const DEFAULT_API_BASE = 'https://explorer.0xmx.net/api';
+const DEFAULT_API_BASE = EXPLORER_API;
 const ZERO = '0x0000000000000000000000000000000000000000';
 
 // Allowlisted bridge asset IDs on Beam.
@@ -61,14 +80,20 @@ const AssetPanel = styled.details`
     font-weight: 600;
     list-style: none;
   }
-  > summary::-webkit-details-marker { display: none; }
-  > .inner { padding: 0 14px 14px; }
+  > summary::-webkit-details-marker {
+    display: none;
+  }
+  > .inner {
+    padding: 0 14px 14px;
+  }
 `;
 
 const CheckboxLabel = styled.label`
   display: flex;
   align-items: center;
-  & > * + * { margin-left: 8px; }
+  & > * + * {
+    margin-left: 8px;
+  }
   cursor: pointer;
   font-size: 12px;
   color: ${theme.color.text};
@@ -84,14 +109,20 @@ const Spinner = styled.span`
   animation: spin 0.7s linear infinite;
   vertical-align: middle;
   margin-right: 8px;
-  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 `;
 
 // Inline tab nav row (shared TabBtn handles the buttons themselves).
 const TopNav = styled.div`
   display: flex;
   flex-wrap: wrap;
-  & > * + * { margin-left: 6px; }
+  & > * + * {
+    margin-left: 6px;
+  }
   padding: 10px 0 14px;
   margin-bottom: 8px;
   border-bottom: 1px solid ${theme.color.divider};
@@ -195,7 +226,9 @@ function parseTableRows(data: Json): Record<string, unknown>[] {
   return d.value.slice(1).map((row) => {
     if (!Array.isArray(row)) return {} as Record<string, unknown>;
     const obj: Record<string, unknown> = {};
-    headers.forEach((h, i) => { obj[String(h)] = parseTableValue(row[i]); });
+    headers.forEach((h, i) => {
+      obj[String(h)] = parseTableValue(row[i]);
+    });
     return obj;
   });
 }
@@ -204,17 +237,26 @@ function parseMetadata(m: unknown): Record<string, string> {
   if (!m) return {};
   if (typeof m === 'object') return m as Record<string, string>;
   const r: Record<string, string> = {};
-  String(m).replace(/^STD:/, '').split(';').forEach((p) => {
-    const parts = p.split('=');
-    const k = parts[0];
-    const v = parts.slice(1).join('=');
-    if (k) r[k] = v;
-  });
+  String(m)
+    .replace(/^STD:/, '')
+    .split(';')
+    .forEach((p) => {
+      const parts = p.split('=');
+      const k = parts[0];
+      const v = parts.slice(1).join('=');
+      if (k) r[k] = v;
+    });
   return r;
 }
 
 const DECIMAL_UNITS: Record<string, number> = {
-  Groth: 8, Cent: 6, Satoshi: 8, fomo: 8, Flicker: 8, MiniB: 8, bGROTH: 8,
+  Groth: 8,
+  Cent: 6,
+  Satoshi: 8,
+  fomo: 8,
+  Flicker: 8,
+  MiniB: 8,
+  bGROTH: 8,
 };
 
 function getDecimals(nthun: string | undefined): number {
@@ -233,11 +275,7 @@ function formatNum(n: unknown): string {
 }
 
 function formatAssetAmt(amt: unknown, dec: number): string {
-  const v = Math.abs(Number(amt)) / Math.pow(10, dec);
-  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-  if (v >= 1e3) return (v / 1e3).toFixed(2) + 'K';
-  return v.toFixed(Math.min(dec, 6));
+  return fmtNum(Math.abs(Number(amt)) / Math.pow(10, dec), Math.min(dec, 6));
 }
 
 function parseAmountCell(s: unknown): number {
@@ -253,26 +291,26 @@ function bridgeGroupFromRow(row: AssetRow): 'eth' | 'arb' | null {
 }
 
 function assetExplorerUrl(id: unknown): string {
-  return EXPLORER_UI + '?network=mainnet&type=asset&id=' + encodeURIComponent(String(id));
+  return `${EXPLORER_UI}?network=mainnet&type=asset&id=${encodeURIComponent(String(id))}`;
 }
 
 function blockExplorerUrl(h: unknown): string {
-  return EXPLORER_UI + '?network=mainnet&type=block&height=' + encodeURIComponent(String(h));
+  return `${EXPLORER_UI}?network=mainnet&type=block&height=${encodeURIComponent(String(h))}`;
 }
 
 function evmTokenUrl(chainid: number): string {
-  if (Number(chainid) === 42161) return 'https://arbiscan.io/token/' + WBEAM;
-  return 'https://etherscan.io/token/' + WBEAM;
+  if (Number(chainid) === 42161) return `https://arbiscan.io/token/${WBEAM}`;
+  return `https://etherscan.io/token/${WBEAM}`;
 }
 
 function evmTxUrl(chainid: number, hash: string): string {
-  if (Number(chainid) === 42161) return 'https://arbiscan.io/tx/' + hash;
-  return 'https://etherscan.io/tx/' + hash;
+  if (Number(chainid) === 42161) return `https://arbiscan.io/tx/${hash}`;
+  return `https://etherscan.io/tx/${hash}`;
 }
 
 function evmAddrUrl(chainid: number, addr: string): string {
-  if (Number(chainid) === 42161) return 'https://arbiscan.io/address/' + addr;
-  return 'https://etherscan.io/address/' + addr;
+  if (Number(chainid) === 42161) return `https://arbiscan.io/address/${addr}`;
+  return `https://etherscan.io/address/${addr}`;
 }
 
 function extractCurrentCirculationBeam(statusData: Json): number | null {
@@ -285,8 +323,10 @@ function extractCurrentCirculationBeam(statusData: Json): number | null {
           const h = sub[0] as { type?: string; value?: unknown } | undefined;
           const v = sub[1] as { value?: unknown } | unknown;
           if (h && h.type === 'th' && h.value === 'Current Circulation') {
-            const raw = (typeof v === 'object' && v != null && 'value' in (v as Record<string, unknown>))
-              ? (v as { value: unknown }).value : v;
+            const raw =
+              typeof v === 'object' && v != null && 'value' in (v as Record<string, unknown>)
+                ? (v as { value: unknown }).value
+                : v;
             const n = parseFloat(String(raw).replace(/,/g, ''));
             if (Number.isFinite(n) && n > 0) return n;
           }
@@ -314,9 +354,9 @@ function formatPctWbeamOfBeam(wbeamSmallestUnits: number, beamCircBEAM: number |
   const pct = (wbeam / beamCircBEAM) * 100;
   if (!Number.isFinite(pct)) return null;
   if (pct === 0) return '0%';
-  if (pct < 0.000001) return pct.toExponential(2) + '%';
-  if (pct < 0.01) return pct.toFixed(6) + '%';
-  return pct.toFixed(4) + '%';
+  if (pct < 0.000001) return `${pct.toExponential(2)}%`;
+  if (pct < 0.01) return `${pct.toFixed(6)}%`;
+  return `${pct.toFixed(4)}%`;
 }
 
 function aggregateFromTokentx(allTxs: TokenTx[], tokenDecimals: number): { list: HolderRow[]; dec: number } {
@@ -340,7 +380,10 @@ function aggregateFromTokentx(allTxs: TokenTx[], tokenDecimals: number): { list:
     const z = ZERO.toLowerCase();
     if (from === z) add(t.to, v);
     else if (to === z) add(t.from, -v);
-    else { add(t.from, -v); add(t.to, v); }
+    else {
+      add(t.from, -v);
+      add(t.to, v);
+    }
   });
   const dec = tokenDecimals || 8;
   const list: HolderRow[] = [];
@@ -371,23 +414,29 @@ async function fetchAPI(apiBase: string, endpoint: string, params: Record<string
     if (v != null && v !== '') url.searchParams.append(k, String(v));
   });
   const resp = await fetch(url.toString());
-  if (!resp.ok) throw new Error('Explorer HTTP ' + resp.status);
+  if (!resp.ok) throw new Error(`Explorer HTTP ${resp.status}`);
   return resp.json();
 }
 
-async function etherscan(params: Record<string, string>): Promise<{ status?: string; message?: string; result?: unknown }> {
+async function etherscan(
+  params: Record<string, string>,
+): Promise<{ status?: string; message?: string; result?: unknown }> {
   const key = localStorage.getItem(LS_API);
   if (!key) throw new Error('No Etherscan API key saved');
   const exec = async (): Promise<{ status?: string; message?: string; result?: unknown }> => {
     const now = Date.now();
     const wait = Math.max(0, ETHERSCAN_MIN_INTERVAL_MS - (now - esLastStart));
-    if (wait) await new Promise((r) => { setTimeout(r, wait); });
+    if (wait) {
+      await new Promise((r) => {
+        setTimeout(r, wait);
+      });
+    }
     esLastStart = Date.now();
     const url = new URL(ETHERSCAN_V2);
     Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));
     url.searchParams.append('apikey', key);
     const resp = await fetch(url.toString());
-    if (!resp.ok) throw new Error('Etherscan HTTP ' + resp.status);
+    if (!resp.ok) throw new Error(`Etherscan HTTP ${resp.status}`);
     return resp.json();
   };
   const p = esChain.then(exec);
@@ -395,7 +444,11 @@ async function etherscan(params: Record<string, string>): Promise<{ status?: str
   return p;
 }
 
-async function loadTokentxPages(chainid: number, pages: number, offset: number): Promise<{ txs: TokenTx[]; decimals: number }> {
+async function loadTokentxPages(
+  chainid: number,
+  pages: number,
+  offset: number,
+): Promise<{ txs: TokenTx[]; decimals: number }> {
   const all: TokenTx[] = [];
   let decimals = 8;
   for (let page = 1; page <= pages; page += 1) {
@@ -410,7 +463,7 @@ async function loadTokentxPages(chainid: number, pages: number, offset: number):
       sort: 'desc',
     });
     if (j.status !== '1' || !Array.isArray(j.result)) {
-      throw new Error(typeof j.result === 'string' ? j.result : (j.message || 'tokentx failed'));
+      throw new Error(typeof j.result === 'string' ? j.result : j.message || 'tokentx failed');
     }
     const arr = j.result as TokenTx[];
     if (arr.length && arr[0].tokenDecimal) decimals = Number(arr[0].tokenDecimal) || 8;
@@ -427,11 +480,13 @@ async function tryTopHolders(chainid: number): Promise<HolderRow[] | null> {
     contractaddress: WBEAM,
   });
   if (j.status !== '1' || !Array.isArray(j.result)) return null;
-  return (j.result as Array<Record<string, unknown>>).map((r) => {
-    const addr = String(r.TokenHolderAddress || r.tokenHolderAddress || '').toLowerCase();
-    const qty = String(r.TokenHolderQuantity || r.tokenHolderQuantity || '0');
-    return { addr, balStr: qty };
-  }).filter((x) => x.addr);
+  return (j.result as Array<Record<string, unknown>>)
+    .map((r) => {
+      const addr = String(r.TokenHolderAddress || r.tokenHolderAddress || '').toLowerCase();
+      const qty = String(r.TokenHolderQuantity || r.tokenHolderQuantity || '0');
+      return { addr, balStr: qty };
+    })
+    .filter((x) => x.addr);
 }
 
 // ---------------------------------------------------------------------------
@@ -439,17 +494,19 @@ async function tryTopHolders(chainid: number): Promise<HolderRow[] | null> {
 // ---------------------------------------------------------------------------
 
 const ExtLink: React.FC<{ href: string; children: React.ReactNode }> = ({ href, children }) => (
-  <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+  <a href={href} target="_blank" rel="noopener noreferrer">
+    {children}
+  </a>
 );
 
 function shortHash(h: string | undefined, n = 10): string {
   if (!h) return '';
-  return h.length > n ? h.slice(0, n) + '…' : h;
+  return h.length > n ? `${h.slice(0, n)}…` : h;
 }
 
 function shortAddr(a: string | undefined, n = 8): string {
   if (!a) return '';
-  return a.length > n ? a.slice(0, n) + '…' : a;
+  return a.length > n ? `${a.slice(0, n)}…` : a;
 }
 
 // ---------------------------------------------------------------------------
@@ -469,14 +526,26 @@ interface AssetPanelData {
 export const BridgeTracker: React.FC = () => {
   const [page, setPage] = useState<PageId>('settings');
   const [apiBase, setApiBase] = useState<string>(() => {
-    try { return localStorage.getItem(LS_BASE) || DEFAULT_API_BASE; } catch { return DEFAULT_API_BASE; }
+    try {
+      return localStorage.getItem(LS_BASE) || DEFAULT_API_BASE;
+    } catch {
+      return DEFAULT_API_BASE;
+    }
   });
   const [etherscanKeyInput, setEtherscanKeyInput] = useState('');
   const [hasKey, setHasKey] = useState<boolean>(() => {
-    try { return !!localStorage.getItem(LS_API); } catch { return false; }
+    try {
+      return !!localStorage.getItem(LS_API);
+    } catch {
+      return false;
+    }
   });
   const [usePro, setUsePro] = useState<boolean>(() => {
-    try { return localStorage.getItem(LS_PRO) === '1'; } catch { return false; }
+    try {
+      return localStorage.getItem(LS_PRO) === '1';
+    } catch {
+      return false;
+    }
   });
 
   const [status, setStatus] = useState('');
@@ -509,14 +578,18 @@ export const BridgeTracker: React.FC = () => {
   const refreshAll = useCallback(async () => {
     cancelRef.current.cancelled = false;
     const base = apiBase.replace(/\/$/, '');
-    try { localStorage.setItem(LS_BASE, base); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(LS_BASE, base);
+    } catch {
+      /* ignore */
+    }
 
     setStatus('Loading assets…');
     setStatusErr('');
     setAssetsErr('');
 
-    let ethList: AssetRow[] = [];
-    let arbList: AssetRow[] = [];
+    const ethList: AssetRow[] = [];
+    const arbList: AssetRow[] = [];
     try {
       const assetsResp = await fetchAPI(base, '/assets', {});
       const rows = parseTableRows(assetsResp) as AssetRow[];
@@ -532,7 +605,7 @@ export const BridgeTracker: React.FC = () => {
       if (cancelRef.current.cancelled) return;
       setEthRows(ethList);
       setArbRows(arbList);
-      setStatus('Beam assets: ' + (ethList.length + arbList.length) + ' bridge-linked rows.');
+      setStatus(`Beam assets: ${ethList.length + arbList.length} bridge-linked rows.`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setAssetsErr(msg);
@@ -553,7 +626,13 @@ export const BridgeTracker: React.FC = () => {
     setBeamCirc(circ);
 
     // WBEAM supply via Etherscan (if key saved).
-    const key = (() => { try { return localStorage.getItem(LS_API); } catch { return null; } })();
+    const key = (() => {
+      try {
+        return localStorage.getItem(LS_API);
+      } catch {
+        return null;
+      }
+    })();
     if (key) {
       setWbeamLoading(true);
       const chains = [
@@ -572,11 +651,20 @@ export const BridgeTracker: React.FC = () => {
             contractaddress: WBEAM,
           });
           if (j.status !== '1') {
-            results.push({ label: c.label, chainid: c.id, err: typeof j.result === 'string' ? j.result : (j.message || 'Error') });
+            results.push({
+              label: c.label,
+              chainid: c.id,
+              err: typeof j.result === 'string' ? j.result : j.message || 'Error',
+            });
           } else {
             const raw = String(j.result || '0').replace(/,/g, '');
             const n = parseInt(raw, 10) || 0;
-            results.push({ label: c.label, chainid: c.id, supply: formatAssetAmt(n, WBEAM_DECIMALS), rawSmallest: n });
+            results.push({
+              label: c.label,
+              chainid: c.id,
+              supply: formatAssetAmt(n, WBEAM_DECIMALS),
+              rawSmallest: n,
+            });
           }
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -593,8 +681,20 @@ export const BridgeTracker: React.FC = () => {
     if (key) {
       setTxLoading(true);
       const evmChains = [
-        { id: 1, setTxs: setEthTxs, setTxErr: setEthTxErr, setHolders: setEthHolders, setHoldersErr: setEthHoldersErr },
-        { id: 42161, setTxs: setArbTxs, setTxErr: setArbTxErr, setHolders: setArbHolders, setHoldersErr: setArbHoldersErr },
+        {
+          id: 1,
+          setTxs: setEthTxs,
+          setTxErr: setEthTxErr,
+          setHolders: setEthHolders,
+          setHoldersErr: setEthHoldersErr,
+        },
+        {
+          id: 42161,
+          setTxs: setArbTxs,
+          setTxErr: setArbTxErr,
+          setHolders: setArbHolders,
+          setHoldersErr: setArbHoldersErr,
+        },
       ];
       for (let i = 0; i < evmChains.length; i += 1) {
         const c = evmChains[i];
@@ -616,12 +716,16 @@ export const BridgeTracker: React.FC = () => {
               }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
-              c.setHoldersErr('Pro topholders: ' + msg);
+              c.setHoldersErr(`Pro topholders: ${msg}`);
             }
           }
           if (!usedPro) {
             const agg = aggregateFromTokentx(pack.txs, pack.decimals);
-            c.setHolders({ rows: agg.list, dec: agg.dec, title: 'Approximation from last ' + pack.txs.length + ' transfers' });
+            c.setHolders({
+              rows: agg.list,
+              dec: agg.dec,
+              title: `Approximation from last ${pack.txs.length} transfers`,
+            });
             c.setHoldersErr('');
           }
         } catch (e) {
@@ -650,12 +754,12 @@ export const BridgeTracker: React.FC = () => {
       for (let i = 0; i < combined.length; i += 1) {
         const a = combined[i];
         const meta0 = parseMetadata(a.Metadata);
-        const sym0 = meta0.UN || meta0.SN || meta0.N || ('CA-' + a.Aid);
+        const sym0 = meta0.UN || meta0.SN || meta0.N || `CA-${a.Aid}`;
         try {
           // eslint-disable-next-line no-await-in-loop
-          const resp = await fetchAPI(base, '/asset', { id: a.Aid, nMaxOps: 100 }) as Record<string, unknown>;
+          const resp = (await fetchAPI(base, '/asset', { id: a.Aid, nMaxOps: 100 })) as Record<string, unknown>;
           const meta = parseMetadata(resp.metadata || a.Metadata);
-          const sym = meta.UN || meta.SN || meta.N || ('CA-' + a.Aid);
+          const sym = meta.UN || meta.SN || meta.N || `CA-${a.Aid}`;
           const dec = getDecimals(meta.NTHUN);
           const distribution = parseTableRows(resp['Asset distribution'] || {}) as DistributionRow[];
           const history = parseTableRows(resp['Asset history'] || {}) as HistoryRow[];
@@ -672,7 +776,13 @@ export const BridgeTracker: React.FC = () => {
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           panels.push({
-            aid: a.Aid, sym: sym0, dec: 8, totalSupplyDisplay: '—', mintBurn: [], distribution: [], err: msg,
+            aid: a.Aid,
+            sym: sym0,
+            dec: 8,
+            totalSupplyDisplay: '—',
+            mintBurn: [],
+            distribution: [],
+            err: msg,
           });
         }
         if (cancelRef.current.cancelled) return;
@@ -684,7 +794,9 @@ export const BridgeTracker: React.FC = () => {
 
   useEffect(() => {
     refreshAll();
-    return () => { cancelRef.current.cancelled = true; };
+    return () => {
+      cancelRef.current.cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -694,14 +806,20 @@ export const BridgeTracker: React.FC = () => {
       if (k) localStorage.setItem(LS_API, k);
       localStorage.setItem(LS_BASE, apiBase.replace(/\/$/, ''));
       localStorage.setItem(LS_PRO, usePro ? '1' : '0');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     setEtherscanKeyInput('');
     setHasKey(!!k || hasKey);
     refreshAll();
   };
 
   const onClearKey = (): void => {
-    try { localStorage.removeItem(LS_API); } catch { /* ignore */ }
+    try {
+      localStorage.removeItem(LS_API);
+    } catch {
+      /* ignore */
+    }
     setEtherscanKeyInput('');
     setHasKey(false);
     refreshAll();
@@ -717,16 +835,24 @@ export const BridgeTracker: React.FC = () => {
       </ExplorerHeader>
 
       <TopNav>
-        <TabBtn type="button" data-active={page === 'settings'} onClick={() => setPage('settings')}>Settings</TabBtn>
-        <TabBtn type="button" data-active={page === 'assets'} onClick={() => setPage('assets')}>Bridge assets</TabBtn>
-        <TabBtn type="button" data-active={page === 'wbeamTx'} onClick={() => setPage('wbeamTx')}>WBEAM transfers</TabBtn>
-        <TabBtn type="button" data-active={page === 'holders'} onClick={() => setPage('holders')}>WBEAM holders</TabBtn>
-        <TabBtn type="button" data-active={page === 'beam'} onClick={() => setPage('beam')}>Beam mint/burn</TabBtn>
+        <TabBtn type="button" data-active={page === 'settings'} onClick={() => setPage('settings')}>
+          Settings
+        </TabBtn>
+        <TabBtn type="button" data-active={page === 'assets'} onClick={() => setPage('assets')}>
+          Bridge assets
+        </TabBtn>
+        <TabBtn type="button" data-active={page === 'wbeamTx'} onClick={() => setPage('wbeamTx')}>
+          WBEAM transfers
+        </TabBtn>
+        <TabBtn type="button" data-active={page === 'holders'} onClick={() => setPage('holders')}>
+          WBEAM holders
+        </TabBtn>
+        <TabBtn type="button" data-active={page === 'beam'} onClick={() => setPage('beam')}>
+          Beam mint/burn
+        </TabBtn>
       </TopNav>
 
-      <StatusLine>
-        {statusErr ? <InlineErr>{statusErr}</InlineErr> : status}
-      </StatusLine>
+      <StatusLine>{statusErr ? <InlineErr>{statusErr}</InlineErr> : status}</StatusLine>
 
       {page === 'settings' && (
         <Card>
@@ -758,24 +884,28 @@ export const BridgeTracker: React.FC = () => {
           </Row>
           <Row>
             <CheckboxLabel>
-              <input
-                type="checkbox"
-                checked={usePro}
-                onChange={(e) => setUsePro(e.target.checked)}
-              />
-              <span>Try Etherscan Pro <code>topholders</code> (falls back if not available)</span>
+              <input type="checkbox" checked={usePro} onChange={(e) => setUsePro(e.target.checked)} />
+              <span>
+                Try Etherscan Pro <code>topholders</code> (falls back if not available)
+              </span>
             </CheckboxLabel>
           </Row>
           <Row>
-            <Btn type="button" onClick={onSave}>Save locally</Btn>
-            <Btn type="button" data-variant="ghost" onClick={onClearKey}>Remove API key</Btn>
-            <Btn type="button" onClick={refreshAll}>Refresh all data</Btn>
+            <Btn type="button" onClick={onSave}>
+              Save locally
+            </Btn>
+            <Btn type="button" data-variant="ghost" onClick={onClearKey}>
+              Remove API key
+            </Btn>
+            <Btn type="button" onClick={refreshAll}>
+              Refresh all data
+            </Btn>
           </Row>
           <Muted>
-            The API key is sent to <Mono>api.etherscan.io</Mono> from your browser when loading EVM data.
-            Do not use a shared computer. Calls are spaced to respect the{' '}
-            <ExtLink href="https://docs.etherscan.io/resources/rate-limits">Etherscan free tier</ExtLink>{' '}
-            limit of <strong>3 calls/sec</strong>.
+            The API key is sent to <Mono>api.etherscan.io</Mono> from your browser when loading EVM data. Do not use a
+            shared computer. Calls are spaced to respect the{' '}
+            <ExtLink href="https://docs.etherscan.io/resources/rate-limits">Etherscan free tier</ExtLink> limit of{' '}
+            <strong>3 calls/sec</strong>.
           </Muted>
         </Card>
       )}
@@ -784,37 +914,45 @@ export const BridgeTracker: React.FC = () => {
         <Card>
           <H2>Bridge assets on Beam</H2>
           <Muted>
-            Only asset IDs listed in <Mono>KNOWN_ETH_BRIDGE_AIDS</Mono> and{' '}
-            <Mono>KNOWN_ARB_BRIDGE_AIDS</Mono> in this file are shown (rows are matched from{' '}
-            <Mono>/assets</Mono>).
+            Only asset IDs listed in <Mono>KNOWN_ETH_BRIDGE_AIDS</Mono> and <Mono>KNOWN_ARB_BRIDGE_AIDS</Mono> in this
+            file are shown (rows are matched from <Mono>/assets</Mono>
+            ).
           </Muted>
           <H3>WBEAM (ERC-20)</H3>
           <Muted>
-            Wrapped BEAM on Ethereum and Arbitrum — same contract address. Total supply from Etherscan
-            when a key is saved (3 calls/sec). <strong>% of circulation</strong> is WBEAM on that
-            network ÷ Beam <em>Current Circulation</em> from explorer <Mono>/status?exp_am=1</Mono>.
+            Wrapped BEAM on Ethereum and Arbitrum — same contract address. Total supply from Etherscan when a key is
+            saved (3 calls/sec). <strong>% of circulation</strong> is WBEAM on that network ÷ Beam{' '}
+            <em>Current Circulation</em> from explorer
+            <Mono>/status?exp_am=1</Mono>.
           </Muted>
 
           <ScrollX style={{ marginBottom: 18 }}>
-            <WbeamBox
-              hasKey={hasKey}
-              loading={wbeamLoading}
-              supplies={wbeamSupplies}
-              beamCirc={beamCirc}
-            />
+            <WbeamBox hasKey={hasKey} loading={wbeamLoading} supplies={wbeamSupplies} beamCirc={beamCirc} />
           </ScrollX>
 
           <Grid2>
             <div>
-              <H3><Pill data-tone={pillTone('eth')}>Ethereum</Pill> Confidential assets</H3>
-              {assetsErr ? <ErrorBox>{assetsErr}</ErrorBox> : (
-                <ScrollX><AssetTable rows={ethRows} /></ScrollX>
+              <H3>
+                <Pill data-tone={pillTone('eth')}>Ethereum</Pill> Confidential assets
+              </H3>
+              {assetsErr ? (
+                <ErrorBox>{assetsErr}</ErrorBox>
+              ) : (
+                <ScrollX>
+                  <AssetTable rows={ethRows} />
+                </ScrollX>
               )}
             </div>
             <div>
-              <H3><Pill data-tone={pillTone('arb')}>Arbitrum</Pill> Confidential assets</H3>
-              {assetsErr ? <ErrorBox>{assetsErr}</ErrorBox> : (
-                <ScrollX><AssetTable rows={arbRows} /></ScrollX>
+              <H3>
+                <Pill data-tone={pillTone('arb')}>Arbitrum</Pill> Confidential assets
+              </H3>
+              {assetsErr ? (
+                <ErrorBox>{assetsErr}</ErrorBox>
+              ) : (
+                <ScrollX>
+                  <AssetTable rows={arbRows} />
+                </ScrollX>
               )}
             </div>
           </Grid2>
@@ -832,16 +970,38 @@ export const BridgeTracker: React.FC = () => {
           ) : (
             <Grid2>
               <div>
-                <H3>Ethereum <Pill data-tone={pillTone('eth')}>chainid 1</Pill></H3>
-                {ethTxErr ? <ErrorBox>{ethTxErr}</ErrorBox>
-                  : ethTxs ? <ScrollX><TokenTxTable result={ethTxs} chainid={1} /></ScrollX>
-                  : <p><Spinner />{txLoading ? 'Loading…' : '—'}</p>}
+                <H3>
+                  Ethereum <Pill data-tone={pillTone('eth')}>chainid 1</Pill>
+                </H3>
+                {ethTxErr ? (
+                  <ErrorBox>{ethTxErr}</ErrorBox>
+                ) : ethTxs ? (
+                  <ScrollX>
+                    <TokenTxTable result={ethTxs} chainid={1} />
+                  </ScrollX>
+                ) : (
+                  <p>
+                    <Spinner />
+                    {txLoading ? 'Loading…' : '—'}
+                  </p>
+                )}
               </div>
               <div>
-                <H3>Arbitrum One <Pill data-tone={pillTone('arb')}>chainid 42161</Pill></H3>
-                {arbTxErr ? <ErrorBox>{arbTxErr}</ErrorBox>
-                  : arbTxs ? <ScrollX><TokenTxTable result={arbTxs} chainid={42161} /></ScrollX>
-                  : <p><Spinner />{txLoading ? 'Loading…' : '—'}</p>}
+                <H3>
+                  Arbitrum One <Pill data-tone={pillTone('arb')}>chainid 42161</Pill>
+                </H3>
+                {arbTxErr ? (
+                  <ErrorBox>{arbTxErr}</ErrorBox>
+                ) : arbTxs ? (
+                  <ScrollX>
+                    <TokenTxTable result={arbTxs} chainid={42161} />
+                  </ScrollX>
+                ) : (
+                  <p>
+                    <Spinner />
+                    {txLoading ? 'Loading…' : '—'}
+                  </p>
+                )}
               </div>
             </Grid2>
           )}
@@ -852,9 +1012,9 @@ export const BridgeTracker: React.FC = () => {
         <Card>
           <H2>WBEAM · Holders</H2>
           <WarnBox>
-            <strong>Approximate holders</strong> (free API): balances are recomputed from the last few
-            pages of token transfers only — not a full chain snapshot. Inactive wallets may be missing.
-            When Pro <code>topholders</code> succeeds, that table is shown for that chain.
+            <strong>Approximate holders</strong> (free API): balances are recomputed from the last few pages of token
+            transfers only — not a full chain snapshot. Inactive wallets may be missing. When Pro{' '}
+            <code>topholders</code> succeeds, that table is shown for that chain.
           </WarnBox>
           {!hasKey ? (
             <Muted style={{ marginTop: 14 }}>Save an Etherscan API key to load holders.</Muted>
@@ -862,15 +1022,33 @@ export const BridgeTracker: React.FC = () => {
             <Grid2 style={{ marginTop: 14 }}>
               <div>
                 <H3>Ethereum</H3>
-                {ethHoldersErr ? <ErrorBox>{ethHoldersErr}</ErrorBox>
-                  : ethHolders ? <ScrollX><HolderTable title={ethHolders.title} rows={ethHolders.rows} dec={ethHolders.dec} chainid={1} /></ScrollX>
-                  : <p><Spinner />Loading…</p>}
+                {ethHoldersErr ? (
+                  <ErrorBox>{ethHoldersErr}</ErrorBox>
+                ) : ethHolders ? (
+                  <ScrollX>
+                    <HolderTable title={ethHolders.title} rows={ethHolders.rows} dec={ethHolders.dec} chainid={1} />
+                  </ScrollX>
+                ) : (
+                  <p>
+                    <Spinner />
+                    Loading…
+                  </p>
+                )}
               </div>
               <div>
                 <H3>Arbitrum</H3>
-                {arbHoldersErr ? <ErrorBox>{arbHoldersErr}</ErrorBox>
-                  : arbHolders ? <ScrollX><HolderTable title={arbHolders.title} rows={arbHolders.rows} dec={arbHolders.dec} chainid={42161} /></ScrollX>
-                  : <p><Spinner />Loading…</p>}
+                {arbHoldersErr ? (
+                  <ErrorBox>{arbHoldersErr}</ErrorBox>
+                ) : arbHolders ? (
+                  <ScrollX>
+                    <HolderTable title={arbHolders.title} rows={arbHolders.rows} dec={arbHolders.dec} chainid={42161} />
+                  </ScrollX>
+                ) : (
+                  <p>
+                    <Spinner />
+                    Loading…
+                  </p>
+                )}
               </div>
             </Grid2>
           )}
@@ -883,87 +1061,109 @@ export const BridgeTracker: React.FC = () => {
           <Muted>
             From <Mono>/asset?id=…&amp;nMaxOps=100</Mono> for each allowlisted bridge asset.
           </Muted>
-          {beamPanels === null
-            ? <p><Spinner />Loading Beam asset details…</p>
-            : beamPanels.length === 0
-              ? <Muted>No bridge assets to show.</Muted>
-              : (
-                <>
-                  {beamPanelsLoading && <p><Spinner />Loading more…</p>}
-                  {beamPanels.map((p) => (
-                    <AssetPanel key={String(p.aid)} open>
-                      <summary>{p.sym} (Aid {String(p.aid)})</summary>
-                      <div className="inner">
-                        {p.err ? <ErrorBox>{p.err}</ErrorBox> : (
-                          <>
-                            <Muted>
-                              Total supply (API): <Mono>{p.totalSupplyDisplay}</Mono> ·{' '}
-                              <ExtLink href={assetExplorerUrl(p.aid)}>Open in explorer</ExtLink>
-                            </Muted>
-                            {p.mintBurn.length ? (
-                              <>
-                                <H3 style={{ marginTop: 12 }}>Recent Mint / Burn (up to 20)</H3>
-                                <DataTable>
-                                  <thead>
-                                    <tr>
-                                      <th>Height</th><th>Event</th><th>Amount</th><th>Total supply</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {p.mintBurn.map((h, i) => (
-                                      <tr key={i}>
-                                        <td className="mono">
-                                          <ExtLink href={blockExplorerUrl(h.Height)}>{formatNum(h.Height)}</ExtLink>
-                                        </td>
-                                        <td>
-                                          {h.Event === 'Mint' ? (
-                                            <Pill data-tone={pillTone('mint')}>{h.Event}</Pill>
-                                          ) : h.Event === 'Burn' ? (
-                                            <Pill data-tone={pillTone('burn')}>{h.Event}</Pill>
-                                          ) : (
-                                            <Pill>{h.Event || ''}</Pill>
-                                          )}
-                                        </td>
-                                        <td className="mono">{formatAssetAmt(parseAmountCell(h.Amount), p.dec)}</td>
-                                        <td className="mono">
-                                          {h['Total Amount'] != null
-                                            ? formatAssetAmt(parseAmountCell(h['Total Amount']), p.dec)
-                                            : '-'}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </DataTable>
-                              </>
-                            ) : (
-                              <Muted>No Mint/Burn rows in the last 100 ops.</Muted>
-                            )}
-                            {p.distribution.length ? (
-                              <>
-                                <H3 style={{ marginTop: 12 }}>Distribution</H3>
-                                <DataTable>
-                                  <thead>
-                                    <tr><th>Contract</th><th>Kind</th><th>Locked</th></tr>
-                                  </thead>
-                                  <tbody>
-                                    {p.distribution.map((d, i) => (
-                                      <tr key={i}>
-                                        <td className="mono">{d.Cid ? String(d.Cid).slice(0, 16) + '…' : '-'}</td>
-                                        <td>{d.Kind || ''}</td>
-                                        <td className="mono">{formatAssetAmt(parseAmountCell(d['Locked Value']), p.dec)}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </DataTable>
-                              </>
-                            ) : null}
-                          </>
-                        )}
-                      </div>
-                    </AssetPanel>
-                  ))}
-                </>
+          {beamPanels === null ? (
+            <p>
+              <Spinner />
+              Loading Beam asset details…
+            </p>
+          ) : beamPanels.length === 0 ? (
+            <Muted>No bridge assets to show.</Muted>
+          ) : (
+            <>
+              {beamPanelsLoading && (
+                <p>
+                  <Spinner />
+                  Loading more…
+                </p>
               )}
+              {beamPanels.map((p) => (
+                <AssetPanel key={String(p.aid)} open>
+                  <summary>
+                    {p.sym} (Aid
+                    {String(p.aid)})
+                  </summary>
+                  <div className="inner">
+                    {p.err ? (
+                      <ErrorBox>{p.err}</ErrorBox>
+                    ) : (
+                      <>
+                        <Muted>
+                          Total supply (API): <Mono>{p.totalSupplyDisplay}</Mono> ·{' '}
+                          <ExtLink href={assetExplorerUrl(p.aid)}>Open in explorer</ExtLink>
+                        </Muted>
+                        {p.mintBurn.length ? (
+                          <>
+                            <H3 style={{ marginTop: 12 }}>Recent Mint / Burn (up to 20)</H3>
+                            <DataTable>
+                              <thead>
+                                <tr>
+                                  <th>Height</th>
+                                  <th>Event</th>
+                                  <th>Amount</th>
+                                  <th>Total supply</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {p.mintBurn.map((h, i) => (
+                                  <tr key={i}>
+                                    <td className="mono">
+                                      <ExtLink href={blockExplorerUrl(h.Height)}>{formatNum(h.Height)}</ExtLink>
+                                    </td>
+                                    <td>
+                                      {h.Event === 'Mint' ? (
+                                        <Pill data-tone={pillTone('mint')}>{h.Event}</Pill>
+                                      ) : h.Event === 'Burn' ? (
+                                        <Pill data-tone={pillTone('burn')}>{h.Event}</Pill>
+                                      ) : (
+                                        <Pill>{h.Event || ''}</Pill>
+                                      )}
+                                    </td>
+                                    <td className="mono">{formatAssetAmt(parseAmountCell(h.Amount), p.dec)}</td>
+                                    <td className="mono">
+                                      {h['Total Amount'] != null
+                                        ? formatAssetAmt(parseAmountCell(h['Total Amount']), p.dec)
+                                        : '-'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </DataTable>
+                          </>
+                        ) : (
+                          <Muted>No Mint/Burn rows in the last 100 ops.</Muted>
+                        )}
+                        {p.distribution.length ? (
+                          <>
+                            <H3 style={{ marginTop: 12 }}>Distribution</H3>
+                            <DataTable>
+                              <thead>
+                                <tr>
+                                  <th>Contract</th>
+                                  <th>Kind</th>
+                                  <th>Locked</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {p.distribution.map((d, i) => (
+                                  <tr key={i}>
+                                    <td className="mono">{d.Cid ? `${String(d.Cid).slice(0, 16)}…` : '-'}</td>
+                                    <td>{d.Kind || ''}</td>
+                                    <td className="mono">
+                                      {formatAssetAmt(parseAmountCell(d['Locked Value']), p.dec)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </DataTable>
+                          </>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                </AssetPanel>
+              ))}
+            </>
+          )}
         </Card>
       )}
     </Page>
@@ -986,7 +1186,12 @@ const WbeamBox: React.FC<{
   ];
   return (
     <div>
-      {loading && <p><Spinner />Loading WBEAM supply…</p>}
+      {loading && (
+        <p>
+          <Spinner />
+          Loading WBEAM supply…
+        </p>
+      )}
       <DataTable>
         <thead>
           <tr>
@@ -1008,19 +1213,28 @@ const WbeamBox: React.FC<{
               <tr key={r.chainid}>
                 <td>{r.label}</td>
                 <td className="mono">WBEAM</td>
-                {r.err ? <td className="danger">{r.err}</td>
-                  : <td className="mono">{r.supply != null ? r.supply : '—'}</td>}
+                {r.err ? (
+                  <td className="danger">{r.err}</td>
+                ) : (
+                  <td className="mono">{r.supply != null ? r.supply : '—'}</td>
+                )}
                 <td className={r.err ? 'muted' : 'mono'}>{pctNode}</td>
-                <td><ExtLink href={evmTokenUrl(r.chainid)}>Token</ExtLink></td>
+                <td>
+                  <ExtLink href={evmTokenUrl(r.chainid)}>Token</ExtLink>
+                </td>
               </tr>
             );
           })}
         </tbody>
       </DataTable>
       <Muted style={{ marginTop: 8 }}>
-        {beamCirc != null && Number.isFinite(beamCirc)
-          ? <>Beam Current Circulation (denominator): <Mono>{formatNum(Math.round(beamCirc))} BEAM</Mono></>
-          : 'Beam Current Circulation unavailable (could not parse /status?exp_am=1).'}
+        {beamCirc != null && Number.isFinite(beamCirc) ? (
+          <>
+            Beam Current Circulation (denominator): <Mono>{formatNum(Math.round(beamCirc))} BEAM</Mono>
+          </>
+        ) : (
+          'Beam Current Circulation unavailable (could not parse /status?exp_am=1).'
+        )}
       </Muted>
       {!hasKey && <Muted>Save an Etherscan API key to load WBEAM supply and this column.</Muted>}
     </div>
@@ -1032,12 +1246,18 @@ const AssetTable: React.FC<{ rows: AssetRow[] }> = ({ rows }) => {
   return (
     <DataTable>
       <thead>
-        <tr><th>ID</th><th>Symbol</th><th>Supply</th><th>Lock</th><th>Explorer</th></tr>
+        <tr>
+          <th>ID</th>
+          <th>Symbol</th>
+          <th>Supply</th>
+          <th>Lock</th>
+          <th>Explorer</th>
+        </tr>
       </thead>
       <tbody>
         {rows.map((a) => {
           const meta = parseMetadata(a.Metadata);
-          const sym = meta.UN || meta.SN || meta.N || ('CA-' + a.Aid);
+          const sym = meta.UN || meta.SN || meta.N || `CA-${a.Aid}`;
           const dec = getDecimals(meta.NTHUN);
           return (
             <tr key={String(a.Aid)}>
@@ -1045,7 +1265,9 @@ const AssetTable: React.FC<{ rows: AssetRow[] }> = ({ rows }) => {
               <td>{sym}</td>
               <td className="mono">{formatAssetAmt(cleanNumber(a.Supply), dec)}</td>
               <td className="mono">{a['Lock height'] != null ? formatNum(a['Lock height']) : '-'}</td>
-              <td><ExtLink href={assetExplorerUrl(a.Aid)}>Asset</ExtLink></td>
+              <td>
+                <ExtLink href={assetExplorerUrl(a.Aid)}>Asset</ExtLink>
+              </td>
             </tr>
           );
         })}
@@ -1060,7 +1282,13 @@ const TokenTxTable: React.FC<{ result: TokenTx[]; chainid: number }> = ({ result
   return (
     <DataTable>
       <thead>
-        <tr><th>Time</th><th>Tx</th><th>From</th><th>To</th><th>Value</th></tr>
+        <tr>
+          <th>Time</th>
+          <th>Tx</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Value</th>
+        </tr>
       </thead>
       <tbody>
         {result.slice(0, 40).map((t, i) => {
@@ -1071,8 +1299,12 @@ const TokenTxTable: React.FC<{ result: TokenTx[]; chainid: number }> = ({ result
               <td className="mono">
                 <ExtLink href={evmTxUrl(chainid, t.hash || '')}>{shortHash(t.hash, 10)}</ExtLink>
               </td>
-              <td className="mono"><ExtLink href={evmAddrUrl(chainid, t.from || '')}>{shortAddr(t.from)}</ExtLink></td>
-              <td className="mono"><ExtLink href={evmAddrUrl(chainid, t.to || '')}>{shortAddr(t.to)}</ExtLink></td>
+              <td className="mono">
+                <ExtLink href={evmAddrUrl(chainid, t.from || '')}>{shortAddr(t.from)}</ExtLink>
+              </td>
+              <td className="mono">
+                <ExtLink href={evmAddrUrl(chainid, t.to || '')}>{shortAddr(t.to)}</ExtLink>
+              </td>
               <td className="mono">{formatAssetAmt(t.value, dec)}</td>
             </tr>
           );
@@ -1083,7 +1315,10 @@ const TokenTxTable: React.FC<{ result: TokenTx[]; chainid: number }> = ({ result
 };
 
 const HolderTable: React.FC<{ title: string; rows: HolderRow[]; dec: number; chainid: number }> = ({
-  title, rows, dec, chainid,
+  title,
+  rows,
+  dec,
+  chainid,
 }) => (
   <>
     <Muted>{title}</Muted>
@@ -1092,15 +1327,23 @@ const HolderTable: React.FC<{ title: string; rows: HolderRow[]; dec: number; cha
     ) : (
       <DataTable>
         <thead>
-          <tr><th>#</th><th>Address</th><th>Balance</th></tr>
+          <tr>
+            <th>#</th>
+            <th>Address</th>
+            <th>Balance</th>
+          </tr>
         </thead>
         <tbody>
           {rows.map((x, i) => (
             <tr key={x.addr + i}>
               <td>{i + 1}</td>
-              <td className="mono"><ExtLink href={evmAddrUrl(chainid, x.addr)}>{x.addr}</ExtLink></td>
               <td className="mono">
-                {typeof x.bal === 'bigint' ? formatAssetAmt(Number(x.bal), dec) : String(x.balStr != null ? x.balStr : x.bal)}
+                <ExtLink href={evmAddrUrl(chainid, x.addr)}>{x.addr}</ExtLink>
+              </td>
+              <td className="mono">
+                {typeof x.bal === 'bigint'
+                  ? formatAssetAmt(Number(x.bal), dec)
+                  : String(x.balStr != null ? x.balStr : x.bal)}
               </td>
             </tr>
           ))}

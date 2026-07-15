@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { styled } from '@linaria/react';
 
 /** Tracks an element's pixel width so SVG charts can lay out responsively
  *  (mirrors the original tool's `Math.max(300, container.clientWidth)`). */
@@ -35,3 +36,29 @@ export const CHART = {
   areaPrincipal: 'rgba(0, 246, 210, 0.12)',
   areaFees: 'rgba(123, 97, 255, 0.18)',
 } as const;
+
+/** Shared chrome for the hand-rolled SVG charts: relative wrapper plus the
+ *  hover tooltip card (each chart positions it via inline left/top). */
+export const Wrap = styled.div`
+  position: relative;
+  width: 100%;
+`;
+
+export const Tip = styled.div<{ maxW?: number }>`
+  position: absolute;
+  z-index: 30;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  background: #021b35;
+  border: 1px solid rgba(0, 246, 210, 0.4);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  max-width: ${(p) => (p.maxW ? `${p.maxW}px` : 'none')};
+  & b {
+    color: #00f6d2;
+  }
+`;

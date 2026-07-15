@@ -19,14 +19,16 @@ const SubNavInner = styled.div`
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  & > * { margin-bottom: 4px; }
+  & > * {
+    margin-bottom: 4px;
+  }
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding-bottom: 2px;
 `;
 
 const subLink = css`
   text-decoration: none;
-  font-family: 'SFProDisplay', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -50,9 +52,9 @@ const subLink = css`
 `;
 
 const items = [
-  { to: ROUTES.NAV.EXPLORER_DAO,            label: 'Overview',   end: true },
-  { to: ROUTES.NAV.EXPLORER_DAO_TREASURY,   label: 'Treasury',   end: false },
-  { to: ROUTES.NAV.EXPLORER_DAO_REVENUE,    label: 'Revenue',    end: false },
+  { to: ROUTES.NAV.EXPLORER_DAO, label: 'Overview', end: true },
+  { to: ROUTES.NAV.EXPLORER_DAO_TREASURY, label: 'Treasury', end: false },
+  { to: ROUTES.NAV.EXPLORER_DAO_REVENUE, label: 'Revenue', end: false },
   { to: ROUTES.NAV.EXPLORER_DAO_GOVERNANCE, label: 'Governance', end: false },
 ];
 
@@ -61,7 +63,9 @@ export const DaoLayout: React.FC = () => (
     <SubNav>
       <SubNavInner>
         {items.map((item) => (
-          <NavLink key={item.to} to={item.to} end={item.end} className={subLink}>{item.label}</NavLink>
+          <NavLink key={item.to} to={item.to} end={item.end} className={subLink}>
+            {item.label}
+          </NavLink>
         ))}
       </SubNavInner>
     </SubNav>

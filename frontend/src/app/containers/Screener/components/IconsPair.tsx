@@ -13,18 +13,23 @@ const Wrap = styled.span`
   align-items: center;
   flex-shrink: 0;
   vertical-align: middle;
-  & > * + * { margin-left: 2px; }
+  & > * + * {
+    margin-left: 2px;
+  }
 
   /* Strip the default right-margin from AssetIcon — it's set for the trade
      panel's text-adjacent layout and creates dead space between the pair's
      two icons. */
-  & > * { margin-right: 0 !important; }
+  & > * {
+    margin-right: 0 !important;
+  }
 `;
 
 interface Props {
   aid1: number;
   aid2: number;
   /** Accepted for backwards compatibility; ignored — see file header. */
+  // eslint-disable-next-line react/no-unused-prop-types
   size?: number;
 }
 

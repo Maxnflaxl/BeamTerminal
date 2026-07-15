@@ -1,6 +1,4 @@
-import {
-  IAsset, IMetadataPairs, IOptions, IPoolCard, IPredict, ITxStatus, Kind, KindProcent,
-} from '@core/types';
+import { IAsset, IMetadataPairs, IOptions, IPoolCard, IPredict, ITxStatus, Kind, KindProcent } from '@core/types';
 import { ASSET_BEAM, GROTHS_IN_BEAM } from '@app/shared/constants';
 import { ensureConnected } from '@core/walletEnv';
 import { toast } from 'react-toastify';
@@ -189,9 +187,9 @@ export function onFilter(data: IPoolCard[], filter = 'all', favorite: IPoolCard[
       return data.filter((el) => !el.ctl);
     }
     case 'fav': {
-      return data.filter((item) => favorite.some(
-        (item2) => item.aid1 === item2.aid1 && item.aid2 === item2.aid2 && item.kind === item2.kind,
-      ));
+      return data.filter((item) =>
+        favorite.some((item2) => item.aid1 === item2.aid1 && item.aid2 === item2.aid2 && item.kind === item2.kind),
+      );
     }
     default:
       return [...data].sort((a, b) => b.ctl - a.ctl);
