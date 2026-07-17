@@ -384,12 +384,12 @@ Single asset metadata + every active pool it participates in.
   "minter_cid": "295fe749…d868",       // null if not minter-issued
   "max_supply": "5000000000000000",    // null if uncapped
   "pools": [
-    { "pair_id": 17, "kind": 1, "tvl_usd": 7613.10 }
+    { "pair_id": 17, "aid1": 0, "aid2": 31, "kind": 1, "tvl_usd": 7613.10, "amount": "31946584614" }
   ]
 }
 ```
 
-The `pools.tvl_usd` field is best-effort: it requires BEAM to be one of the sides (so the USD reference is reachable in one hop). Otherwise `null`.
+The `pools.tvl_usd` field is best-effort: it requires BEAM to be one of the sides (so the USD reference is reachable in one hop). Otherwise `null`. `pools.amount` is this asset's reserve in the pool — groths as a decimal string, `null` until the pool has a state snapshot.
 
 400 (`BAD_REQUEST`) if `aid` isn't a non-negative integer; 404 (`ASSET_NOT_FOUND`) if no row exists.
 

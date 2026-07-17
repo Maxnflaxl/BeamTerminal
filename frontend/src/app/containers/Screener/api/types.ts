@@ -285,7 +285,15 @@ export interface ApiAsset {
   /** Wallet owner-key for wallet-issued assets (shown as "Wallet (<key>)").
    *  Null for contract-issued assets and aid 0 (BEAM). */
   owner_addr: string | null;
-  pools: Array<{ pair_id: number; aid1: number; aid2: number; kind: number; tvl_usd: number | null }>;
+  pools: Array<{
+    pair_id: number;
+    aid1: number;
+    aid2: number;
+    kind: number;
+    tvl_usd: number | null;
+    /** This asset's reserve in the pool, groths as a decimal string; null until the pool has a state snapshot. */
+    amount: string | null;
+  }>;
 }
 
 export interface ApiAssetListEntry {

@@ -203,6 +203,9 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         aid2: a2,
         kind: p.kind,
         tvl_usd: tvlUsd,
+        // This asset's reserve in the pool, groths as a decimal string (null
+        // until the pool has a state snapshot).
+        amount: a1 === aid ? p.reserve1 : p.reserve2,
       };
     });
 

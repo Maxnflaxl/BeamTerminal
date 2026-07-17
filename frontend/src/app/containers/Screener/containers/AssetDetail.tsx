@@ -415,6 +415,8 @@ export const AssetDetail: React.FC = () => {
                 <th>Pool</th>
                 <th>Tier</th>
                 <th>TVL</th>
+                <th>Amount</th>
+                <th>% circ. supply</th>
               </tr>
             </thead>
             <tbody>
@@ -422,6 +424,9 @@ export const AssetDetail: React.FC = () => {
                 .sort((a, b) => (b.tvl_usd ?? -Infinity) - (a.tvl_usd ?? -Infinity))
                 .map((pool) => {
                   const meta = pairsByPool.get(pool.pair_id);
+                  const amt = pool.amount !== null ? Number(pool.amount) / 10 ** asset.decimals : null;
+                  const pct =
+                    amt !== null && supplyHuman !== null && supplyHuman > 0 ? (amt / supplyHuman) * 100 : null;
                   return (
                     <tr
                       key={pool.pair_id}
@@ -432,6 +437,8 @@ export const AssetDetail: React.FC = () => {
                         <KindBadge kind={pool.kind} />
                       </td>
                       <td className="mono">{fmt$(pool.tvl_usd)}</td>
+                      <td className="mono">{amt !== null ? fmtNum(amt, 4) : '—'}</td>
+                      <td className="mono">{pct !== null ? `${pct.toFixed(2)}%` : '—'}</td>
                     </tr>
                   );
                 })}
@@ -487,7 +494,7 @@ export const AssetDetail: React.FC = () => {
                 <th>Cid</th>
                 <th>Kind</th>
                 <th>Amount</th>
-                <th>%</th>
+                <th>% circ. supply</th>
               </tr>
             </thead>
             <tbody>
