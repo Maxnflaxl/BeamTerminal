@@ -428,6 +428,36 @@ Response:
 
 `Cache-Control: public, max-age=300`.
 
+## `GET /api/asset/{aid}/distribution`
+
+How much of an asset each contract currently has locked, plus the unlocked remainder. Live state, no history.
+
+No query params.
+
+Response:
+
+```json
+{
+  "aid": 7,
+  "entries": [
+    {
+      "cid": "b8944fd3f6a62697a89b2a55acd1cb2e3893dadece99569706efa1da847dd440",
+      "kind": "Nephrite v1",
+      "amount": "14658636293475"
+    }
+  ],
+  "unlocked": "173224572110680",
+  "total": "187883208404155"
+}
+```
+
+* `entries` — one row per contract holding a non-zero balance of the asset, sorted by amount descending for `aid == 0` (explorer order otherwise). `kind` is the parser's human-readable shader name ("DEX v0", "Nephrite v1", …), or the shader hash hex when the parser doesn't recognise the contract. Amounts are groths as decimal strings.
+* `unlocked` — supply not held by any contract; `total` — `unlocked` plus the sum of `entries`.
+* `aid > 0` is a pass-through over the explorer's `/asset?id=<aid>` "Asset distribution" table.
+* `aid == 0` (BEAM) is synthesized instead — the explorer rejects `/asset?id=0` (BEAM has no asset-registry row), so the backend collects the aid-0 entry of every contract's Locked Funds table from `/contracts` and anchors `unlocked` to the circulating supply it tracks (`emission` on `/api/asset/0`). If the supply figure is momentarily unavailable, `unlocked` degrades to `"0"` and `total` covers only the locked sum.
+
+`Cache-Control: public, max-age=30`.
+
 ## `GET /api/network`
 
 Canonical snapshot of current network health — hashrate, difficulty, average block time, and the chain tip — plus the last 60 blocks. Everything derives from a single read of `block_metrics`, and this is the single source of truth for the `network_hashrate` reported by `/api/mining/pools` and shown on the Health page.

@@ -198,13 +198,12 @@ export const AssetDetail: React.FC = () => {
   // Always fetch the supply history when an aid is set — the chart needs it
   // even on the "pools" tab. BEAM (aid 0) has no /history endpoint, skip.
   const { data: history } = useAssetHistory(aid !== undefined && aid > 0 ? aid : undefined);
-  // Locked-in-contracts breakdown. Lazy: only fetch when the tab is open and
-  // aid > 0 (the explorer rejects aid 0 / BEAM for this query).
+  // Locked-in-contracts breakdown. Lazy: only fetch when the tab is open.
   const {
     data: distribution,
     loading: distLoading,
     error: distError,
-  } = useAssetDistribution(aid !== undefined && aid > 0 && tab === 'distribution' ? aid : undefined);
+  } = useAssetDistribution(aid !== undefined && tab === 'distribution' ? aid : undefined);
   // Pull all pairs so we can show pool ticker symbols + USD valuations next to pool ids.
   const { data: pairsResp } = usePairs({ limit: 500 });
 
@@ -401,15 +400,9 @@ export const AssetDetail: React.FC = () => {
         <button type="button" className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
           Mint / Burn history
         </button>
-        {asset.aid > 0 && (
-          <button
-            type="button"
-            className={tab === 'distribution' ? 'active' : ''}
-            onClick={() => setTab('distribution')}
-          >
-            Distribution
-          </button>
-        )}
+        <button type="button" className={tab === 'distribution' ? 'active' : ''} onClick={() => setTab('distribution')}>
+          Distribution
+        </button>
       </Tabs>
 
       {tab === 'pools' &&

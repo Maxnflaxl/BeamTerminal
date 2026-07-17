@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { q } from '../../db.js';
 import { BadRequest, NotFound } from '../error.js';
-import { getAssetHistory } from '../../explorer.js';
-import type { Row, TypedCell } from '../../explorer.js';
+import { getAssetHistory, getContracts } from '../../explorer.js';
+import type { Row, Table, TypedCell } from '../../explorer.js';
 
 // Tiny in-process LRU for /asset/{aid}/history — explorer can be slow on
 // long histories and the data only changes when the asset mints/burns.
@@ -299,21 +299,57 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // -------------------------------------------------------------------------
-  // /asset/{aid}/distribution — pass-through over explorer /asset?id=N,
-  // surfacing the "Asset distribution" table: how much of the asset each
-  // contract currently has locked, plus the Unlocked remainder. Live state.
+  // /asset/{aid}/distribution — how much of the asset each contract currently
+  // has locked, plus the Unlocked remainder. Live state.
+  //
+  // aid > 0: pass-through over explorer /asset?id=N ("Asset distribution").
+  // aid = 0: the explorer rejects BEAM there (no asset-registry row), so we
+  // synthesize the same shape from /contracts — every contract's Locked Funds
+  // table carries an aid-0 entry — and anchor Unlocked to the circulating
+  // supply the indexer tracks in assets.emission.
   // -------------------------------------------------------------------------
   app.get<{ Params: { aid: string } }>(
     '/asset/:aid/distribution',
     async (req, reply) => {
       const aid = Number(req.params.aid);
-      if (!Number.isFinite(aid) || aid <= 0) {
-        throw BadRequest(
-          'BAD_REQUEST',
-          aid === 0
-            ? 'aid 0 (BEAM) has no distribution endpoint'
-            : 'aid must be a positive integer',
+      if (!Number.isFinite(aid) || aid < 0) {
+        throw BadRequest('BAD_REQUEST', 'aid must be a non-negative integer');
+      }
+
+      if (aid === 0) {
+        const resp = await getContracts();
+        const entries: { cid: string; kind: string; amount: string }[] = [];
+        let lockedTotal = 0n;
+        if (resp.type === 'table' && Array.isArray(resp.value)) {
+          // Header row: [Cid, Kind, Deploy Height, Locked Funds, Owned Assets].
+          for (const row of resp.value.slice(1)) {
+            if (!Array.isArray(row)) continue;
+            const r = row as Row;
+            const cid = isTyped(r[0]) && r[0].type === 'cid' ? pickS(r[0]) : null;
+            if (!cid) continue;
+            const amount = pickLockedBeam(r[3]);
+            if (amount <= 0n) continue;
+            // Kind is a parser name string for known shaders, a blob cell
+            // (shader hash) otherwise — pickS surfaces the hex in that case.
+            entries.push({ cid, kind: pickS(r[1]) ?? '', amount: amount.toString() });
+            lockedTotal += amount;
+          }
+        }
+        entries.sort((a, b) => (BigInt(b.amount) > BigInt(a.amount) ? 1 : -1));
+
+        const { rows } = await q<{ emission: string | null }>(
+          'SELECT emission::text FROM assets WHERE aid = 0',
         );
+        const emission = rows[0]?.emission ? BigInt(rows[0].emission) : null;
+        const unlocked = emission !== null && emission > lockedTotal ? emission - lockedTotal : 0n;
+
+        void reply.header('cache-control', 'public, max-age=30');
+        return {
+          aid,
+          entries,
+          unlocked: unlocked.toString(),
+          total: (lockedTotal + unlocked).toString(),
+        };
       }
 
       const resp = await getAssetHistory({ id: aid, hMin: 0, nMaxOps: 1 });
@@ -362,4 +398,21 @@ function pickS(c: unknown): string | null {
 function pickAmt(c: unknown): string | null {
   if (isTyped(c) && c.type === 'amount') return String(c.value);
   return null;
+}
+function isTable(x: unknown): x is Table {
+  return typeof x === 'object' && x !== null && (x as { type?: unknown }).type === 'table';
+}
+// Reads the aid-0 (BEAM) amount out of a contract's Locked Funds sub-table
+// (rows of [aidCell, amountCell], no header row).
+function pickLockedBeam(c: unknown): bigint {
+  if (!isTable(c)) return 0n;
+  for (const fr of c.value) {
+    if (!Array.isArray(fr)) continue;
+    const [aidCell, amtCell] = fr as Row;
+    if (isTyped(aidCell) && aidCell.type === 'aid' && aidCell.value === 0) {
+      const amt = pickAmt(amtCell);
+      return amt ? BigInt(amt.replace(/^[+]/, '')) : 0n;
+    }
+  }
+  return 0n;
 }
