@@ -25,6 +25,27 @@ services:
     image: timescale/timescaledb:latest-pg16
     restart: always
     logging: *default-logging
+    # The timescale/timescaledb image runs timescaledb-tune on first init and
+    # sizes memory as if it owns the whole host. Postgres shares this host with
+    # other services, so we override the memory knobs with -c flags (they win over
+    # the tuned postgresql.conf) to keep RSS bounded. shared_buffers of 384MB still
+    # caches the hot chunks; the OS page cache covers the rest.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=384MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - max_connections=50
+      - -c
+      - autovacuum_max_workers=3
+      - -c
+      - timescaledb.max_background_workers=8
     environment:
       POSTGRES_DB: beamterminal
       POSTGRES_USER: beamterminal
