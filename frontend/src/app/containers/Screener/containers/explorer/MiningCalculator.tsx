@@ -6,8 +6,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { fmtGrouped } from '../../components/format';
 import { api } from '../../api/client';
+import { ApiMiningPool } from '../../api/types';
 import { blockRewardAtHeight } from './supplyMath';
-import { StatGrid, StatCard, Label, Value, SubValue, Input, theme, fmtHashrate as fmtHashrateShared } from './shared';
+import {
+  StatGrid,
+  StatCard,
+  Label,
+  Value,
+  SubValue,
+  Input,
+  Select,
+  TabBtn,
+  theme,
+  fmtHashrate as fmtHashrateShared,
+} from './shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,7 +60,7 @@ function fmtDuration(secs: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Profit formula (ported verbatim from 0xmx.net)
+// Profit formula (ported from 0xmx.net, extended with a pool fee)
 // ---------------------------------------------------------------------------
 
 interface CalcInputs {
@@ -59,13 +71,15 @@ interface CalcInputs {
   yourHash: number; // Sol/s
   watts: number; // power consumption W
   kwh: number; // electricity cost USD/kWh
+  feePct: number; // pool fee, % of revenue (0 in solo mode)
 }
 
 interface CalcResult {
   blocksPerDay: number;
   networkCoinsPerDay: number;
   yourShare: number;
-  yourCoinsPerDay: number;
+  grossCoinsPerDay: number;
+  yourCoinsPerDay: number; // net of the pool fee — what actually gets paid out
   yourValuePerDay: number;
   dailyPowerCost: number;
   dailyProfit: number;
@@ -77,12 +91,15 @@ interface CalcResult {
 }
 
 function calc(inputs: CalcInputs): CalcResult {
-  const { netHash, reward, price, blockMin, yourHash, watts, kwh } = inputs;
+  const { netHash, reward, price, blockMin, yourHash, watts, kwh, feePct } = inputs;
   const blockMinSafe = Math.max(blockMin, 1e-9);
+  const feeFrac = Math.min(Math.max(feePct, 0), 100) / 100;
+  const keep = 1 - feeFrac;
   const blocksPerDay = 1440 / blockMinSafe;
   const networkCoinsPerDay = blocksPerDay * reward;
   const yourShare = yourHash > 0 && netHash > 0 ? yourHash / netHash : 0;
-  const yourCoinsPerDay = networkCoinsPerDay * yourShare;
+  const grossCoinsPerDay = networkCoinsPerDay * yourShare;
+  const yourCoinsPerDay = grossCoinsPerDay * keep;
   const yourValuePerDay = yourCoinsPerDay * price;
   const dailyPowerCost = (watts / 1000) * kwh * 24;
   const dailyProfit = yourValuePerDay - dailyPowerCost;
@@ -90,11 +107,13 @@ function calc(inputs: CalcInputs): CalcResult {
   const timeToBlockSecs = yourHash > 0 && netHash > 0 ? (netHash / yourHash) * blockMin * 60 : Infinity;
   const bePriceUsd = yourCoinsPerDay > 0 ? dailyPowerCost / yourCoinsPerDay : 0;
   const beKwh = watts > 0 ? yourValuePerDay / ((watts / 1000) * 24) : 0;
-  const beNetHash = price > 0 && dailyPowerCost > 0 ? (yourHash * networkCoinsPerDay * price) / dailyPowerCost : 0;
+  const beNetHash =
+    price > 0 && dailyPowerCost > 0 ? (yourHash * networkCoinsPerDay * keep * price) / dailyPowerCost : 0;
   return {
     blocksPerDay,
     networkCoinsPerDay,
     yourShare,
+    grossCoinsPerDay,
     yourCoinsPerDay,
     yourValuePerDay,
     dailyPowerCost,
@@ -117,42 +136,100 @@ interface ChartProps {
 }
 
 const SVG_W = 560;
-const SVG_H = 220;
+const SVG_H = 240;
 const PAD = {
-  top: 18,
-  right: 20,
-  bottom: 38,
-  left: 68,
+  top: 22,
+  right: 46,
+  bottom: 44,
+  left: 62,
 };
 
-const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
-  const { reward, price, blockMin, yourHash, watts, kwh } = inputs;
-  if (effectiveNetHash <= 0 || yourHash <= 0 || reward <= 0) return null;
+// Matches 0xmx.net/mining CHART_MIN_FRACTION / CHART_MAX_FRACTION / CHART_SAMPLES.
+const X_MIN_FRACTION = 0.1;
+const X_MAX_FRACTION = 3.0;
+const SAMPLES = 101;
 
-  const POINTS = 60;
-  const xMin = effectiveNetHash * 0.2;
-  const xMax = effectiveNetHash * 3.0;
-  const xStep = (xMax - xMin) / (POINTS - 1);
+const C_LINE = theme.color.accent;
+const C_ZERO = theme.color.danger;
+const C_CURRENT = theme.color.warn;
+const C_GRID = 'rgba(255,255,255,0.07)';
+const C_AXIS = 'rgba(255,255,255,0.5)';
 
-  const pts: Array<{ x: number; y: number }> = [];
-  for (let i = 0; i < POINTS; i++) {
-    const nh = xMin + i * xStep;
-    const r = calc({
-      netHash: nh,
-      reward,
-      price,
-      blockMin,
-      yourHash,
-      watts,
-      kwh,
-    });
-    pts.push({ x: nh, y: r.dailyProfit });
+const NICE_MULTS = [1, 2, 2.5, 5, 10];
+
+/** Snap `range / target` to the closest 1/2/2.5/5/10 × 10ⁿ so ticks land on readable values. */
+function niceStep(range: number, target: number): number {
+  if (!(range > 0) || !Number.isFinite(range)) return 1;
+  const raw = range / Math.max(target, 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const mult = NICE_MULTS.reduce((best, m) => (Math.abs(m - norm) < Math.abs(best - norm) ? m : best), NICE_MULTS[0]);
+  return mult * mag;
+}
+
+function ticksFor(min: number, max: number, target: number): number[] {
+  const step = niceStep(max - min, target);
+  const out: number[] = [];
+  const start = Math.ceil(min / step - 1e-9) * step;
+  for (let v = start; v <= max + step * 1e-6; v += step) {
+    out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+    if (out.length > 24) break;
   }
+  return out;
+}
 
+function fmtAxisY(v: number): string {
+  const a = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  if (a >= 1000) return `${sign}$${fmtGrouped(a, 0)}`;
+  if (a === 0) return '$0';
+  if (a < 0.01) return `${sign}$${a.toFixed(4)}`;
+  if (a < 1) return `${sign}$${a.toFixed(2)}`;
+  return `${sign}$${a.toFixed(a < 10 ? 2 : 0)}`;
+}
+
+function fmtAxisX(v: number): string {
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}G`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return v.toFixed(0);
+}
+
+const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const { reward, price, blockMin, yourHash, watts, kwh, feePct } = inputs;
+
+  const pts = useMemo(() => {
+    if (effectiveNetHash <= 0 || yourHash <= 0 || reward <= 0) return [];
+    const lo = effectiveNetHash * X_MIN_FRACTION;
+    const hi = effectiveNetHash * X_MAX_FRACTION;
+    const out: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < SAMPLES; i++) {
+      const nh = lo + ((hi - lo) * i) / (SAMPLES - 1);
+      const r = calc({ netHash: nh, reward, price, blockMin, yourHash, watts, kwh, feePct });
+      out.push({ x: nh, y: r.dailyProfit });
+    }
+    return out;
+  }, [effectiveNetHash, reward, price, blockMin, yourHash, watts, kwh, feePct]);
+
+  if (pts.length === 0) return null;
+
+  const xMin = pts[0].x;
+  const xMax = pts[pts.length - 1].x;
+
+  // Y domain always spans 0 so the break-even line is on-scale, then snapped out
+  // to the tick step so the top/bottom gridlines are labelled values.
   const yValues = pts.map((p) => p.y);
-  const yMin = Math.min(...yValues);
-  const yMax = Math.max(...yValues);
-  const yRange = yMax - yMin || 1;
+  const yLo = Math.min(0, ...yValues);
+  const yHi = Math.max(0, ...yValues);
+  // Epsilon nudges are inward, so a bound already sitting on a step boundary
+  // (the common yLo === 0 case) does not gain an empty extra step.
+  const yStep = niceStep(yHi - yLo || 1, 4);
+  const yMin = Math.floor(yLo / yStep + 1e-9) * yStep;
+  const yMaxRaw = Math.ceil(yHi / yStep - 1e-9) * yStep;
+  const yMax = yMaxRaw > yMin ? yMaxRaw : yMin + yStep;
+  const yRange = yMax - yMin;
 
   const plotW = SVG_W - PAD.left - PAD.right;
   const plotH = SVG_H - PAD.top - PAD.bottom;
@@ -164,65 +241,67 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
     .map((p, i) => `${i === 0 ? 'M' : 'L'} ${toSvgX(p.x).toFixed(1)} ${toSvgY(p.y).toFixed(1)}`)
     .join(' ');
 
-  // y=0 line
   const y0 = toSvgY(0);
-  const showZeroLine = y0 >= PAD.top && y0 <= PAD.top + plotH;
-
-  // effective netHash vertical line
   const xNetHash = toSvgX(effectiveNetHash);
 
-  // Y axis ticks
-  const yTicks = [yMin, (yMin + yMax) / 2, yMax];
-  // X axis ticks: xMin, effectiveNetHash, xMax
-  const xTicks = [xMin, effectiveNetHash, xMax];
+  const yTicks = ticksFor(yMin, yMax, 4);
+  const xTicks = ticksFor(xMin, xMax, 5);
 
-  function fmtAxisY(v: number) {
-    if (Math.abs(v) < 0.01 && v !== 0) return v.toFixed(4);
-    return `${v >= 0 ? '' : '-'}$${Math.abs(v).toFixed(2)}`;
+  function onMove(e: React.PointerEvent<SVGSVGElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const svgX = ((e.clientX - rect.left) * SVG_W) / rect.width;
+    const t = (svgX - PAD.left) / plotW;
+    if (t < -0.02 || t > 1.02) {
+      setHoverIdx(null);
+      return;
+    }
+    setHoverIdx(Math.min(SAMPLES - 1, Math.max(0, Math.round(t * (SAMPLES - 1)))));
   }
 
-  function fmtAxisX(v: number) {
-    if (v >= 1e9) return `${(v / 1e9).toFixed(1)}G Sol/s`;
-    if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M Sol/s`;
-    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K Sol/s`;
-    return `${v.toFixed(0)} Sol/s`;
-  }
+  const hp = hoverIdx != null ? pts[hoverIdx] : null;
+  const hx = hp ? toSvgX(hp.x) : 0;
+  const hy = hp ? toSvgY(hp.y) : 0;
+  // Readout box: fixed-width estimate (mono face, 9px) instead of measuring text.
+  const boxLines = hp ? [`Network: ${fmtAxisX(hp.x)} Sol/s`, `Profit: ${fmtAxisY(hp.y)}`] : [];
+  const boxW = Math.max(...boxLines.map((s) => s.length), 0) * 5.4 + 12;
+  const boxH = 30;
+  const boxX = hx + 10 + boxW > PAD.left + plotW ? hx - 10 - boxW : hx + 10;
+  const boxY = Math.min(Math.max(hy - boxH / 2, PAD.top + 2), PAD.top + plotH - boxH - 2);
 
   return (
-    <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
-      {/* Y axis ticks */}
+    <svg
+      viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+      style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'none' }}
+      onPointerMove={onMove}
+      onPointerLeave={() => setHoverIdx(null)}
+    >
+      {/* Horizontal gridlines + Y ticks */}
       {yTicks.map((v, i) => {
         const sy = toSvgY(v);
         return (
-          <g key={i}>
-            <line x1={PAD.left - 4} y1={sy} x2={PAD.left} y2={sy} stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
-            <text x={PAD.left - 7} y={sy + 4} textAnchor="end" fontSize="9" fill="rgba(255,255,255,0.5)">
+          <g key={`y${i}`}>
+            <line x1={PAD.left} y1={sy} x2={PAD.left + plotW} y2={sy} stroke={C_GRID} strokeWidth="1" />
+            <text x={PAD.left - 7} y={sy + 3} textAnchor="end" fontSize="9" fill={C_AXIS}>
               {fmtAxisY(v)}
             </text>
           </g>
         );
       })}
-      {/* X axis ticks */}
+      {/* Vertical gridlines + X ticks */}
       {xTicks.map((v, i) => {
         const sx = toSvgX(v);
         return (
-          <g key={i}>
-            <line
-              x1={sx}
-              y1={PAD.top + plotH}
-              x2={sx}
-              y2={PAD.top + plotH + 4}
-              stroke="rgba(255,255,255,0.3)"
-              strokeWidth="1"
-            />
-            <text x={sx} y={PAD.top + plotH + 14} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.5)">
+          <g key={`x${i}`}>
+            <line x1={sx} y1={PAD.top} x2={sx} y2={PAD.top + plotH} stroke={C_GRID} strokeWidth="1" />
+            <text x={sx} y={PAD.top + plotH + 13} textAnchor="middle" fontSize="9" fill={C_AXIS}>
               {fmtAxisX(v)}
             </text>
           </g>
         );
       })}
       {/* Axis labels */}
-      <text x={PAD.left + plotW / 2} y={SVG_H - 2} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,0.4)">
+      <text x={PAD.left + plotW / 2} y={SVG_H - 4} textAnchor="middle" fontSize="9" fill={theme.color.muted2}>
         Network hashrate (Sol/s)
       </text>
       <text
@@ -230,7 +309,7 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
         y={PAD.top + plotH / 2}
         textAnchor="middle"
         fontSize="9"
-        fill="rgba(255,255,255,0.4)"
+        fill={theme.color.muted2}
         transform={`rotate(-90,${10},${PAD.top + plotH / 2})`}
       >
         Profit/day (USD)
@@ -242,33 +321,57 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
         width={plotW}
         height={plotH}
         fill="none"
-        stroke="rgba(255,255,255,0.08)"
+        stroke={theme.color.divider}
         strokeWidth="1"
       />
-      {/* y=0 dashed line */}
-      {showZeroLine && (
-        <line
-          x1={PAD.left}
-          y1={y0}
-          x2={PAD.left + plotW}
-          y2={y0}
-          stroke="rgba(255,255,255,0.35)"
-          strokeWidth="1"
-          strokeDasharray="4 4"
-        />
-      )}
-      {/* Current effectiveNetHash vertical dashed line */}
+      {/* Break-even ($0) line — always in range */}
+      <line
+        x1={PAD.left}
+        y1={y0}
+        x2={PAD.left + plotW}
+        y2={y0}
+        stroke={C_ZERO}
+        strokeWidth="1.25"
+        strokeDasharray="4 4"
+      />
+      {/* Current network hashrate marker */}
       <line
         x1={xNetHash}
         y1={PAD.top}
         x2={xNetHash}
         y2={PAD.top + plotH}
-        stroke="#00f6d2"
-        strokeWidth="1"
-        strokeDasharray="4 4"
+        stroke={C_CURRENT}
+        strokeWidth="1.25"
+        strokeDasharray="5 5"
       />
+      <text x={xNetHash} y={PAD.top + 10} textAnchor="middle" fontSize="9" fill={C_CURRENT}>
+        current
+      </text>
       {/* Curve */}
-      <path d={pathD} fill="none" stroke="#00f6d2" strokeWidth="2" strokeLinejoin="round" />
+      <path d={pathD} fill="none" stroke={C_LINE} strokeWidth="2" strokeLinejoin="round" />
+      {/* Hover crosshair + readout */}
+      {hp && (
+        <g pointerEvents="none">
+          <line x1={hx} y1={PAD.top} x2={hx} y2={PAD.top + plotH} stroke={C_AXIS} strokeWidth="1" />
+          <circle cx={hx} cy={hy} r="3" fill={C_LINE} />
+          <rect
+            x={boxX}
+            y={boxY}
+            width={boxW}
+            height={boxH}
+            rx="4"
+            fill={theme.color.bg}
+            stroke={theme.color.border}
+            strokeWidth="1"
+          />
+          <text x={boxX + 6} y={boxY + 13} fontSize="9" fill={theme.color.muted}>
+            {boxLines[0]}
+          </text>
+          <text x={boxX + 6} y={boxY + 24} fontSize="9" fill={hp.y >= 0 ? C_LINE : C_ZERO}>
+            {boxLines[1]}
+          </text>
+        </g>
+      )}
     </svg>
   );
 };
@@ -303,6 +406,12 @@ const FieldLabel = styled.label`
   margin-bottom: 4px;
 `;
 
+const FieldHint = styled.span`
+  font-size: 10px;
+  color: ${theme.color.muted};
+  margin-top: 2px;
+`;
+
 const SectionTitle = styled.div`
   font-size: 10px;
   color: ${theme.color.muted};
@@ -312,6 +421,29 @@ const SectionTitle = styled.div`
   margin-top: 16px;
   padding-bottom: 4px;
   border-bottom: 1px solid ${theme.color.divider};
+`;
+
+const ModeRow = styled.div`
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  margin-bottom: 12px;
+  & > button {
+    margin-right: 8px;
+  }
+`;
+
+const ModeHint = styled.span`
+  font-size: 10px;
+  color: ${theme.color.muted};
+  margin-left: 4px;
+`;
+
+const PoolSelect = styled(Select)`
+  width: 100%;
+  font-size: 13px;
+  padding: 7px 10px;
 `;
 
 const ResultValue = styled.div<{ tone?: 'profit' | 'loss' | 'normal' }>`
@@ -420,6 +552,8 @@ const SliderInput = styled.input`
 // Component
 // ---------------------------------------------------------------------------
 
+const CUSTOM_POOL = '__custom__';
+
 export const MiningCalculator: React.FC = () => {
   // Pre-filled from live BT data
   const [netHashStr, setNetHashStr] = useState('');
@@ -431,6 +565,12 @@ export const MiningCalculator: React.FC = () => {
   const [wattsStr, setWattsStr] = useState('');
   const [kwhStr, setKwhStr] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Solo vs pool mining
+  const [mode, setMode] = useState<'solo' | 'pool'>('solo');
+  const [poolList, setPoolList] = useState<ApiMiningPool[]>([]);
+  const [poolId, setPoolId] = useState<string>('');
+  const [feeStr, setFeeStr] = useState('1');
 
   // What-if sensitivity multipliers (1.0 = neutral)
   const [sliderNet, setSliderNet] = useState(1.0);
@@ -453,6 +593,14 @@ export const MiningCalculator: React.FC = () => {
         if (stats.beam_usd != null && Number.isFinite(stats.beam_usd)) {
           setPriceStr(stats.beam_usd.toFixed(4));
         }
+        const list = pools.pools ?? [];
+        setPoolList(list);
+        // Default to the largest pool by hashrate so the dropdown is never empty.
+        const biggest = [...list].sort((a, b) => (b.hashrate ?? -1) - (a.hashrate ?? -1))[0];
+        if (biggest) {
+          setPoolId(biggest.id);
+          if (biggest.fee != null) setFeeStr(String(biggest.fee));
+        }
       })
       .catch(() => {
         // silent — leave fields blank/editable
@@ -465,6 +613,19 @@ export const MiningCalculator: React.FC = () => {
     };
   }, []);
 
+  const selectedPool = useMemo(
+    () => (poolId && poolId !== CUSTOM_POOL ? poolList.find((p) => p.id === poolId) ?? null : null),
+    [poolId, poolList],
+  );
+
+  function onPoolChange(next: string) {
+    setPoolId(next);
+    const p = poolList.find((x) => x.id === next);
+    if (p && p.fee != null) setFeeStr(String(p.fee));
+  }
+
+  const feePct = mode === 'pool' ? Math.min(safeNum(feeStr), 100) : 0;
+
   const baseInputs: CalcInputs = useMemo(
     () => ({
       netHash: safeNum(netHashStr),
@@ -474,8 +635,9 @@ export const MiningCalculator: React.FC = () => {
       yourHash: safeNum(yourHashStr),
       watts: safeNum(wattsStr),
       kwh: safeNum(kwhStr),
+      feePct,
     }),
-    [netHashStr, rewardStr, priceStr, blockMinStr, yourHashStr, wattsStr, kwhStr],
+    [netHashStr, rewardStr, priceStr, blockMinStr, yourHashStr, wattsStr, kwhStr, feePct],
   );
 
   // Effective (multiplied) values fed into the formulas
@@ -507,6 +669,19 @@ export const MiningCalculator: React.FC = () => {
     ? 'loss'
     : 'normal';
 
+  // Share of the selected pool's own hashrate (pool mode only).
+  const poolShare =
+    selectedPool && selectedPool.hashrate != null && selectedPool.hashrate > 0
+      ? baseInputs.yourHash / selectedPool.hashrate
+      : null;
+
+  // Days until the pool's minimum payout threshold is reached.
+  const minPayout = selectedPool?.min_payout ?? null;
+  const secsToMinPayout =
+    result && minPayout != null && minPayout > 0 && result.yourCoinsPerDay > 0
+      ? (minPayout / result.yourCoinsPerDay) * 86400
+      : null;
+
   return (
     <div>
       {loading && <LoadingNote>Loading live network data…</LoadingNote>}
@@ -525,11 +700,7 @@ export const MiningCalculator: React.FC = () => {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNetHashStr(e.target.value)}
             placeholder="e.g. 500000"
           />
-          {safeNum(netHashStr) > 0 && (
-            <span style={{ fontSize: 10, color: theme.color.muted, marginTop: 2 }}>
-              = {fmtHashrate(safeNum(netHashStr))}
-            </span>
-          )}
+          {safeNum(netHashStr) > 0 && <FieldHint>= {fmtHashrate(safeNum(netHashStr))}</FieldHint>}
         </FieldWrap>
         <FieldWrap>
           <FieldLabel htmlFor="mc-reward">Block Reward (BEAM)</FieldLabel>
@@ -569,6 +740,65 @@ export const MiningCalculator: React.FC = () => {
         </FieldWrap>
       </FormGrid>
 
+      {/* Solo vs pool */}
+      <SectionTitle>Mining Mode</SectionTitle>
+      <ModeRow>
+        <TabBtn type="button" data-active={mode === 'solo'} onClick={() => setMode('solo')}>
+          Solo
+        </TabBtn>
+        <TabBtn type="button" data-active={mode === 'pool'} onClick={() => setMode('pool')}>
+          Pool
+        </TabBtn>
+        <ModeHint>
+          {mode === 'solo'
+            ? 'You keep the whole block reward, but payouts are all-or-nothing.'
+            : 'Steady payouts, minus the pool fee.'}
+        </ModeHint>
+      </ModeRow>
+
+      {mode === 'pool' && (
+        <FormGrid>
+          <FieldWrap>
+            <FieldLabel htmlFor="mc-pool">Pool</FieldLabel>
+            <PoolSelect
+              id="mc-pool"
+              value={poolId}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onPoolChange(e.target.value)}
+            >
+              {poolList.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.fee != null ? ` — ${p.fee}%` : ''}
+                  {p.payout_scheme ? ` · ${p.payout_scheme}` : ''}
+                </option>
+              ))}
+              <option value={CUSTOM_POOL}>Custom / other pool</option>
+            </PoolSelect>
+            <FieldHint>
+              {selectedPool
+                ? `${selectedPool.payout_scheme || 'unknown scheme'}${
+                    selectedPool.hashrate != null ? ` · ${fmtHashrate(selectedPool.hashrate)}` : ''
+                  }`
+                : 'Enter the fee for your pool below.'}
+            </FieldHint>
+          </FieldWrap>
+          <FieldWrap>
+            <FieldLabel htmlFor="mc-fee">Pool Fee (%)</FieldLabel>
+            <Input
+              id="mc-fee"
+              type="number"
+              min="0"
+              max="100"
+              step="any"
+              value={feeStr}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFeeStr(e.target.value)}
+              placeholder="e.g. 1"
+            />
+            <FieldHint>Deducted from revenue. Editable — override for an unlisted pool.</FieldHint>
+          </FieldWrap>
+        </FormGrid>
+      )}
+
       {/* User inputs */}
       <SectionTitle>Your Hardware</SectionTitle>
       <FormGrid>
@@ -583,11 +813,7 @@ export const MiningCalculator: React.FC = () => {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setYourHashStr(e.target.value)}
             placeholder="e.g. 1000"
           />
-          {safeNum(yourHashStr) > 0 && (
-            <span style={{ fontSize: 10, color: theme.color.muted, marginTop: 2 }}>
-              = {fmtHashrate(safeNum(yourHashStr))}
-            </span>
-          )}
+          {safeNum(yourHashStr) > 0 && <FieldHint>= {fmtHashrate(safeNum(yourHashStr))}</FieldHint>}
         </FieldWrap>
         <FieldWrap>
           <FieldLabel htmlFor="mc-watts">Power Consumption (W)</FieldLabel>
@@ -704,11 +930,17 @@ export const MiningCalculator: React.FC = () => {
             <StatCard>
               <Label>Your BEAM / day</Label>
               <Value>{result.yourCoinsPerDay > 0 ? result.yourCoinsPerDay.toFixed(4) : '—'}</Value>
-              <SubValue>{result.yourShare > 0 ? `${(result.yourShare * 100).toFixed(4)}% of network` : ''}</SubValue>
+              <SubValue>
+                {result.yourShare > 0 ? `${(result.yourShare * 100).toFixed(4)}% of network` : ''}
+                {mode === 'pool' && poolShare != null
+                  ? ` · ${(poolShare * 100).toFixed(2)}% of ${selectedPool?.name ?? 'pool'}`
+                  : ''}
+              </SubValue>
             </StatCard>
             <StatCard>
               <Label>Revenue / day</Label>
               <Value>{Number.isFinite(result.yourValuePerDay) ? fmtUsd(result.yourValuePerDay) : '—'}</Value>
+              <SubValue>{mode === 'pool' && feePct > 0 ? `after ${feePct}% pool fee` : ''}</SubValue>
             </StatCard>
             <StatCard>
               <Label>Power cost / day</Label>
@@ -727,14 +959,25 @@ export const MiningCalculator: React.FC = () => {
             </StatCard>
           </StatGrid>
 
-          <SectionTitle>Block &amp; Break-evens</SectionTitle>
+          <SectionTitle>{mode === 'pool' ? 'Payout' : 'Block'} &amp; Break-evens</SectionTitle>
           <StatGrid>
-            <StatCard>
-              <Label>Time to find a block</Label>
-              <Value style={{ fontSize: 14 }}>
-                {Number.isFinite(result.timeToBlockSecs) ? fmtDuration(result.timeToBlockSecs) : '—'}
-              </Value>
-            </StatCard>
+            {mode === 'pool' ? (
+              <StatCard>
+                <Label>Time to min payout</Label>
+                <Value style={{ fontSize: 14 }}>{secsToMinPayout != null ? fmtDuration(secsToMinPayout) : '—'}</Value>
+                <SubValue>
+                  {minPayout != null && minPayout > 0 ? `${minPayout} BEAM minimum` : 'pool doesn\'t publish a minimum'}
+                </SubValue>
+              </StatCard>
+            ) : (
+              <StatCard>
+                <Label>Time to find a block</Label>
+                <Value style={{ fontSize: 14 }}>
+                  {Number.isFinite(result.timeToBlockSecs) ? fmtDuration(result.timeToBlockSecs) : '—'}
+                </Value>
+                <SubValue>on average, at your share</SubValue>
+              </StatCard>
+            )}
             <StatCard>
               <Label>Break-even BEAM price</Label>
               <Value style={{ fontSize: 14 }}>{result.bePriceUsd > 0 ? fmtUsd(result.bePriceUsd) : '—'}</Value>
@@ -754,7 +997,10 @@ export const MiningCalculator: React.FC = () => {
 
           {/* Profit vs network hashrate chart */}
           <ChartWrap>
-            <ChartTitle>Profit / day vs Network Hashrate</ChartTitle>
+            <ChartTitle>
+              Profit / day vs Network Hashrate
+              {mode === 'pool' && feePct > 0 ? ` (net of ${feePct}% fee)` : ''}
+            </ChartTitle>
             <ProfitChart inputs={inputs} effectiveNetHash={effectiveNetHash} />
             <div
               style={{
@@ -764,11 +1010,11 @@ export const MiningCalculator: React.FC = () => {
                 textAlign: 'center',
               }}
             >
-              <span style={{ color: '#00f6d2', marginRight: 4 }}>—</span>
+              <span style={{ color: C_LINE, marginRight: 4 }}>—</span>
               profit curve
-              <span style={{ marginLeft: 12, color: '#00f6d2', marginRight: 4 }}>- -</span>
+              <span style={{ marginLeft: 12, color: C_CURRENT, marginRight: 4 }}>- -</span>
               current network HR
-              <span style={{ marginLeft: 12, color: 'rgba(255,255,255,0.35)', marginRight: 4 }}>- -</span>
+              <span style={{ marginLeft: 12, color: C_ZERO, marginRight: 4 }}>- -</span>
               break-even ($0)
             </div>
           </ChartWrap>
