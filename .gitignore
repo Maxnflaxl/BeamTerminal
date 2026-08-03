@@ -8,6 +8,7 @@
 
 # Local Claude Code state
 .claude/
+.superpowers/
 
 # Local investigation notes (personal)
 VSNATION_DEX.md
