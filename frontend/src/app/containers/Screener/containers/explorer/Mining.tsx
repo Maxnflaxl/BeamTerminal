@@ -85,6 +85,23 @@ const HeaderStrip = styled.div`
   }
 `;
 
+const PageHeader = styled.div`
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: justify;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  grid-gap: 12px;
+  /* The button is taller than the heading, so the row owns the vertical
+     spacing instead of the H2's own margin. */
+  margin: 4px 0 16px;
+  > h2 {
+    margin: 0;
+  }
+`;
+
 const NetInfo = styled.span`
   font-size: 12px;
   color: ${theme.color.muted};
@@ -743,7 +760,12 @@ export const Mining: React.FC = () => {
   // --- render ----------------------------------------------------------------
   return (
     <Page>
-      <H2>Mining</H2>
+      <PageHeader>
+        <H2>Mining</H2>
+        <Btn type="button" onClick={() => setCalcOpen(true)}>
+          Open mining calculator
+        </Btn>
+      </PageHeader>
 
       {/* ── 1. Pool list ─────────────────────────────────────────────────── */}
       <Card>
@@ -1011,12 +1033,6 @@ export const Mining: React.FC = () => {
       </Card>
 
       {/* ── 4. Calculator modal ──────────────────────────────────────────── */}
-      <div style={{ marginBottom: 16 }}>
-        <Btn type="button" onClick={() => setCalcOpen(true)}>
-          Open mining calculator
-        </Btn>
-      </div>
-
       {calcOpen && (
         <Overlay z={200} backdrop="rgba(4, 37, 72, 0.82)" pad="0" onClick={closeCalc}>
           <ModalCard onClick={(e) => e.stopPropagation()}>
