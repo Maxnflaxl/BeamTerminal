@@ -30,14 +30,37 @@ function safeNum(v: string): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-function fmtUsd(n: number): string {
-  if (!Number.isFinite(n)) return '—';
-  return `$${fmtGrouped(n, 2)}`;
-}
-
 function fmtUsdLong(n: number): string {
   if (!Number.isFinite(n)) return '—';
   return `$${n.toFixed(4)}`;
+}
+
+/**
+ * USD with the precision the magnitude needs. BEAM trades in fractions of a
+ * cent, so break-even prices and small daily profits collapse to "$0.00" under
+ * a fixed 2-decimal format.
+ */
+function fmtUsdAdaptive(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  const a = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  if (a === 0) return '$0';
+  if (a >= 1000) return `${sign}$${fmtGrouped(a, 0)}`;
+  if (a < 0.01) return `${sign}$${a.toFixed(4)}`;
+  if (a < 1) return `${sign}$${a.toFixed(2)}`;
+  return `${sign}$${a.toFixed(a < 10 ? 2 : 0)}`;
+}
+
+/**
+ * A unit price (per BEAM, per kWh). Below a dollar these keep 3 significant
+ * digits rather than 2 decimals — a break-even of $0.0355/kWh is the whole
+ * answer, and "$0.04" rounds it away.
+ */
+function fmtUsdPrice(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return '—';
+  if (v >= 1000) return `$${fmtGrouped(v, 0)}`;
+  if (v >= 1) return `$${v.toFixed(2)}`;
+  return `$${v.toFixed(Math.min(8, 2 - Math.floor(Math.log10(v))))}`;
 }
 
 function fmtHashrate(solPerSec: number): string {
@@ -178,16 +201,6 @@ function ticksFor(min: number, max: number, target: number): number[] {
   return out;
 }
 
-function fmtAxisY(v: number): string {
-  const a = Math.abs(v);
-  const sign = v < 0 ? '-' : '';
-  if (a >= 1000) return `${sign}$${fmtGrouped(a, 0)}`;
-  if (a === 0) return '$0';
-  if (a < 0.01) return `${sign}$${a.toFixed(4)}`;
-  if (a < 1) return `${sign}$${a.toFixed(2)}`;
-  return `${sign}$${a.toFixed(a < 10 ? 2 : 0)}`;
-}
-
 function fmtAxisX(v: number): string {
   if (v >= 1e9) return `${(v / 1e9).toFixed(1)}G`;
   if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
@@ -263,7 +276,7 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
   const hx = hp ? toSvgX(hp.x) : 0;
   const hy = hp ? toSvgY(hp.y) : 0;
   // Readout box: fixed-width estimate (mono face, 9px) instead of measuring text.
-  const boxLines = hp ? [`Network: ${fmtAxisX(hp.x)} Sol/s`, `Profit: ${fmtAxisY(hp.y)}`] : [];
+  const boxLines = hp ? [`Network: ${fmtAxisX(hp.x)} Sol/s`, `Profit: ${fmtUsdAdaptive(hp.y)}`] : [];
   const boxW = Math.max(...boxLines.map((s) => s.length), 0) * 5.4 + 12;
   const boxH = 30;
   const boxX = hx + 10 + boxW > PAD.left + plotW ? hx - 10 - boxW : hx + 10;
@@ -283,7 +296,7 @@ const ProfitChart: React.FC<ChartProps> = ({ inputs, effectiveNetHash }) => {
           <g key={`y${i}`}>
             <line x1={PAD.left} y1={sy} x2={PAD.left + plotW} y2={sy} stroke={C_GRID} strokeWidth="1" />
             <text x={PAD.left - 7} y={sy + 3} textAnchor="end" fontSize="9" fill={C_AXIS}>
-              {fmtAxisY(v)}
+              {fmtUsdAdaptive(v)}
             </text>
           </g>
         );
@@ -569,7 +582,9 @@ export const MiningCalculator: React.FC = () => {
   // Solo vs pool mining
   const [mode, setMode] = useState<'solo' | 'pool'>('solo');
   const [poolList, setPoolList] = useState<ApiMiningPool[]>([]);
-  const [poolId, setPoolId] = useState<string>('');
+  // Defaults to the custom option so the <select> always has a matching value,
+  // even if the pool fetch fails and the list stays empty.
+  const [poolId, setPoolId] = useState<string>(CUSTOM_POOL);
   const [feeStr, setFeeStr] = useState('1');
 
   // What-if sensitivity multipliers (1.0 = neutral)
@@ -939,17 +954,17 @@ export const MiningCalculator: React.FC = () => {
             </StatCard>
             <StatCard>
               <Label>Revenue / day</Label>
-              <Value>{Number.isFinite(result.yourValuePerDay) ? fmtUsd(result.yourValuePerDay) : '—'}</Value>
+              <Value>{Number.isFinite(result.yourValuePerDay) ? fmtUsdAdaptive(result.yourValuePerDay) : '—'}</Value>
               <SubValue>{mode === 'pool' && feePct > 0 ? `after ${feePct}% pool fee` : ''}</SubValue>
             </StatCard>
             <StatCard>
               <Label>Power cost / day</Label>
-              <Value>{inputs.watts > 0 && effectiveKwh > 0 ? fmtUsd(result.dailyPowerCost) : '—'}</Value>
+              <Value>{inputs.watts > 0 && effectiveKwh > 0 ? fmtUsdAdaptive(result.dailyPowerCost) : '—'}</Value>
             </StatCard>
             <StatCard>
               <Label>Profit / day</Label>
               <ResultValue tone={profitTone}>
-                {Number.isFinite(result.dailyProfit) ? fmtUsd(result.dailyProfit) : '—'}
+                {Number.isFinite(result.dailyProfit) ? fmtUsdAdaptive(result.dailyProfit) : '—'}
               </ResultValue>
               <SubValue>
                 {Number.isFinite(result.margin) && result.yourValuePerDay > 0
@@ -980,12 +995,12 @@ export const MiningCalculator: React.FC = () => {
             )}
             <StatCard>
               <Label>Break-even BEAM price</Label>
-              <Value style={{ fontSize: 14 }}>{result.bePriceUsd > 0 ? fmtUsd(result.bePriceUsd) : '—'}</Value>
+              <Value style={{ fontSize: 14 }}>{result.bePriceUsd > 0 ? fmtUsdPrice(result.bePriceUsd) : '—'}</Value>
               <SubValue>at your power cost</SubValue>
             </StatCard>
             <StatCard>
               <Label>Break-even kWh price</Label>
-              <Value style={{ fontSize: 14 }}>{result.beKwh > 0 ? fmtUsd(result.beKwh) : '—'}</Value>
+              <Value style={{ fontSize: 14 }}>{result.beKwh > 0 ? fmtUsdPrice(result.beKwh) : '—'}</Value>
               <SubValue>at current BEAM price</SubValue>
             </StatCard>
             <StatCard>
