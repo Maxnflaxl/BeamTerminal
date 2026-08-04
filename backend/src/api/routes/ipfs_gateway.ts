@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getIpfs, WalletApiUnavailableError } from '../../walletApi.js';
 import { BadRequest, ApiError } from '../error.js';
+import { logger } from '../../logger.js';
 
 // ---------------------------------------------------------------------------
 // GET /ipfs/:cid
@@ -39,8 +40,9 @@ import { BadRequest, ApiError } from '../error.js';
 // ---------------------------------------------------------------------------
 
 const CID_RE = /^[A-Za-z0-9]{40,80}$/;
-// Same upper bound as /api/dapp/:cid; ~4× the wallet's own kIpfsTimeout.
-const IPFS_TIMEOUT_MS = 90_000;
+// Same upper bound as /api/dapp/:cid — must stay under Cloudflare's 100 s
+// origin-response limit so the JSON error reaches the caller, not a CF 504.
+const IPFS_TIMEOUT_MS = 60_000;
 const FILENAME_SAFE_RE = /[^A-Za-z0-9._\- ]+/g;
 
 function sanitizeFilename(s: string): string {
@@ -123,7 +125,13 @@ export const ipfsGatewayRoutes = async (app: FastifyInstance): Promise<void> => 
           throw new ApiError(503, 'IPFS_UNAVAILABLE', 'wallet-api IPFS is not configured');
         }
         const msg = err instanceof Error ? err.message : String(err);
-        throw new ApiError(504, 'IPFS_FETCH_FAILED', `failed to fetch ${cid}: ${msg}`);
+        // See dapp_download.ts for why every failure reads as "no provider".
+        logger.warn({ cid, err: msg }, 'ipfs gateway: fetch failed');
+        throw new ApiError(
+          504,
+          'IPFS_CONTENT_UNAVAILABLE',
+          `No peer on BEAM's IPFS swarm is currently serving ${cid}.`,
+        );
       }
 
       const sniffed = sniffContentType(bytes);

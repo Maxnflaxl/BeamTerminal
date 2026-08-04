@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getIpfs, WalletApiUnavailableError } from '../../walletApi.js';
 import { BadRequest, ApiError } from '../error.js';
+import { logger } from '../../logger.js';
 
 // ---------------------------------------------------------------------------
 // GET /api/dapp/:cid
@@ -17,11 +18,15 @@ import { BadRequest, ApiError } from '../error.js';
 // ---------------------------------------------------------------------------
 
 const CID_RE = /^[A-Za-z0-9]{40,80}$/;
-// 90 000 ms — generous, but dapp bundles are a few MB and the first
+// 60 000 ms — generous, but dapp bundles are a few MB and the first
 // fetch from a cold cache can take a while. The wallet itself uses 20 s
 // (beam-ui/apps_view.cpp:40 kIpfsTimeout = 20 * 1000); we go higher
 // because a backend retry costs less than a failed user download.
-const IPFS_TIMEOUT_MS = 90_000;
+//
+// Upper bound is Cloudflare's 100 s origin-response limit: exceed it and the
+// user gets an opaque CF 504 instead of the JSON error below, which the
+// Download button needs in order to explain what went wrong.
+const IPFS_TIMEOUT_MS = 60_000;
 const FILENAME_SAFE_RE = /[^A-Za-z0-9._\- ]+/g;
 
 function sanitizeFilename(s: string): string {
@@ -50,10 +55,19 @@ export const dappDownloadRoutes = async (app: FastifyInstance): Promise<void> =>
           throw new ApiError(503, 'IPFS_UNAVAILABLE', 'wallet-api IPFS is not configured');
         }
         const msg = err instanceof Error ? err.message : String(err);
-        // wallet-api surfaces fetch failures (timeout, peer unreachable, etc.)
-        // as RPC errors — bubble as 504 so callers can distinguish from a
-        // 500 in our own code.
-        throw new ApiError(504, 'IPFS_FETCH_FAILED', `failed to fetch ${cid}: ${msg}`);
+        // wallet-api collapses every IPFS failure into one opaque RPC error
+        // (-32022 IPFSError, see beam/wallet/api/base/api_errors.h), so we
+        // can't tell a timeout from a malformed CID. In practice the only
+        // failure users hit is "no peer on the swarm has these blocks" —
+        // the publisher's node went offline and we never mirrored the CID.
+        // Say that, rather than echoing an error code nobody can act on.
+        logger.warn({ cid, err: msg }, 'dapp download: ipfs fetch failed');
+        throw new ApiError(
+          504,
+          'IPFS_CONTENT_UNAVAILABLE',
+          `No peer on BEAM's IPFS swarm is currently serving ${cid}. ` +
+            `The publisher's node is probably offline — try again later.`,
+        );
       }
 
       void reply
