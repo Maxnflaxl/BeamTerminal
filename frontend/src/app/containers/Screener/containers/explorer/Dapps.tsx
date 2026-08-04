@@ -17,7 +17,7 @@ import {
   ErrorBox,
   theme,
 } from './shared';
-import { api } from '../../api/client';
+import { api, apiUrl } from '../../api/client';
 import { Overlay, useEscapeClose } from '../../components/modalChrome';
 import type { ApiDapp, ApiDappDetail, ApiDappPublisher, ApiDappVersion } from '../../api/types';
 import CopyIcon from './shared/icons/copy.svg';
@@ -255,6 +255,22 @@ const IconLink = styled.a`
     cursor: not-allowed;
     pointer-events: none;
   }
+  /* An IPFS fetch can run for up to a minute — pulse so the click reads as
+     accepted rather than ignored. */
+  &[aria-busy='true'] {
+    color: ${theme.color.accent};
+    border-color: ${theme.color.accent};
+    animation: icon-link-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes icon-link-pulse {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
 `;
 
 const SocialLink = styled.a`
@@ -392,6 +408,12 @@ const Toast = styled.div`
   z-index: 300;
   pointer-events: none;
   font-family: ${theme.font.mono};
+  /* Failure messages are full sentences and can carry a 46-char CID — wrap
+     instead of running off the viewport. */
+  max-width: min(560px, calc(100vw - 32px));
+  text-align: center;
+  line-height: 1.45;
+  overflow-wrap: break-word;
 `;
 
 // ---------------------------------------------------------------------------
@@ -576,7 +598,7 @@ function dappFilename(name: string | null, version: string | null): string {
 // Fastify route `/api/dapp/:cid` wraps it with a Content-Disposition header
 // so the browser handles the download natively.
 function dappDownloadUrl(cid: string, filename: string): string {
-  return `/api/dapp/${cid}?filename=${encodeURIComponent(filename)}`;
+  return apiUrl(`/dapp/${cid}?filename=${encodeURIComponent(filename)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -613,14 +635,62 @@ const CopyKey: React.FC<{ value: string; onCopy: (msg: string) => void; show?: '
   </KeyRow>
 );
 
+// A bundle is only downloadable while some node on BEAM's private swarm still
+// serves its blocks — our mirror, or the publisher's own node. When neither
+// does, the backend answers 504 IPFS_CONTENT_UNAVAILABLE after its fetch
+// timeout. A bare `<a download>` renders that as a silent no-op (or an
+// unexplained "Failed" in the downloads bar), so drive the fetch ourselves and
+// report the outcome. The href stays real, so right-click → Save link as and
+// middle-click still work.
 const DownloadBtn: React.FC<{
   cid: string | null | undefined;
   filename: string;
-}> = ({ cid, filename }) => {
+  onNotify: (msg: string) => void;
+}> = ({ cid, filename, onNotify }) => {
+  const [busy, setBusy] = useState(false);
+
   // Hidden inside the BEAM Desktop Wallet: its QtWebEngine profile has no
   // `downloadRequested` handler, so any browser download is silently dropped.
   if (BeamDappConnector.isDesktop()) return null;
-  const disabled = !cid;
+  const disabled = !cid || busy;
+
+  const download = async (e: React.MouseEvent): Promise<void> => {
+    e.stopPropagation();
+    // Leave modified clicks (new tab, save-as) to the browser.
+    if (!cid || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (busy) return;
+
+    setBusy(true);
+    onNotify('Fetching from IPFS…');
+    try {
+      const res = await fetch(dappDownloadUrl(cid, filename));
+      if (!res.ok) {
+        let msg = `Download failed (HTTP ${res.status})`;
+        try {
+          const body = await res.json();
+          if (body && body.error && body.error.message) msg = body.error.message;
+        } catch {
+          // Non-JSON body — an edge proxy answered before our API did.
+        }
+        onNotify(msg);
+        return;
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      // Revoking synchronously can race the browser's read of the blob.
+      window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+      onNotify(`Downloaded ${filename}`);
+    } catch {
+      onNotify('Download failed — check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <IconLink
       href={cid ? dappDownloadUrl(cid, filename) : undefined}
@@ -629,7 +699,8 @@ const DownloadBtn: React.FC<{
       title={cid ? `Download .dapp from IPFS (${cid.slice(0, 8)}…)` : 'No IPFS CID recorded for this version.'}
       aria-label="Download .dapp file"
       aria-disabled={disabled || undefined}
-      onClick={(e) => e.stopPropagation()}
+      aria-busy={busy || undefined}
+      onClick={download}
     >
       <DownloadIcon />
     </IconLink>
@@ -940,7 +1011,7 @@ const DappModal: React.FC<{
               <FieldLabel>IPFS CID</FieldLabel>
               <KeyRow>
                 <Mono style={{ fontSize: 11 }}>{dapp.ipfs_id}</Mono>
-                <DownloadBtn cid={dapp.ipfs_id} filename={dappFilename(dapp.name, dapp.version)} />
+                <DownloadBtn cid={dapp.ipfs_id} filename={dappFilename(dapp.name, dapp.version)} onNotify={onCopy} />
               </KeyRow>
             </Field>
           ) : null}
@@ -987,7 +1058,11 @@ const DappModal: React.FC<{
                         {v.ipfs_hash ? (
                           <KeyRow>
                             <span>{shortKey(v.ipfs_hash)}</span>
-                            <DownloadBtn cid={v.ipfs_hash} filename={dappFilename(dapp.name, v.version)} />
+                            <DownloadBtn
+                              cid={v.ipfs_hash}
+                              filename={dappFilename(dapp.name, v.version)}
+                              onNotify={onCopy}
+                            />
                           </KeyRow>
                         ) : (
                           '—'
@@ -1051,7 +1126,10 @@ export const Dapps: React.FC = () => {
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), 1800);
+    // "Copied" needs a blink; a download failure is a sentence someone has to
+    // actually read, so scale the dwell time with the message.
+    const ms = msg.length > 40 ? 6000 : 1800;
+    window.setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), ms);
   }, []);
 
   // Guards refresh below — a poll resolving after navigate-away must not

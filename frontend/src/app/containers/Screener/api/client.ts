@@ -51,6 +51,10 @@ import type {
 // use the absolute prod host.
 const BASE = window.location.hostname === 'beamterminal.0xmx.net' ? '/api' : 'https://beamterminal.0xmx.net/api';
 
+// For callers that build their own URLs (file downloads, links) instead of
+// going through `api` — they need the same origin rule.
+export const apiUrl = (path: string): string => `${BASE}${path}`;
+
 class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
     super(message);
