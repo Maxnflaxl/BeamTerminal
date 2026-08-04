@@ -62,8 +62,12 @@ export const dappDownloadRoutes = async (app: FastifyInstance): Promise<void> =>
         // the publisher's node went offline and we never mirrored the CID.
         // Say that, rather than echoing an error code nobody can act on.
         logger.warn({ cid, err: msg }, 'dapp download: ipfs fetch failed');
+        // 503, not 504: Cloudflare replaces an origin 502/504 with its own
+        // branded error page, so the body below never reaches the browser.
+        // 503 passes through untouched and says the same thing — the content
+        // is unavailable right now, try later.
         throw new ApiError(
-          504,
+          503,
           'IPFS_CONTENT_UNAVAILABLE',
           `No peer on BEAM's IPFS swarm is currently serving ${cid}. ` +
             `The publisher's node is probably offline — try again later.`,

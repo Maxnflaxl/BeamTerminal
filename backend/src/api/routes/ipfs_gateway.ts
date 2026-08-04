@@ -127,8 +127,10 @@ export const ipfsGatewayRoutes = async (app: FastifyInstance): Promise<void> => 
         const msg = err instanceof Error ? err.message : String(err);
         // See dapp_download.ts for why every failure reads as "no provider".
         logger.warn({ cid, err: msg }, 'ipfs gateway: fetch failed');
+        // 503 rather than 504 — see dapp_download.ts (Cloudflare rewrites
+        // origin 502/504 bodies).
         throw new ApiError(
-          504,
+          503,
           'IPFS_CONTENT_UNAVAILABLE',
           `No peer on BEAM's IPFS swarm is currently serving ${cid}.`,
         );
