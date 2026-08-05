@@ -240,7 +240,8 @@ export function blocksUrl(baseUrl: string, kind: AdapterKind): string | null {
     case 'sunpool':
       return null; // heights are parsed from the already-fetched stats text
     case 'cedric':
-      return null; // no usable per-block list
+      // MiningCore blocks list, paged. 50 rows spans weeks at this pool's rate.
+      return `${baseUrl}/api/pool/blocks/page/0/pagesize/50/`;
   }
 }
 
@@ -250,6 +251,7 @@ export function parseBlocks(kind: AdapterKind, raw: unknown): number[] {
     case 'open-eth':        return blocksFromOpenEth(raw);
     case 'cryptonote-node': return blocksFromCryptonote(raw);
     case 'sunpool':         return blocksFromSunpoolText(raw);
+    case 'cedric':          return blocksFromMiningCore(raw);
     default:                return [];
   }
 }
@@ -300,6 +302,22 @@ function blocksFromSunpoolText(raw: unknown): number[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const h = num(m[1]);
+    if (isPlausibleHeight(h)) out.push(h);
+  }
+  return out;
+}
+
+// MiningCore (cedric): { sStatus, mResponse: [{ blockHeight, status, ... }] }.
+// `status` is "confirmed" | "pending" | "orphaned"; orphaned blocks are not on
+// the chain, so counting them would attribute someone else's block to this pool.
+function blocksFromMiningCore(raw: unknown): number[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const list = (raw as any).mResponse;
+  if (!Array.isArray(list)) return [];
+  const out: number[] = [];
+  for (const b of list) {
+    if ((b as any)?.status === 'orphaned') continue;
+    const h = num((b as any)?.blockHeight);
     if (isPlausibleHeight(h)) out.push(h);
   }
   return out;
