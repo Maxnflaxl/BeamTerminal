@@ -21,6 +21,7 @@ import { ingestWatchedContracts } from './services/contractActivity.js';
 import { projectDaoVote } from './services/daoGovernance.js';
 import { refreshDaoStats } from './services/daoStats.js';
 import { syncIpfsPins } from './services/ipfsPin.js';
+import { syncBridges } from './services/bridge.js';
 import { refreshMiningPools } from './mining/refresh.js';
 
 let stopping = false;
@@ -69,6 +70,17 @@ let dappStoreInflight = false;
 const IPFS_PIN_RESYNC_MS = 3 * 60 * 1000;
 let lastIpfsPinSync = 0;
 let ipfsPinInflight = false;
+
+// Bridge (Pipe) message reconciliation. Reads the Beam side of all five
+// Beam<->Ethereum bridges through the Pipe app-shader in wallet-api. Volume is
+// tiny — a full sweep of every bridge is ~650 shader calls / ~30s — so 5 min is
+// generous. Fire-and-forget is safe here because bridge_messages is upserted on
+// a natural key and reorg-healed by UPDATE, not DELETE (see reorg.ts); if that
+// ever becomes a DELETE this must move inline, per the note on
+// runDaoVoteProjection below.
+const BRIDGE_RESYNC_MS = 5 * 60 * 1000;
+let lastBridgeSync = 0;
+let bridgeInflight = false;
 
 // Mining pool stats refresh. Triggered when the chain head advances (pool
 // numbers update once per block, ~1 min on BEAM), inflight-gated and async so a
@@ -246,6 +258,26 @@ function maybeKickDappStoreSync(): void {
       );
     })
     .finally(() => { dappStoreInflight = false; });
+}
+
+function maybeKickBridgeSync(): void {
+  if (bridgeInflight) return;
+  if (!config.WALLET_API_URL) return; // wasm execution needs the daemon
+  const now = Date.now();
+  if (now - lastBridgeSync < BRIDGE_RESYNC_MS) return;
+  bridgeInflight = true;
+  syncBridges()
+    .then((res) => {
+      lastBridgeSync = Date.now();
+      logger.info(res, 'bridges synced');
+    })
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'bridge sync failed; will retry next tick',
+      );
+    })
+    .finally(() => { bridgeInflight = false; });
 }
 
 function maybeKickMiningPoolsRefresh(headHeight: number): void {
@@ -528,6 +560,7 @@ async function tick(): Promise<void> {
   // node goes offline. Self-paced, drains the backlog in MAX_PINS_PER_TICK
   // chunks. Cheap when there's no backlog.
   maybeKickIpfsPinSync();
+  maybeKickBridgeSync();
 
   // Watched-contract call-history ingest (BANS, …). Inline (not fire-and-forget)
   // because contract_call_events is reorg-cleaned — a background run could race

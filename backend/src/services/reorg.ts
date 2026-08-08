@@ -168,6 +168,25 @@ async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<v
         WHERE last_indexed_height > $1`,
       [commonHeight],
     );
+    // Bridge messages are keyed by (bridge, chain, direction, msg_id) — a
+    // natural key, so re-reading is idempotent and there's nothing to delete.
+    // Blank the Beam-side provenance of anything past the ancestor and rewind
+    // the cursor so the next sync re-derives it from the contract. Incoming
+    // (eth2beam) rows key off Ethereum blocks and are untouched by Beam reorgs.
+    await client.query(
+      `UPDATE bridge_messages
+          SET status = 'unknown', src_height = NULL, src_ts = NULL, updated_at = now()
+        WHERE direction = 'beam2eth' AND src_height > $1`,
+      [commonHeight],
+    );
+    await client.query(
+      `UPDATE bridge_cursors c
+          SET beam_msg_hi = COALESCE(
+                (SELECT MAX(m.msg_id) FROM bridge_messages m
+                  WHERE m.bridge = c.bridge AND m.direction = 'beam2eth'
+                    AND m.src_height IS NOT NULL), 0),
+              updated_at = now()`,
+    );
     // Don't touch `pools` rows — pools are largely cumulative; a pool that
     // existed at commonHeight still exists. If we mistakenly marked one as
     // `destroyed_at_height > commonHeight`, undo it.
