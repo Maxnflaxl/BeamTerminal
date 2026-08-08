@@ -655,6 +655,77 @@ Full BANS registry action history (oldest→newest), from `contract_call_events`
 
 `Cache-Control: public, max-age=60`. Returns empty `actions` when `BANS_CID` is unset.
 
+## `GET /api/bridge/health`
+
+Liveness and peg backing for the five Beam↔Ethereum Pipe bridges.
+
+```json
+{
+  "bridges": [
+    {
+      "bridge": "busdt", "label": "bUSDT", "chain_id": 1, "aid": 37,
+      "eth_pipe": "0x7c3fe09e86b0d8661d261a49bfa385536b7077f9",
+      "eth_token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      "outgoing": { "pending": 99, "relayed": 0, "failed": 0, "unknown": 0, "total": 99 },
+      "incoming": { "not_delivered": 2, "unclaimed": 2, "complete": 136, "unknown": 0, "total": 140 },
+      "oldest_open_ts": "2022-06-14T09:12:00.000Z",
+      "last_message_ts": "2026-08-08T13:56:26.000Z",
+      "unclaimed_amount": 41.5,
+      "escrow": { "locked": 3701.4022, "decimals": 6, "observed_at": "2026-08-08T23:40:00.000Z" },
+      "minted": 3688.28,
+      "collateral_ratio": 0.9964,
+      "settlement_source": "etherscan"
+    }
+  ],
+  "settlement_available": true
+}
+```
+
+Status vocabularies differ by direction, because the underlying contract states do:
+
+- `beam2eth` — `pending` (no settling Ethereum tx seen), `relayed`, `failed`, `unknown`.
+- `eth2beam` — `not_delivered` (the relayer never pushed it to Beam), `unclaimed`
+  (delivered; the recipient hasn't signed `ReceiveFunds`), `complete`, `unknown`.
+
+`unclaimed` is **not** an error: only the recipient can claim, so a message can sit
+there indefinitely. Don't count it as a bridge failure.
+
+`collateral_ratio` is Beam-side minted supply ÷ Ethereum-side locked collateral.
+≈1.0 means fully backed; small deviations are in-flight messages and relayer fees.
+
+`settlement_available` is `false` when no `ETHERSCAN_API_KEY` is configured. In that
+state `beam2eth` messages stay `pending` and no failure can be observed —
+`"failed": 0` then means "unverifiable", not "none". `Cache-Control: public, max-age=30`.
+
+## `GET /api/bridge/messages`
+
+Individual bridge transfers, newest first.
+
+Query params: `bridge`, `direction` (`beam2eth`|`eth2beam`), `status`,
+`limit` (default 50, max 500), `offset`.
+
+```json
+{
+  "messages": [
+    {
+      "bridge": "beam-wbeam", "direction": "beam2eth", "msg_id": 496,
+      "status": "pending", "amount": 15000.0, "relayer_fee": 95.42684516,
+      "receiver": "24c32736a24f2ccc95a3249b17ea5c23222df71c",
+      "src_height": 3981297, "src_block": null,
+      "src_ts": "2026-08-07T01:03:30.000Z", "src_tx": null,
+      "settle_tx": null, "settle_block": null, "settle_ts": null
+    }
+  ],
+  "total": 1283, "limit": 50, "offset": 0
+}
+```
+
+`amount` and `relayer_fee` are scaled to the side the message was observed on:
+Beam-side decimals for `beam2eth`, Ethereum-side for `eth2beam`. These differ —
+bUSDT is 8 decimals on Beam against USDT's 6 on Ethereum. `receiver` is a 20-byte
+Ethereum address for `beam2eth` and a 33-byte Beam pubkey for `eth2beam`, hex, no
+`0x`. `Cache-Control: public, max-age=30`.
+
 ## Quote endpoint — intentionally not present
 
 The swap panel asks the AMM shader for quotes directly (`pool_trade` with `bPredictOnly=1`) via the user's wallet. We **don't** mirror that on the server because:

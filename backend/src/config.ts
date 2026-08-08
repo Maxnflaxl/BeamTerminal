@@ -89,6 +89,20 @@ const Env = z.object({
   // How often to poll the explorer's `/asset_swaps` for live DEX offers. Offers
   // are gossiped — there's no benefit to going faster than ~15s.
   ASSET_SWAP_POLL_MS: z.coerce.number().int().positive().default(30_000),
+  // Ethereum JSON-RPC for the bridge monitor. The default is keyless and, as of
+  // 2026-08, the only free public endpoint that serves eth_getLogs over a
+  // useful range (10k blocks/query) — see services/ethRpc.ts. Point it at a
+  // keyed provider to widen ETH_LOG_WINDOW.
+  ETH_RPC_URL: z.string().url().default('https://eth.drpc.org'),
+  // Optional. Only the Beam->Ethereum settlement scan needs it, because
+  // `processRemoteMessage` emits no event and the tx list is the sole source.
+  // Without it those messages stay 'unknown' rather than being reported as
+  // failed; every other part of the bridge monitor works keyless.
+  ETHERSCAN_API_KEY: z.string().min(1).optional(),
+  // How many 10k-block log windows the bridge sync may walk per cycle. Bounds
+  // the cold backfill (~9.1M blocks per Pipe) so it spreads over several ticks
+  // instead of stalling one.
+  BRIDGE_LOG_WINDOWS_PER_CYCLE: z.coerce.number().int().positive().default(120),
   CONFIRMATIONS: z.coerce.number().int().nonnegative().default(80),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
   API_PORT: z.coerce.number().int().positive().default(3000),

@@ -2,10 +2,22 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { config } from '../config.js';
 import { q } from '../db.js';
 import { logger } from '../logger.js';
 import { invokeContract } from '../walletApi.js';
 import { getBlockTsMap } from './blockTimestamps.js';
+import {
+  LOG_WINDOW,
+  NEW_LOCAL_MESSAGE_TOPIC,
+  blockNumber,
+  decodeNewLocalMessage,
+  erc20BalanceOf,
+  getBalance,
+  getBlockTimestamp,
+  getLogs,
+} from './ethRpc.js';
+import { etherscanEnabled, scanSettlements } from './etherscan.js';
 
 // ---------------------------------------------------------------------------
 // Beam <-> Ethereum Pipe bridge monitoring, Beam side.
@@ -40,6 +52,15 @@ export interface BridgeDef {
   /** Decimals of the Beam-side asset (all Pipe amounts are in these units). */
   decimals: number;
   /**
+   * Decimals of the *Ethereum* asset. Not always the same as `decimals`: bUSDT
+   * is 8 on Beam but USDT is 6 on Ethereum, bDAI is 8 against DAI's 18. Amounts
+   * crossing the bridge are denominated in the side they were observed on, so
+   * both scales are needed to compare supply against collateral.
+   */
+  ethDecimals: number;
+  /** First block with code at `ethPipe`; floor for the log sweep. */
+  ethDeployBlock: number;
+  /**
    * `view_params` misreads this Pipe's Params record — it locks aid 0 directly
    * instead of pairing with a token_contract, so the layout differs and the
    * action returns garbage. Every other action works.
@@ -62,6 +83,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethToken: '0xE5AcBB03D73267c03349c76EaD672Ee4d941F499',
     aid: 0,
     decimals: 8,
+    ethDecimals: 8,
+    ethDeployBlock: 18190064,
     noViewParams: true,
   },
   {
@@ -73,6 +96,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethToken: null, // native ETH
     aid: 36,
     decimals: 8,
+    ethDecimals: 18,
+    ethDeployBlock: 16590872,
   },
   {
     key: 'busdt',
@@ -83,6 +108,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethToken: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
     aid: 37,
     decimals: 8,
+    ethDecimals: 6,
+    ethDeployBlock: 16590881,
   },
   {
     key: 'bwbtc',
@@ -93,6 +120,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethToken: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
     aid: 38,
     decimals: 8,
+    ethDecimals: 8,
+    ethDeployBlock: 16590894,
   },
   {
     key: 'bdai',
@@ -103,6 +132,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethToken: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
     aid: 39,
     decimals: 8,
+    ethDecimals: 18,
+    ethDeployBlock: 16590911,
   },
 ];
 
@@ -212,11 +243,18 @@ export function mapIncomingStatus(raw: number | null): string {
 // Cursors
 // ---------------------------------------------------------------------------
 
-interface CursorRow { beam_msg_hi: string; eth_scanned_to_block: string }
+interface CursorRow {
+  beam_msg_hi: string;
+  eth_scanned_to_block: string;
+  eth_tx_scanned_to_block: string;
+}
 
-async function readCursor(b: BridgeDef): Promise<{ beamMsgHi: number; ethBlock: number }> {
+interface Cursors { beamMsgHi: number; ethLogBlock: number; ethTxBlock: number }
+
+async function readCursor(b: BridgeDef): Promise<Cursors> {
   const { rows } = await q<CursorRow>(
-    'SELECT beam_msg_hi, eth_scanned_to_block FROM bridge_cursors WHERE bridge = $1',
+    `SELECT beam_msg_hi, eth_scanned_to_block, eth_tx_scanned_to_block
+       FROM bridge_cursors WHERE bridge = $1`,
     [b.key],
   );
   const row = rows[0];
@@ -225,12 +263,33 @@ async function readCursor(b: BridgeDef): Promise<{ beamMsgHi: number; ethBlock: 
       'INSERT INTO bridge_cursors (bridge, chain_id) VALUES ($1, $2) ON CONFLICT (bridge) DO NOTHING',
       [b.key, b.chainId],
     );
-    return { beamMsgHi: 0, ethBlock: 0 };
+    return { beamMsgHi: 0, ethLogBlock: 0, ethTxBlock: 0 };
   }
+  // A zero cursor means "never scanned" — start at the Pipe's deploy block
+  // rather than genesis, which would waste ~1 600 windows per bridge.
   return {
     beamMsgHi: Number(row.beam_msg_hi),
-    ethBlock: Number(row.eth_scanned_to_block),
+    ethLogBlock: Math.max(Number(row.eth_scanned_to_block), b.ethDeployBlock),
+    ethTxBlock: Math.max(Number(row.eth_tx_scanned_to_block), b.ethDeployBlock),
   };
+}
+
+async function writeEthLogCursor(bridge: string, block: number): Promise<void> {
+  await q(
+    `UPDATE bridge_cursors
+        SET eth_scanned_to_block = $2, updated_at = now()
+      WHERE bridge = $1 AND eth_scanned_to_block < $2`,
+    [bridge, block],
+  );
+}
+
+async function writeEthTxCursor(bridge: string, block: number): Promise<void> {
+  await q(
+    `UPDATE bridge_cursors
+        SET eth_tx_scanned_to_block = $2, updated_at = now()
+      WHERE bridge = $1 AND eth_tx_scanned_to_block < $2`,
+    [bridge, block],
+  );
 }
 
 async function writeBeamCursor(bridge: string, msgHi: number): Promise<void> {
@@ -386,6 +445,149 @@ async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: n
 }
 
 // ---------------------------------------------------------------------------
+// Ethereum -> Beam: ingest NewLocalMessage logs
+//
+// The authoritative list of incoming messages, and the only source of their
+// amounts: once a recipient claims, ReceiveFunds deletes the Beam-side header
+// (pipe_contract.cpp Method_4), so `remote_msg` reports "absent" and the amount
+// is gone from Beam entirely.
+//
+// Walks in LOG_WINDOW-block steps because the free RPC caps ranges there, and
+// stops after BRIDGE_LOG_WINDOWS_PER_CYCLE so the ~9.1M-block cold backfill
+// spreads across ticks instead of stalling one. Status is left alone here —
+// refreshIncoming owns that.
+// ---------------------------------------------------------------------------
+
+async function ingestIncomingLogs(b: BridgeDef): Promise<{ found: number; caughtUp: boolean }> {
+  const { ethLogBlock } = await readCursor(b);
+  const head = await blockNumber();
+  if (ethLogBlock >= head) return { found: 0, caughtUp: true };
+
+  let from = ethLogBlock;
+  let windows = 0;
+  let found = 0;
+
+  while (from < head && windows < config.BRIDGE_LOG_WINDOWS_PER_CYCLE) {
+    const to = Math.min(from + LOG_WINDOW - 1, head);
+    // eslint-disable-next-line no-await-in-loop
+    const logs = await getLogs(b.ethPipe, NEW_LOCAL_MESSAGE_TOPIC, from, to);
+    windows += 1;
+
+    const msgs = logs.map(decodeNewLocalMessage).filter((m): m is NonNullable<typeof m> => m !== null);
+    if (msgs.length > 0) {
+      // Block timestamps aren't in the log payload on a standard RPC, so fetch
+      // the distinct blocks we actually saw. Handfuls, not thousands.
+      const blocks = Array.from(new Set(msgs.map((m) => m.block)));
+      const tsEntries = await Promise.all(
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
+        blocks.map(async (blk) => [blk, await getBlockTimestamp(blk)] as const),
+      );
+      const tsMap = new Map(tsEntries);
+
+      const placeholders: string[] = [];
+      const params: Array<string | number | Date | null> = [];
+      for (const m of msgs) {
+        const i = params.length;
+        placeholders.push(
+          `($${i + 1}, $${i + 2}, 'eth2beam', $${i + 3}, 'unknown', $${i + 4}, $${i + 5}, $${i + 6}, $${i + 7}, $${i + 8}, $${i + 9})`,
+        );
+        params.push(
+          b.key, b.chainId, m.msgId, m.amount.toString(), m.relayerFee.toString(),
+          m.receiver, m.block, tsMap.get(m.block) ?? null, m.txHash,
+        );
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await q(
+        `INSERT INTO bridge_messages
+           (bridge, chain_id, direction, msg_id, status, amount, relayer_fee, receiver,
+            src_block, src_ts, src_tx)
+         VALUES ${placeholders.join(',')}
+         ON CONFLICT (bridge, chain_id, direction, msg_id) DO UPDATE SET
+           -- Ethereum provenance wins; status stays whatever the Beam side said.
+           amount      = EXCLUDED.amount,
+           relayer_fee = EXCLUDED.relayer_fee,
+           receiver    = EXCLUDED.receiver,
+           src_block   = EXCLUDED.src_block,
+           src_ts      = COALESCE(EXCLUDED.src_ts, bridge_messages.src_ts),
+           src_tx      = EXCLUDED.src_tx,
+           updated_at  = now()`,
+        params,
+      );
+      found += msgs.length;
+    }
+
+    from = to + 1;
+    // eslint-disable-next-line no-await-in-loop
+    await writeEthLogCursor(b.key, to);
+  }
+
+  return { found, caughtUp: from >= head };
+}
+
+// ---------------------------------------------------------------------------
+// Beam -> Ethereum: settle outgoing messages
+//
+// Requires Etherscan: processRemoteMessage emits no event, so the contract's
+// transaction list is the only place a settlement is visible. Without a key the
+// rows stay 'pending' rather than being mislabelled failed.
+// ---------------------------------------------------------------------------
+
+async function settleOutgoing(b: BridgeDef): Promise<number> {
+  if (!etherscanEnabled()) return 0;
+
+  const { ethTxBlock } = await readCursor(b);
+  const { settlements, highestBlock } = await scanSettlements(b.chainId, b.ethPipe, ethTxBlock);
+  if (settlements.size === 0) {
+    if (highestBlock > ethTxBlock) await writeEthTxCursor(b.key, highestBlock);
+    return 0;
+  }
+
+  let updated = 0;
+  for (const s of settlements.values()) {
+    // eslint-disable-next-line no-await-in-loop
+    const { rowCount } = await q(
+      `UPDATE bridge_messages
+          SET status       = $4,
+              settle_tx    = $5,
+              settle_block = $6,
+              settle_ts    = $7,
+              updated_at   = now()
+        WHERE bridge = $1 AND direction = 'beam2eth' AND msg_id = $2 AND chain_id = $3
+          -- Never downgrade a relayed message: the relayer re-submits settled
+          -- messages and those retries revert.
+          AND status IS DISTINCT FROM 'relayed'`,
+      [b.key, s.msgId, b.chainId, s.success ? 'relayed' : 'failed', s.txHash, s.block, s.ts],
+    );
+    updated += rowCount ?? 0;
+  }
+
+  // Only rewind-proof once the whole scan completed; a partial scan would skip
+  // settlements in the blocks we didn't reach.
+  if (highestBlock > ethTxBlock) await writeEthTxCursor(b.key, highestBlock);
+  return updated;
+}
+
+// ---------------------------------------------------------------------------
+// Escrow: what actually backs the minted supply
+// ---------------------------------------------------------------------------
+
+async function snapshotEscrow(b: BridgeDef): Promise<void> {
+  const locked = b.ethToken
+    ? await erc20BalanceOf(b.ethToken, b.ethPipe)
+    : await getBalance(b.ethPipe);
+  const block = await blockNumber();
+  await q(
+    `INSERT INTO bridge_escrow (bridge, chain_id, token, locked, decimals, block_number, observed_at)
+     VALUES ($1, $2, $3, $4, $5, $6, now())
+     ON CONFLICT (bridge) DO UPDATE SET
+       chain_id = EXCLUDED.chain_id, token = EXCLUDED.token, locked = EXCLUDED.locked,
+       decimals = EXCLUDED.decimals, block_number = EXCLUDED.block_number,
+       observed_at = now()`,
+    [b.key, b.chainId, b.ethToken, locked.toString(), b.ethDecimals, block],
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -394,21 +596,38 @@ export interface BridgeSyncResult {
   outgoingIngested: number;
   incomingOpen: number;
   shaderCalls: number;
+  logsIngested: number;
+  settled: number;
+  logsCaughtUp: number;
 }
 
 export async function syncBridges(): Promise<BridgeSyncResult> {
-  const res: BridgeSyncResult = { bridges: 0, outgoingIngested: 0, incomingOpen: 0, shaderCalls: 0 };
+  const res: BridgeSyncResult = {
+    bridges: 0, outgoingIngested: 0, incomingOpen: 0, shaderCalls: 0,
+    logsIngested: 0, settled: 0, logsCaughtUp: 0,
+  };
 
   for (const b of BRIDGES) {
     try {
+      // Ethereum log ingest first: it establishes which incoming msgIds exist,
+      // which is what makes the Beam-side status sweep meaningful.
+      // eslint-disable-next-line no-await-in-loop
+      const { found, caughtUp } = await ingestIncomingLogs(b);
       // eslint-disable-next-line no-await-in-loop
       const ingested = await ingestOutgoing(b);
       // eslint-disable-next-line no-await-in-loop
       const { scanned, open } = await refreshIncoming(b);
+      // eslint-disable-next-line no-await-in-loop
+      const settled = await settleOutgoing(b);
+      // eslint-disable-next-line no-await-in-loop
+      await snapshotEscrow(b);
       res.bridges += 1;
       res.outgoingIngested += ingested;
       res.incomingOpen += open;
       res.shaderCalls += scanned + ingested + 1;
+      res.logsIngested += found;
+      res.settled += settled;
+      if (caughtUp) res.logsCaughtUp += 1;
       logger.debug({ bridge: b.key, ingested, scanned, open }, 'bridge synced');
     } catch (err) {
       // One unreachable Pipe must not stop the others.
