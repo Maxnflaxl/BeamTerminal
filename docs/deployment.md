@@ -239,6 +239,10 @@ docker compose up -d api indexer
 rsync -av --delete frontend/html/ /var/www/beamterminal/
 chown -R www-data:www-data /var/www/beamterminal
 
+# Reclaim the layer cache the rebuild just produced — the next deploy's sources
+# differ, so it is never reused, and it accumulates deploy over deploy.
+docker builder prune -af
+
 # CDNs cache static assets (e.g. /index.js) — purge after publish so users don't
 # keep seeing the stale bundle until the TTL expires.
 ```
@@ -285,3 +289,13 @@ The build script versions automatically off `git rev-list --count HEAD`. Upload 
   * `/api/health.lag_seconds > 300` for > 5 min → page (indexer fell behind).
   * `oracle_snapshots.ts` older than 4 h → page (oracle stalled = USD numbers go dark).
   * Postgres container down → page.
+
+### Keeping the disk from filling
+
+Each `docker compose build` leaves a layer cache the next deploy cannot reuse, so
+it accumulates across deploys. Reclaim it as the last step of every deploy that
+rebuilt an image:
+
+```sh
+docker builder prune -af
+```
