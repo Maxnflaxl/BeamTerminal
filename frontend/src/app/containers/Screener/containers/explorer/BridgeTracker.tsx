@@ -437,7 +437,7 @@ const BridgeSummaryCard: React.FC<{
             Pipe ↗
           </LinkChip>
           <NavChip type="button" onClick={() => navigate(`/asset/${row.aid}`)} title={`Open asset ${row.aid}`}>
-            {row.aid === 0 ? 'BEAM' : `Asset ${row.aid}`}
+            {row.asset_symbol ?? `Asset ${row.aid}`}
           </NavChip>
         </LinkRow>
       </CardFoot>

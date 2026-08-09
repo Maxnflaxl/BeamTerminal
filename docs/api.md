@@ -667,6 +667,7 @@ and BEAM/WBEAM on both Ethereum mainnet and Arbitrum One.
       "bridge": "busdt", "label": "bUSDT", "chain_id": 1, "aid": 37,
       "eth_pipe": "0x7c3fe09e86b0d8661d261a49bfa385536b7077f9",
       "eth_token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      "asset_symbol": "bUSDT",
       "outgoing": { "pending": 99, "relayed": 0, "failed": 0, "unknown": 0, "total": 99 },
       "incoming": { "not_delivered": 2, "unclaimed": 2, "complete": 136, "unknown": 0, "total": 140 },
       "oldest_open_ts": "2022-06-14T09:12:00.000Z",

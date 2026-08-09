@@ -762,6 +762,7 @@ export interface ApiBridgeHealthRow {
   aid: number;
   eth_pipe: string;
   eth_token: string | null;
+  asset_symbol: string | null;
   outgoing: ApiBridgeOutgoingCounts;
   incoming: ApiBridgeIncomingCounts;
   oldest_open_ts: string | null;

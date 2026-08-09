@@ -31,6 +31,9 @@ export interface BridgeHealthRow {
   aid: number;
   eth_pipe: string;
   eth_token: string | null;
+  /** Ticker of the Beam-side asset (BEAM, bETH, …). Null if the catalog has no
+   *  row for it yet — callers should fall back to the numeric aid. */
+  asset_symbol: string | null;
   outgoing: { pending: number; relayed: number; failed: number; unknown: number; total: number };
   incoming: { not_delivered: number; unclaimed: number; complete: number; unknown: number; total: number };
   oldest_open_ts: string | null;
@@ -70,8 +73,11 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
               minted::text, minted_decimals
          FROM bridge_escrow`,
     ),
-    q<{ aid: string; emission: string | null; decimals: number }>(
-      `SELECT aid::text, emission::text, decimals FROM assets
+    q<{
+      aid: string; emission: string | null; decimals: number;
+      short_name: string | null; name: string | null;
+    }>(
+      `SELECT aid::text, emission::text, decimals, short_name, name FROM assets
         WHERE aid = ANY($1::bigint[])`,
       [BRIDGES.map((b) => b.aid)],
     ),
@@ -150,6 +156,7 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
       aid: b.aid,
       eth_pipe: b.ethPipe,
       eth_token: b.ethToken,
+      asset_symbol: mint?.short_name ?? mint?.name ?? null,
       outgoing,
       incoming,
       oldest_open_ts: openTimes[0] ?? null,
