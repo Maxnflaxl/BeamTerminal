@@ -481,38 +481,71 @@ async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: n
 
 
 // ---------------------------------------------------------------------------
-// Resolving a message's real block
+// Beam-side blocks, from the Pipe's own call history
 //
-// `local_msg` reports Env::get_Height() — the chain tip the wallet saw when it
-// built the transaction — not the block the call ended up in. Looking that
-// height up in the explorer shows nothing, which is exactly what a user chasing
-// a pending transfer runs into.
+// Two things the message state can't tell us, both sitting in /contract:
 //
-// The Pipe's own call history has the true heights, so the reported height is
-// mapped to the first call at or after it rather than assuming a fixed +1
-// offset. Cheap: one /contract fetch per bridge, a few dozen to a few hundred
+//  - Outgoing: `local_msg` reports Env::get_Height() — the chain tip the wallet
+//    saw when it built the transaction — not the block the call ended up in.
+//    Looking that height up in the explorer shows nothing, which is exactly
+//    what a user chasing a pending transfer runs into. The reported height is
+//    mapped to the first call at or after it rather than assuming a fixed +1
+//    offset.
+//  - Incoming: `msg_status` is a tri-state with no height and no timestamp. The
+//    delivery and the claim are ordinary calls, and on the b-asset Pipes the
+//    explorer exposes their raw arguments, so each one's message id is readable
+//    straight off the call list.
+//
+// One /contract fetch per bridge covers both — a few dozen to a few hundred
 // rows.
 // ---------------------------------------------------------------------------
 
-async function pipeCallHeights(cid: string): Promise<number[]> {
+interface PipeCall {
+  height: number;
+  /** Numeric shader method, or a decoded name ("Create", "Passthrough"). */
+  method: number | string;
+  /** Raw little-endian argument blob, hex, no 0x. Empty when undecoded. */
+  args: string;
+}
+
+// pipe_contract.cpp, shader SID 38f8c1d4…. Both take the message id as their
+// leading little-endian uint64.
+const METHOD_PUSH_REMOTE = 5; // relayer delivers an Ethereum message to Beam
+const METHOD_RECEIVE_FUNDS = 4; // recipient claims it — msgId is the whole arg
+
+async function pipeCalls(cid: string): Promise<PipeCall[]> {
   const res = await getContract({ id: cid });
   const table = (res as unknown as Record<string, unknown>)['Calls history'];
   const rows = (table as { value?: unknown[] } | undefined)?.value;
   if (!Array.isArray(rows)) return [];
-  const heights: number[] = [];
+  const calls: PipeCall[] = [];
   for (const row of rows.slice(1)) {
+    // A group is a primary call plus the nested calls it made; only the primary
+    // one is a call *into* this contract.
     const r = (row && typeof row === 'object' && (row as { type?: string }).type === 'group')
       ? ((row as { value: unknown[] }).value[0] as unknown[])
       : (row as unknown[]);
     if (!Array.isArray(r) || r.length === 0) continue;
     const cell = r[0] as { value?: unknown } | number | undefined;
-    const h = typeof cell === 'number' ? cell : Number((cell as { value?: unknown })?.value);
-    if (Number.isFinite(h)) heights.push(h);
+    const height = typeof cell === 'number' ? cell : Number((cell as { value?: unknown })?.value);
+    if (!Number.isFinite(height)) continue;
+    const method = r[3] as number | string;
+    const args = typeof r[4] === 'string' ? r[4] : '';
+    calls.push({ height, method, args });
   }
-  return heights.sort((a, b) => a - b);
+  return calls;
 }
 
-async function resolveCallHeights(b: BridgeDef): Promise<number> {
+/** Leading little-endian uint64 of a raw argument blob. */
+function leadingMsgId(args: string): number | null {
+  if (args.length < 16) return null;
+  const bytes = args.slice(0, 16).match(/../g);
+  if (!bytes) return null;
+  const id = Number(BigInt(`0x${bytes.reverse().join('')}`));
+  return Number.isSafeInteger(id) ? id : null;
+}
+
+async function resolveOutgoingHeights(b: BridgeDef, calls: PipeCall[]): Promise<number> {
   const { rows } = await q<{ msg_id: string; src_height: string }>(
     `SELECT msg_id::text, src_height::text
        FROM bridge_messages
@@ -522,7 +555,7 @@ async function resolveCallHeights(b: BridgeDef): Promise<number> {
   );
   if (rows.length === 0) return 0;
 
-  const heights = await pipeCallHeights(b.cid);
+  const heights = calls.map((c) => c.height).sort((x, y) => x - y);
   if (heights.length === 0) return 0;
 
   let resolved = 0;
@@ -541,6 +574,67 @@ async function resolveCallHeights(b: BridgeDef): Promise<number> {
     resolved += 1;
   }
   return resolved;
+}
+
+/**
+ * Stamp each incoming message with the block it was delivered in and the block
+ * it was claimed in.
+ *
+ * Both come from calls into the Pipe keyed by message id, so a message that was
+ * relayed twice (the first attempt reverting) takes the earliest block that
+ * carried it. Messages on the upgradable2-wrapped Pipes get nothing: the
+ * explorer reports their calls as "Passthrough" with the arguments stripped, so
+ * there is no message id to key on.
+ */
+async function resolveIncomingHeights(b: BridgeDef, calls: PipeCall[]): Promise<number> {
+  const delivered = new Map<number, number>();
+  const claimed = new Map<number, number>();
+  for (const c of calls) {
+    if (typeof c.method !== 'number') continue;
+    const target = c.method === METHOD_PUSH_REMOTE ? delivered
+      : c.method === METHOD_RECEIVE_FUNDS ? claimed : null;
+    if (target === null) continue;
+    // ReceiveFunds carries nothing but the id; anything longer is a different
+    // shape and not ours to read.
+    if (c.method === METHOD_RECEIVE_FUNDS && c.args.length !== 16) continue;
+    const msgId = leadingMsgId(c.args);
+    if (msgId === null) continue;
+    const prev = target.get(msgId);
+    if (prev === undefined || c.height < prev) target.set(msgId, c.height);
+  }
+  if (delivered.size === 0 && claimed.size === 0) return 0;
+
+  const ids = [...new Set([...delivered.keys(), ...claimed.keys()])];
+  const { rowCount } = await q(
+    `UPDATE bridge_messages m SET
+       delivered_height = v.delivered,
+       claimed_height   = v.claimed,
+       updated_at       = now()
+     FROM (
+       SELECT unnest($2::bigint[]) AS msg_id,
+              unnest($3::bigint[]) AS delivered,
+              unnest($4::bigint[]) AS claimed
+     ) v
+     WHERE m.bridge = $1 AND m.direction = 'eth2beam' AND m.msg_id = v.msg_id
+       AND (m.delivered_height IS DISTINCT FROM v.delivered
+         OR m.claimed_height   IS DISTINCT FROM v.claimed)`,
+    [
+      b.key,
+      ids,
+      ids.map((id) => delivered.get(id) ?? null),
+      ids.map((id) => claimed.get(id) ?? null),
+    ],
+  );
+  return rowCount ?? 0;
+}
+
+async function resolveBeamHeights(b: BridgeDef): Promise<{ outgoing: number; incoming: number }> {
+  const calls = await pipeCalls(b.cid);
+  if (calls.length === 0) return { outgoing: 0, incoming: 0 };
+  return {
+    outgoing: await resolveOutgoingHeights(b, calls),
+    incoming: await resolveIncomingHeights(b, calls),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -804,12 +898,15 @@ export interface BridgeSyncResult {
   settled: number;
   logsCaughtUp: number;
   heightsResolved: number;
+  /** Incoming messages stamped with their Beam delivery/claim block. */
+  beamSideResolved: number;
 }
 
 export async function syncBridges(): Promise<BridgeSyncResult> {
   const res: BridgeSyncResult = {
     bridges: 0, outgoingIngested: 0, incomingOpen: 0, shaderCalls: 0,
     logsIngested: 0, settled: 0, logsCaughtUp: 0, heightsResolved: 0,
+    beamSideResolved: 0,
   };
 
   for (const b of BRIDGES) {
@@ -821,7 +918,7 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
       // eslint-disable-next-line no-await-in-loop
       const ingested = await ingestOutgoing(b);
       // eslint-disable-next-line no-await-in-loop
-      const resolvedHeights = await resolveCallHeights(b);
+      const resolvedHeights = await resolveBeamHeights(b);
       // eslint-disable-next-line no-await-in-loop
       const { scanned, open } = await refreshIncoming(b);
       // eslint-disable-next-line no-await-in-loop
@@ -833,7 +930,8 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
       res.incomingOpen += open;
       res.shaderCalls += scanned + ingested + 1;
       res.logsIngested += found;
-      res.heightsResolved += resolvedHeights;
+      res.heightsResolved += resolvedHeights.outgoing;
+      res.beamSideResolved += resolvedHeights.incoming;
       res.settled += settled;
       if (caughtUp) res.logsCaughtUp += 1;
       logger.debug({ bridge: b.key, ingested, scanned, open }, 'bridge synced');

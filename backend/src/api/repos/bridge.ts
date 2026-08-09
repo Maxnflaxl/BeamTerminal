@@ -196,6 +196,67 @@ export interface BridgeMessageRow {
   settle_tx: string | null;
   settle_block: number | null;
   settle_ts: string | null;
+  /** eth2beam only: Beam block the relayer delivered the message in. Null on
+   *  the upgradable2-wrapped Pipes, whose call arguments the explorer hides. */
+  delivered_height: number | null;
+  delivered_ts: string | null;
+  /** eth2beam only: Beam block the recipient claimed it in. */
+  claimed_height: number | null;
+  claimed_ts: string | null;
+}
+
+interface MessageRowRaw {
+  bridge: string; direction: string; msg_id: string; status: string;
+  amount: string | null; relayer_fee: string | null; receiver: string | null;
+  src_height: string | null; src_call_height: string | null;
+  src_block: string | null; src_ts: string | null;
+  src_tx: string | null; settle_tx: string | null; settle_block: string | null;
+  settle_ts: string | null;
+  delivered_height: string | null; delivered_ts: string | null;
+  claimed_height: string | null; claimed_ts: string | null;
+}
+
+// block_metrics covers every height, so the Beam-side blocks get their wall
+// time from a join rather than a stored copy that a reorg could strand.
+const MESSAGE_COLUMNS = `
+  bridge, direction, msg_id::text, status, amount::text, relayer_fee::text,
+  receiver, src_height::text, src_call_height::text, src_block::text,
+  src_ts::text, src_tx, settle_tx, settle_block::text, settle_ts::text,
+  delivered_height::text, claimed_height::text,
+  (SELECT bm.block_ts::text FROM block_metrics bm
+    WHERE bm.height = bridge_messages.delivered_height
+    ORDER BY bm.block_ts DESC LIMIT 1) AS delivered_ts,
+  (SELECT bm.block_ts::text FROM block_metrics bm
+    WHERE bm.height = bridge_messages.claimed_height
+    ORDER BY bm.block_ts DESC LIMIT 1) AS claimed_ts`;
+
+function toRow(r: MessageRowRaw): BridgeMessageRow {
+  const def = BRIDGES.find((b) => b.key === r.bridge);
+  // Amounts are denominated on the side the message was observed: outgoing
+  // messages carry Beam-side units, incoming ones Ethereum-side units.
+  const dec = r.direction === 'beam2eth' ? def?.decimals ?? 8 : def?.ethDecimals ?? 8;
+  const num = (v: string | null): number | null => (v === null ? null : Number(v));
+  return {
+    bridge: r.bridge,
+    direction: r.direction,
+    msg_id: Number(r.msg_id),
+    status: r.status,
+    amount: scale(r.amount, dec),
+    relayer_fee: scale(r.relayer_fee, dec),
+    receiver: r.receiver,
+    src_height: num(r.src_height),
+    src_call_height: num(r.src_call_height),
+    src_block: num(r.src_block),
+    src_ts: r.src_ts,
+    src_tx: r.src_tx,
+    settle_tx: r.settle_tx,
+    settle_block: num(r.settle_block),
+    settle_ts: r.settle_ts,
+    delivered_height: num(r.delivered_height),
+    delivered_ts: r.delivered_ts,
+    claimed_height: num(r.claimed_height),
+    claimed_ts: r.claimed_ts,
+  };
 }
 
 // Whitelisted sort columns. The table is server-paginated, so sorting has to
@@ -247,52 +308,17 @@ export async function listBridgeMessages(opts: {
   const orderBy = `${sortCol} ${sortDir} NULLS LAST, bridge_messages.msg_id ${sortDir}`;
 
   params.push(opts.limit, opts.offset);
-  const rows = await q<{
-    bridge: string; direction: string; msg_id: string; status: string;
-    amount: string | null; relayer_fee: string | null; receiver: string | null;
-    src_height: string | null; src_call_height: string | null;
-    src_block: string | null; src_ts: string | null;
-    src_tx: string | null; settle_tx: string | null; settle_block: string | null;
-    settle_ts: string | null;
-  }>(
-    `SELECT bridge, direction, msg_id::text, status, amount::text, relayer_fee::text,
-            receiver, src_height::text, src_call_height::text, src_block::text,
-            src_ts::text, src_tx, settle_tx, settle_block::text, settle_ts::text
+  const rows = await q<MessageRowRaw>(
+    `SELECT ${MESSAGE_COLUMNS}
        FROM bridge_messages ${clause}
       ORDER BY ${orderBy}
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );
 
-  const decOf = new Map(BRIDGES.map((b) => [b.key, b]));
-
   return {
     total: Number(totalRes.rows[0]?.n ?? 0),
-    rows: rows.rows.map((r) => {
-      const def = decOf.get(r.bridge);
-      // Amounts are denominated on the side the message was observed: outgoing
-      // messages carry Beam-side units, incoming ones Ethereum-side units.
-      const dec = r.direction === 'beam2eth'
-        ? def?.decimals ?? 8
-        : def?.ethDecimals ?? 8;
-      return {
-        bridge: r.bridge,
-        direction: r.direction,
-        msg_id: Number(r.msg_id),
-        status: r.status,
-        amount: scale(r.amount, dec),
-        relayer_fee: scale(r.relayer_fee, dec),
-        receiver: r.receiver,
-        src_height: r.src_height === null ? null : Number(r.src_height),
-        src_call_height: r.src_call_height === null ? null : Number(r.src_call_height),
-        src_block: r.src_block === null ? null : Number(r.src_block),
-        src_ts: r.src_ts,
-        src_tx: r.src_tx,
-        settle_tx: r.settle_tx,
-        settle_block: r.settle_block === null ? null : Number(r.settle_block),
-        settle_ts: r.settle_ts,
-      };
-    }),
+    rows: rows.rows.map(toRow),
   };
 }
 
@@ -333,7 +359,16 @@ function explain(
   ageDays: number | null,
   amount: number | null,
   fee: number | null,
+  beam?: { delivered: number | null; claimed: number | null },
 ): string {
+  const blocks = (() => {
+    if (!beam) return '';
+    if (beam.delivered !== null && beam.claimed !== null) {
+      return ` Delivered in Beam block ${beam.delivered}, claimed in ${beam.claimed}.`;
+    }
+    if (beam.delivered !== null) return ` Delivered in Beam block ${beam.delivered}.`;
+    return '';
+  })();
   const malformed = (amount !== null && amount > ABSURD) || (fee !== null && fee > ABSURD);
   if (malformed && status === 'not_delivered') {
     return 'This message carries a nonsensical value (around 2^256, the maximum a uint256 can '
@@ -343,11 +378,11 @@ function explain(
   if (direction === 'eth2beam') {
     switch (status) {
       case 'complete':
-        return 'Delivered to Beam and claimed. Nothing outstanding.';
+        return `Delivered to Beam and claimed. Nothing outstanding.${blocks}`;
       case 'unclaimed':
         return 'Delivered to Beam and waiting for you to claim it. Open the bridge DApp in your '
           + 'BEAM wallet and receive the funds — only your wallet can sign for them, so this will '
-          + 'wait indefinitely until you do.';
+          + `wait indefinitely until you do.${blocks}`;
       case 'not_delivered':
         if (fee !== null && amount !== null && fee > 0 && amount > 0 && fee / amount < 0.0001) {
           return 'The relayer has not delivered this to Beam. Its relayer fee is very small '
@@ -384,50 +419,38 @@ function toMatch(r: BridgeMessageRow, role: 'origin' | 'settlement'): BridgeLook
     ...r,
     label,
     role,
-    explanation: explain(r.status, r.direction, ageDays, r.amount, r.relayer_fee),
+    explanation: explain(r.status, r.direction, ageDays, r.amount, r.relayer_fee, {
+      delivered: r.delivered_height,
+      claimed: r.claimed_height,
+    }),
   };
 }
 
 async function rowsWhere(clause: string, params: Array<string | number>): Promise<BridgeMessageRow[]> {
-  const { rows } = await q<{
-    bridge: string; direction: string; msg_id: string; status: string;
-    amount: string | null; relayer_fee: string | null; receiver: string | null;
-    src_height: string | null; src_call_height: string | null;
-    src_block: string | null; src_ts: string | null;
-    src_tx: string | null; settle_tx: string | null; settle_block: string | null;
-    settle_ts: string | null;
-  }>(
-    `SELECT bridge, direction, msg_id::text, status, amount::text, relayer_fee::text,
-            receiver, src_height::text, src_call_height::text, src_block::text,
-            src_ts::text, src_tx, settle_tx, settle_block::text, settle_ts::text
+  const { rows } = await q<MessageRowRaw>(
+    `SELECT ${MESSAGE_COLUMNS}
        FROM bridge_messages
       WHERE ${clause}
       ORDER BY bridge_messages.src_ts DESC NULLS LAST
       LIMIT 25`,
     params,
   );
-  const defs = new Map(BRIDGES.map((b) => [b.key, b]));
-  return rows.map((r) => {
-    const def = defs.get(r.bridge);
-    const dec = r.direction === 'beam2eth' ? def?.decimals ?? 8 : def?.ethDecimals ?? 8;
-    return {
-      bridge: r.bridge,
-      direction: r.direction,
-      msg_id: Number(r.msg_id),
-      status: r.status,
-      amount: scale(r.amount, dec),
-      relayer_fee: scale(r.relayer_fee, dec),
-      receiver: r.receiver,
-      src_height: r.src_height === null ? null : Number(r.src_height),
-      src_call_height: r.src_call_height === null ? null : Number(r.src_call_height),
-      src_block: r.src_block === null ? null : Number(r.src_block),
-      src_ts: r.src_ts,
-      src_tx: r.src_tx,
-      settle_tx: r.settle_tx,
-      settle_block: r.settle_block === null ? null : Number(r.settle_block),
-      settle_ts: r.settle_ts,
-    };
-  });
+  return rows.map(toRow);
+}
+
+// Every way a Beam block can belong to a transfer: the call that created an
+// outgoing one, or the delivery / claim of an incoming one. Searching all four
+// means a height copied from any row of the table finds its transfer.
+const BEAM_HEIGHT_CLAUSE = `
+  (direction = 'beam2eth' AND (src_call_height = $1 OR src_height = $1))
+  OR (direction = 'eth2beam' AND (delivered_height = $1 OR claimed_height = $1))`;
+
+function beamRole(r: BridgeMessageRow, height: number): 'origin' | 'settlement' {
+  if (r.direction === 'beam2eth') return 'origin';
+  // An incoming transfer originates on Ethereum, so its Beam blocks are the
+  // settling end.
+  return r.delivered_height === height || r.claimed_height === height
+    ? 'settlement' : 'origin';
 }
 
 export async function lookupBridgeTransfer(raw: string): Promise<BridgeLookupResult> {
@@ -438,15 +461,12 @@ export async function lookupBridgeTransfer(raw: string): Promise<BridgeLookupRes
   // message. Accepting it means what's on screen can be pasted straight in.
   if (/^\d{1,9}$/.test(trimmed)) {
     const h = Number(trimmed);
-    const byHeight = await rowsWhere(
-      "direction = 'beam2eth' AND (src_call_height = $1 OR src_height = $1)",
-      [h],
-    );
+    const byHeight = await rowsWhere(BEAM_HEIGHT_CLAUSE, [h]);
     return {
       query: trimmed,
       kind: 'beam_height',
       resolved_height: h,
-      matches: byHeight.map((r) => toMatch(r, 'origin')),
+      matches: byHeight.map((r) => toMatch(r, beamRole(r, h))),
     };
   }
 
@@ -492,14 +512,12 @@ export async function lookupBridgeTransfer(raw: string): Promise<BridgeLookupRes
 
   // Match the resolved call height first — that's the block the kernel is
   // actually in — and fall back to the contract-reported tip.
-  const beam = await rowsWhere(
-    "direction = 'beam2eth' AND (src_call_height = $1 OR src_height = $1)",
-    [height],
-  );
+  const beam = await rowsWhere(BEAM_HEIGHT_CLAUSE, [height]);
+  const h = height;
   return {
     query: trimmed,
     kind: 'beam_kernel',
     resolved_height: height,
-    matches: beam.map((r) => toMatch(r, 'origin')),
+    matches: beam.map((r) => toMatch(r, beamRole(r, h))),
   };
 }

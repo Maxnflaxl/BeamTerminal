@@ -172,11 +172,23 @@ async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<v
     // natural key, so re-reading is idempotent and there's nothing to delete.
     // Blank the Beam-side provenance of anything past the ancestor and rewind
     // the cursor so the next sync re-derives it from the contract. Incoming
-    // (eth2beam) rows key off Ethereum blocks and are untouched by Beam reorgs.
+    // (eth2beam) rows key off Ethereum blocks, so only their Beam-side delivery
+    // and claim blocks — which the next sync re-derives from the call history —
+    // need clearing.
     await client.query(
       `UPDATE bridge_messages
-          SET status = 'unknown', src_height = NULL, src_ts = NULL, updated_at = now()
+          SET status = 'unknown', src_height = NULL, src_ts = NULL,
+              src_call_height = NULL, updated_at = now()
         WHERE direction = 'beam2eth' AND src_height > $1`,
+      [commonHeight],
+    );
+    await client.query(
+      `UPDATE bridge_messages
+          SET delivered_height = CASE WHEN delivered_height > $1 THEN NULL ELSE delivered_height END,
+              claimed_height   = CASE WHEN claimed_height   > $1 THEN NULL ELSE claimed_height END,
+              updated_at = now()
+        WHERE direction = 'eth2beam'
+          AND (delivered_height > $1 OR claimed_height > $1)`,
       [commonHeight],
     );
     await client.query(

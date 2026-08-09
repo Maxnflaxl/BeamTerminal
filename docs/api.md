@@ -738,8 +738,14 @@ number is treated as a Beam block height — the only reference an outgoing
 message has, since the Pipe records no kernel ID per message, so the height shown
 in the transfers table can be pasted straight in. Both identifiers are 32
 bytes so the input alone can't distinguish them: the EVM side is tried first,
-then the kernel is resolved to a Beam height and matched against outgoing
-messages at that height (a height can carry several, so all are returned).
+then the kernel is resolved to a Beam height (a height can carry several
+messages, so all are returned).
+
+A Beam height — supplied directly or resolved from a kernel — matches any of the
+four ways a block can belong to a transfer: an outgoing message's `src_height` or
+`src_call_height`, or an incoming one's `delivered_height` or `claimed_height`.
+`role` says which end matched: `origin` for the side the transfer started on,
+`settlement` for the side it landed on.
 
 `explanation` is plain-language guidance for the current state — notably, a
 `pending` Beam→Ethereum transfer or a `not_delivered` message usually means the
@@ -769,7 +775,9 @@ across bridges with different decimals.
       "receiver": "24c32736a24f2ccc95a3249b17ea5c23222df71c",
       "src_height": 3981297, "src_call_height": 3981298, "src_block": null,
       "src_ts": "2026-08-07T01:03:30.000Z", "src_tx": null,
-      "settle_tx": null, "settle_block": null, "settle_ts": null
+      "settle_tx": null, "settle_block": null, "settle_ts": null,
+      "delivered_height": null, "delivered_ts": null,
+      "claimed_height": null, "claimed_ts": null
     }
   ],
   "total": 1283, "limit": 50, "offset": 0
@@ -781,6 +789,13 @@ built; `src_call_height` is the block that actually contains the call, resolved
 against the contract's call history. **Use `src_call_height` for explorer links**
 — looking up `src_height` shows no contract activity, because the call landed a
 block later.
+
+`delivered_height` / `claimed_height` are the Beam blocks in which an incoming
+(`eth2beam`) transfer was relayed to Beam and then claimed by its recipient, with
+`delivered_ts` / `claimed_ts` the matching block times. They are always null for
+`beam2eth`, and also null on the BEAM/WBEAM Pipes: those are upgradable2-wrapped,
+so the explorer reports their calls as `Passthrough` with the arguments stripped
+and there is no message id to key on.
 
 `amount` and `relayer_fee` are scaled to the side the message was observed on:
 Beam-side decimals for `beam2eth`, Ethereum-side for `eth2beam`. These differ —

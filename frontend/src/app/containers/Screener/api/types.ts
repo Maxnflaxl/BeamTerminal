@@ -803,6 +803,13 @@ export interface ApiBridgeMessage {
   settle_tx: string | null;
   settle_block: number | null;
   settle_ts: string | null;
+  /** Incoming transfers only: the Beam block the relayer delivered it in. Null
+   *  on the BEAM/WBEAM Pipes, whose call arguments the explorer hides. */
+  delivered_height: number | null;
+  delivered_ts: string | null;
+  /** Incoming transfers only: the Beam block the recipient claimed it in. */
+  claimed_height: number | null;
+  claimed_ts: string | null;
 }
 
 export interface ApiBridgeMessages {

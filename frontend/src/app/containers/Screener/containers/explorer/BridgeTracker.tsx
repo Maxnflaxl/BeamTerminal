@@ -380,6 +380,32 @@ function evmTxUrl(hash: string, chainId?: number): string {
 }
 
 // Beam block, for the height an outgoing message's call landed in.
+/** Tooltip for a Beam-side step: when it happened, and how long after the
+ *  step before it. The elapsed part is the interesting half — it's the relayer's
+ *  latency for a delivery, and the recipient's for a claim. */
+function beamStepTitle(
+  what: string,
+  height: number,
+  ts: string | null,
+  since: string | null,
+): string {
+  const parts = [`${what} in block ${height}`];
+  if (ts) parts.push(new Date(ts).toLocaleString());
+  const a = ts ? Date.parse(ts) : NaN;
+  const b = since ? Date.parse(since) : NaN;
+  if (!Number.isNaN(a) && !Number.isNaN(b) && a > b) {
+    parts.push(`${fmtDuration((a - b) / 1000)} later`);
+  }
+  return parts.join(' · ');
+}
+
+function fmtDuration(secs: number): string {
+  if (secs < 60) return `${Math.round(secs)}s`;
+  if (secs < 3600) return `${Math.round(secs / 60)}m`;
+  if (secs < 86400) return `${(secs / 3600).toFixed(1)}h`;
+  return `${(secs / 86400).toFixed(1)}d`;
+}
+
 function beamBlockUrl(height: number): string {
   return `https://explorer.0xmx.net/?network=mainnet&type=block&height=${height}`;
 }
@@ -631,6 +657,24 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   <PegStatValue>{m.src_call_height ?? m.src_height}</PegStatValue>
                 </>
               )}
+              {m.delivered_height !== null && (
+                <>
+                  <PegStatLabel>Delivered</PegStatLabel>
+                  <PegStatValue>
+                    {`block ${m.delivered_height}`}
+                    {m.delivered_ts ? ` · ${fmtAge(m.delivered_ts)} ago` : ''}
+                  </PegStatValue>
+                </>
+              )}
+              {m.claimed_height !== null && (
+                <>
+                  <PegStatLabel>Claimed</PegStatLabel>
+                  <PegStatValue>
+                    {`block ${m.claimed_height}`}
+                    {m.claimed_ts ? ` · ${fmtAge(m.claimed_ts)} ago` : ''}
+                  </PegStatValue>
+                </>
+              )}
             </ResultGrid>
             <LinkRow style={{ marginTop: 12 }}>
               {m.src_tx && (
@@ -650,6 +694,16 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   rel="noopener noreferrer"
                 >
                   Beam block ↗
+                </LinkChip>
+              )}
+              {m.delivered_height !== null && (
+                <LinkChip href={beamBlockUrl(m.delivered_height)} target="_blank" rel="noopener noreferrer">
+                  Delivery block ↗
+                </LinkChip>
+              )}
+              {m.claimed_height !== null && (
+                <LinkChip href={beamBlockUrl(m.claimed_height)} target="_blank" rel="noopener noreferrer">
+                  Claim block ↗
                 </LinkChip>
               )}
             </LinkRow>
@@ -990,6 +1044,26 @@ const BridgeTracker: React.FC = () => {
                               title={`Beam block ${h} — paste this height into “Check my transfer”`}
                             >
                               block {h} ↗
+                            </LinkChip>
+                          )}
+                          {m.delivered_height !== null && (
+                            <LinkChip
+                              href={beamBlockUrl(m.delivered_height)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={beamStepTitle('Delivered to Beam', m.delivered_height, m.delivered_ts, m.src_ts)}
+                            >
+                              delivered {m.delivered_height} ↗
+                            </LinkChip>
+                          )}
+                          {m.claimed_height !== null && (
+                            <LinkChip
+                              href={beamBlockUrl(m.claimed_height)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={beamStepTitle('Claimed on Beam', m.claimed_height, m.claimed_ts, m.delivered_ts)}
+                            >
+                              claimed {m.claimed_height} ↗
                             </LinkChip>
                           )}
                           {!m.settle_tx && !m.src_tx && h === null && '—'}
