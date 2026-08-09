@@ -718,8 +718,16 @@ const BridgeTracker: React.FC = () => {
     };
   }, [health]);
 
+  // "View transfers" means "show me everything for this bridge", so it clears
+  // the other filters rather than inheriting them. Leaving a stale status filter
+  // in place made the table look empty (or wrongly narrow) for the bridge just
+  // clicked, with the reason sitting in a dropdown well above the fold.
   const focusBridge = useCallback((bridge: string) => {
     setFBridge(bridge);
+    setFDirection('');
+    setFStatus('');
+    setSort('age');
+    setDir('desc');
     setOffset(0);
     const el = document.getElementById('bridge-transfers');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
