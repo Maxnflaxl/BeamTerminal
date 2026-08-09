@@ -428,7 +428,9 @@ const PROBE_CEILING = 4096; // hard stop; current max across bridges is ~220
 async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: number }> {
   const found: Array<{ msgId: number; status: string }> = [];
   let consecutiveAbsent = 0;
-  let msgId = 0;
+  // Ids start at 0, not 1: the b-asset Pipes' first NewLocalMessage carries
+  // msgId 0, and probing from 1 silently skipped it on every bridge.
+  let msgId = -1;
 
   while (msgId < PROBE_CEILING && consecutiveAbsent < PROBE_TAIL) {
     msgId += 1;

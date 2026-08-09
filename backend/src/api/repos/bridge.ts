@@ -129,11 +129,18 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
     // (it's an Ethereum ERC20 supply). For the rest it's the Beam asset's own
     // emission. Using assets.emission for a custody:'beam' bridge would report
     // BEAM's entire emission as if it were bridged.
-    const mintedVal = esc?.minted !== null && esc?.minted !== undefined
-      ? scale(esc.minted, esc.minted_decimals ?? b.ethDecimals)
-      : mint?.emission
-        ? scale(mint.emission, mint.decimals ?? b.decimals)
-        : null;
+    const mintedVal = (() => {
+      if (esc?.minted !== null && esc?.minted !== undefined) {
+        return scale(esc.minted, esc.minted_decimals ?? b.ethDecimals);
+      }
+      // Bridges whose collateral sits on Beam mint an ERC20 on the EVM side, so
+      // their wrapped supply only ever comes from the escrow snapshot. Falling
+      // back to assets.emission here would report BEAM's entire 191.5M supply
+      // as if the bridge had issued it — which is what happens whenever the
+      // snapshot is missing (a transient RPC error is enough).
+      if (b.custody === 'beam') return null;
+      return mint?.emission ? scale(mint.emission, mint.decimals ?? b.decimals) : null;
+    })();
 
     return {
       bridge: b.key,

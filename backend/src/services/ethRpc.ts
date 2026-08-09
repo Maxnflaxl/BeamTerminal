@@ -25,7 +25,29 @@ export function rpcUrlFor(chainId: number): string {
   return chainId === 42161 ? config.ARB_RPC_URL : config.ETH_RPC_URL;
 }
 
+// Public endpoints return sporadic 500s ("Temporary internal error, please
+// retry") that are pure noise — one of them aborted an entire bridge's sync.
+const MAX_ATTEMPTS = 3;
+
 async function rpc<T>(method: string, params: unknown[], chainId = 1): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await rpcOnce<T>(method, params, chainId);
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const transient = /HTTP 5\d\d|Temporary internal error|timeout|ECONNRESET|socket hang up/i.test(msg);
+      if (!transient || attempt === MAX_ATTEMPTS) throw err;
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => { setTimeout(r, 250 * attempt); });
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+async function rpcOnce<T>(method: string, params: unknown[], chainId = 1): Promise<T> {
   const body = JSON.stringify({ jsonrpc: '2.0', id: nextId++, method, params });
   const { statusCode, body: respBody } = await request(rpcUrlFor(chainId), {
     method: 'POST',
