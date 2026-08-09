@@ -18,9 +18,16 @@ export const LOG_WINDOW = 10_000;
 
 let nextId = 1;
 
-async function rpc<T>(method: string, params: unknown[]): Promise<T> {
+/** Endpoint for an EVM chain id. Unknown chains fall back to mainnet rather
+ *  than throwing, so adding a bridge on a new chain fails loudly at the query
+ *  rather than at config load. */
+export function rpcUrlFor(chainId: number): string {
+  return chainId === 42161 ? config.ARB_RPC_URL : config.ETH_RPC_URL;
+}
+
+async function rpc<T>(method: string, params: unknown[], chainId = 1): Promise<T> {
   const body = JSON.stringify({ jsonrpc: '2.0', id: nextId++, method, params });
-  const { statusCode, body: respBody } = await request(config.ETH_RPC_URL, {
+  const { statusCode, body: respBody } = await request(rpcUrlFor(chainId), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body,
@@ -41,8 +48,8 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   return parsed.result as T;
 }
 
-export async function blockNumber(): Promise<number> {
-  return parseInt(await rpc<string>('eth_blockNumber', []), 16);
+export async function blockNumber(chainId = 1): Promise<number> {
+  return parseInt(await rpc<string>('eth_blockNumber', [], chainId), 16);
 }
 
 export interface EthLog {
@@ -58,29 +65,30 @@ export async function getLogs(
   topic0: string,
   fromBlock: number,
   toBlock: number,
+  chainId = 1,
 ): Promise<EthLog[]> {
   return rpc<EthLog[]>('eth_getLogs', [
     { address, topics: [topic0], fromBlock: `0x${fromBlock.toString(16)}`, toBlock: `0x${toBlock.toString(16)}` },
-  ]);
+  ], chainId);
 }
 
-export async function getBlockTimestamp(block: number): Promise<Date | null> {
+export async function getBlockTimestamp(block: number, chainId = 1): Promise<Date | null> {
   const b = await rpc<{ timestamp?: string } | null>('eth_getBlockByNumber', [
     `0x${block.toString(16)}`,
     false,
-  ]);
+  ], chainId);
   if (!b?.timestamp) return null;
   return new Date(parseInt(b.timestamp, 16) * 1000);
 }
 
-export async function getBalance(address: string): Promise<bigint> {
-  return BigInt(await rpc<string>('eth_getBalance', [address, 'latest']));
+export async function getBalance(address: string, chainId = 1): Promise<bigint> {
+  return BigInt(await rpc<string>('eth_getBalance', [address, 'latest'], chainId));
 }
 
 /** ERC20 balanceOf(address) — selector 0x70a08231. */
-export async function erc20BalanceOf(token: string, holder: string): Promise<bigint> {
+export async function erc20BalanceOf(token: string, holder: string, chainId = 1): Promise<bigint> {
   const data = `0x70a08231${'0'.repeat(24)}${holder.replace(/^0x/, '').toLowerCase()}`;
-  const out = await rpc<string>('eth_call', [{ to: token, data }, 'latest']);
+  const out = await rpc<string>('eth_call', [{ to: token, data }, 'latest'], chainId);
   if (!out || out === '0x') return 0n;
   return BigInt(out);
 }
@@ -129,8 +137,8 @@ export function decodeNewLocalMessage(log: EthLog): NewLocalMessage | null {
 }
 
 /** ERC20 totalSupply() — selector 0x18160ddd. */
-export async function erc20TotalSupply(token: string): Promise<bigint> {
-  const out = await rpc<string>('eth_call', [{ to: token, data: '0x18160ddd' }, 'latest']);
+export async function erc20TotalSupply(token: string, chainId = 1): Promise<bigint> {
+  const out = await rpc<string>('eth_call', [{ to: token, data: '0x18160ddd' }, 'latest'], chainId);
   if (!out || out === '0x') return 0n;
   return BigInt(out);
 }

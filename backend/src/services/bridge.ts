@@ -19,7 +19,7 @@ import {
   getLogs,
   erc20TotalSupply,
 } from './ethRpc.js';
-import { etherscanEnabled, scanSettlements } from './etherscan.js';
+import { etherscanEnabled, getLogsPaged, scanSettlements } from './etherscan.js';
 
 // ---------------------------------------------------------------------------
 // Beam <-> Ethereum Pipe bridge monitoring, Beam side.
@@ -95,6 +95,24 @@ export const BRIDGES: readonly BridgeDef[] = [
     decimals: 8,
     ethDecimals: 8,
     ethDeployBlock: 18190064,
+    custody: 'beam',
+    noViewParams: true,
+  },
+  {
+    // Same Pipe/token addresses as mainnet (one deployer replaying nonces across
+    // chains) but a *different* Beam-side Pipe: msgIds are per-Pipe, so the two
+    // chains cannot share one. Verified by collateral — this Pipe locks 74.93
+    // BEAM against Arbitrum's 74.49 WBEAM supply.
+    key: 'beam-wbeam-arb',
+    label: 'BEAM / WBEAM (Arbitrum)',
+    cid: 'd2505213880d87a4747d23036a02d8919be211d26266cd6f3e591536e44f27fe',
+    chainId: 42161,
+    ethPipe: '0x6063024646E8A1561970840a4b0e0f1082f5a670',
+    ethToken: '0xE5AcBB03D73267c03349c76EaD672Ee4d941F499',
+    aid: 0,
+    decimals: 8,
+    ethDecimals: 8,
+    ethDeployBlock: 322082726,
     custody: 'beam',
     noViewParams: true,
   },
@@ -473,11 +491,74 @@ async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: n
 // refreshIncoming owns that.
 // ---------------------------------------------------------------------------
 
+async function upsertIncoming(
+  b: BridgeDef,
+  msgs: Array<{ msgId: number; amount: bigint; relayerFee: bigint; receiver: string; block: number; txHash: string; ts: Date | null }>,
+): Promise<void> {
+  if (msgs.length === 0) return;
+  const placeholders: string[] = [];
+  const params: Array<string | number | Date | null> = [];
+  for (const m of msgs) {
+    const i = params.length;
+    placeholders.push(
+      `($${i + 1}, $${i + 2}, 'eth2beam', $${i + 3}, 'unknown', $${i + 4}, $${i + 5}, $${i + 6}, $${i + 7}, $${i + 8}, $${i + 9})`,
+    );
+    params.push(
+      b.key, b.chainId, m.msgId, m.amount.toString(), m.relayerFee.toString(),
+      m.receiver, m.block, m.ts, m.txHash,
+    );
+  }
+  await q(
+    `INSERT INTO bridge_messages
+       (bridge, chain_id, direction, msg_id, status, amount, relayer_fee, receiver,
+        src_block, src_ts, src_tx)
+     VALUES ${placeholders.join(',')}
+     ON CONFLICT (bridge, chain_id, direction, msg_id) DO UPDATE SET
+       -- Ethereum provenance wins; status stays whatever the Beam side said.
+       amount      = EXCLUDED.amount,
+       relayer_fee = EXCLUDED.relayer_fee,
+       receiver    = EXCLUDED.receiver,
+       src_block   = EXCLUDED.src_block,
+       src_ts      = COALESCE(EXCLUDED.src_ts, bridge_messages.src_ts),
+       src_tx      = EXCLUDED.src_tx,
+       updated_at  = now()`,
+    params,
+  );
+}
+
 async function ingestIncomingLogs(b: BridgeDef): Promise<{ found: number; caughtUp: boolean }> {
   const { ethLogBlock } = await readCursor(b);
-  const head = await blockNumber();
+  const head = await blockNumber(b.chainId);
   if (ethLogBlock >= head) return { found: 0, caughtUp: true };
 
+  // Preferred path. Etherscan's logs endpoint has no block-range cap, so one
+  // request covers 1 000 logs no matter how far apart they are. That is the
+  // only workable option on Arbitrum (~492M blocks: windowing would need
+  // ~49 000 requests for a single Pipe) and it collapses Ethereum's cold
+  // backfill from thousands of requests to a handful.
+  if (etherscanEnabled()) {
+    const logs = await getLogsPaged(b.chainId, b.ethPipe, NEW_LOCAL_MESSAGE_TOPIC, ethLogBlock);
+    const msgs = logs
+      .map((l) => {
+        const decoded = decodeNewLocalMessage({
+          address: l.address, topics: l.topics, data: l.data,
+          blockNumber: l.blockNumber, transactionHash: l.transactionHash,
+        });
+        if (!decoded) return null;
+        // Etherscan returns the block timestamp with the log, so unlike the RPC
+        // path there's no second round-trip per block.
+        const ts = l.timeStamp ? new Date(parseInt(l.timeStamp, 16) * 1000) : null;
+        return { ...decoded, ts };
+      })
+      .filter((m): m is NonNullable<typeof m> => m !== null);
+
+    await upsertIncoming(b, msgs);
+    await writeEthLogCursor(b.key, head);
+    return { found: msgs.length, caughtUp: true };
+  }
+
+  // Keyless fallback: walk in LOG_WINDOW steps, bounded per cycle so the cold
+  // backfill spreads across ticks instead of stalling one.
   let from = ethLogBlock;
   let windows = 0;
   let found = 0;
@@ -485,50 +566,20 @@ async function ingestIncomingLogs(b: BridgeDef): Promise<{ found: number; caught
   while (from < head && windows < config.BRIDGE_LOG_WINDOWS_PER_CYCLE) {
     const to = Math.min(from + LOG_WINDOW - 1, head);
     // eslint-disable-next-line no-await-in-loop
-    const logs = await getLogs(b.ethPipe, NEW_LOCAL_MESSAGE_TOPIC, from, to);
+    const logs = await getLogs(b.ethPipe, NEW_LOCAL_MESSAGE_TOPIC, from, to, b.chainId);
     windows += 1;
 
-    const msgs = logs.map(decodeNewLocalMessage).filter((m): m is NonNullable<typeof m> => m !== null);
-    if (msgs.length > 0) {
-      // Block timestamps aren't in the log payload on a standard RPC, so fetch
-      // the distinct blocks we actually saw. Handfuls, not thousands.
-      const blocks = Array.from(new Set(msgs.map((m) => m.block)));
+    const decoded = logs.map(decodeNewLocalMessage).filter((m): m is NonNullable<typeof m> => m !== null);
+    if (decoded.length > 0) {
+      const blocks = Array.from(new Set(decoded.map((m) => m.block)));
+      // eslint-disable-next-line no-await-in-loop
       const tsEntries = await Promise.all(
-        // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        blocks.map(async (blk) => [blk, await getBlockTimestamp(blk)] as const),
+        blocks.map(async (blk) => [blk, await getBlockTimestamp(blk, b.chainId)] as const),
       );
       const tsMap = new Map(tsEntries);
-
-      const placeholders: string[] = [];
-      const params: Array<string | number | Date | null> = [];
-      for (const m of msgs) {
-        const i = params.length;
-        placeholders.push(
-          `($${i + 1}, $${i + 2}, 'eth2beam', $${i + 3}, 'unknown', $${i + 4}, $${i + 5}, $${i + 6}, $${i + 7}, $${i + 8}, $${i + 9})`,
-        );
-        params.push(
-          b.key, b.chainId, m.msgId, m.amount.toString(), m.relayerFee.toString(),
-          m.receiver, m.block, tsMap.get(m.block) ?? null, m.txHash,
-        );
-      }
       // eslint-disable-next-line no-await-in-loop
-      await q(
-        `INSERT INTO bridge_messages
-           (bridge, chain_id, direction, msg_id, status, amount, relayer_fee, receiver,
-            src_block, src_ts, src_tx)
-         VALUES ${placeholders.join(',')}
-         ON CONFLICT (bridge, chain_id, direction, msg_id) DO UPDATE SET
-           -- Ethereum provenance wins; status stays whatever the Beam side said.
-           amount      = EXCLUDED.amount,
-           relayer_fee = EXCLUDED.relayer_fee,
-           receiver    = EXCLUDED.receiver,
-           src_block   = EXCLUDED.src_block,
-           src_ts      = COALESCE(EXCLUDED.src_ts, bridge_messages.src_ts),
-           src_tx      = EXCLUDED.src_tx,
-           updated_at  = now()`,
-        params,
-      );
-      found += msgs.length;
+      await upsertIncoming(b, decoded.map((m) => ({ ...m, ts: tsMap.get(m.block) ?? null })));
+      found += decoded.length;
     }
 
     from = to + 1;
@@ -610,7 +661,7 @@ async function beamLockedFunds(cid: string): Promise<bigint | null> {
 }
 
 async function snapshotEscrow(b: BridgeDef): Promise<void> {
-  const block = await blockNumber();
+  const block = await blockNumber(b.chainId);
   let locked: bigint;
   let lockedDecimals: number;
   let minted: bigint | null = null;
@@ -627,12 +678,12 @@ async function snapshotEscrow(b: BridgeDef): Promise<void> {
     }
     locked = beamLocked;
     lockedDecimals = b.decimals;
-    minted = b.ethToken ? await erc20TotalSupply(b.ethToken) : 0n;
+    minted = b.ethToken ? await erc20TotalSupply(b.ethToken, b.chainId) : 0n;
     mintedDecimals = b.ethDecimals;
   } else {
     locked = b.ethToken
-      ? await erc20BalanceOf(b.ethToken, b.ethPipe)
-      : await getBalance(b.ethPipe);
+      ? await erc20BalanceOf(b.ethToken, b.ethPipe, b.chainId)
+      : await getBalance(b.ethPipe, b.chainId);
     lockedDecimals = b.ethDecimals;
     // minted stays null: the repo derives it from the Beam asset's emission.
   }

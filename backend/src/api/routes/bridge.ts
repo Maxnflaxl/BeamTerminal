@@ -21,8 +21,16 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
   app.get('/bridge/health', async (_req, reply) => {
     const rows = await getBridgeHealth(etherscanEnabled());
     void reply.header('Cache-Control', 'public, max-age=30');
+    // Sum of what every bridge actually holds in escrow. Bridges we can't price
+    // are simply absent from the total rather than counted as zero.
+    const tvlUsd = rows.reduce<number | null>((acc, r) => {
+      if (r.locked_usd === null) return acc;
+      return (acc ?? 0) + r.locked_usd;
+    }, null);
     return {
       bridges: rows,
+      tvl_usd: tvlUsd,
+      tvl_priced: rows.filter((r) => r.locked_usd !== null).length,
       // Surfaced so a consumer can tell "no failures" from "we cannot see
       // failures" — without an Etherscan key the beam2eth side is unverifiable.
       settlement_available: etherscanEnabled(),

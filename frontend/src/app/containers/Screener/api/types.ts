@@ -767,6 +767,7 @@ export interface ApiBridgeHealthRow {
   oldest_open_ts: string | null;
   last_message_ts: string | null;
   unclaimed_amount: number | null;
+  locked_usd: number | null;
   escrow: { locked: number | null; decimals: number; observed_at: string | null } | null;
   minted: number | null;
   collateral_ratio: number | null;
@@ -775,6 +776,10 @@ export interface ApiBridgeHealthRow {
 
 export interface ApiBridgeHealth {
   bridges: ApiBridgeHealthRow[];
+  /** USD value of all locked collateral. Null when nothing could be priced. */
+  tvl_usd: number | null;
+  /** How many bridges contributed to tvl_usd — the rest have no USD price. */
+  tvl_priced: number;
   /** False when no Etherscan key is configured — then `failed: 0` means
    *  "unverifiable", not "none". */
   settlement_available: boolean;

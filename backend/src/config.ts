@@ -94,6 +94,10 @@ const Env = z.object({
   // useful range (10k blocks/query) — see services/ethRpc.ts. Point it at a
   // keyed provider to widen ETH_LOG_WINDOW.
   ETH_RPC_URL: z.string().url().default('https://eth.drpc.org'),
+  // Arbitrum One. Same reasoning as ETH_RPC_URL. Note Arbitrum's block height is
+  // ~20x Ethereum's, so windowed log scans are impractical there — the Etherscan
+  // path (no block-range cap) is what actually backfills that chain.
+  ARB_RPC_URL: z.string().url().default('https://arbitrum.drpc.org'),
   // Optional. Only the Beam->Ethereum settlement scan needs it, because
   // `processRemoteMessage` emits no event and the tx list is the sole source.
   // Without it those messages stay 'unknown' rather than being reported as

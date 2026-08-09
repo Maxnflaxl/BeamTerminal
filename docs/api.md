@@ -657,7 +657,8 @@ Full BANS registry action history (oldest→newest), from `contract_call_events`
 
 ## `GET /api/bridge/health`
 
-Liveness and peg backing for the five Beam↔Ethereum Pipe bridges.
+Liveness and peg backing for the six Beam↔EVM Pipe bridges — four b-asset bridges
+and BEAM/WBEAM on both Ethereum mainnet and Arbitrum One.
 
 ```json
 {
@@ -677,9 +678,16 @@ Liveness and peg backing for the five Beam↔Ethereum Pipe bridges.
       "settlement_source": "etherscan"
     }
   ],
+  "tvl_usd": 1234567.89,
+  "tvl_priced": 6,
   "settlement_available": true
 }
 ```
+
+`tvl_usd` is the USD value of all locked collateral, priced off each bridge's
+Beam-side asset (the wrapped asset tracks its collateral 1:1). Bridges with no
+BEAM-quoted pool are excluded rather than counted as zero; `tvl_priced` says how
+many contributed.
 
 Status vocabularies differ by direction, because the underlying contract states do:
 

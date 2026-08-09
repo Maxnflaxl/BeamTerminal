@@ -1,5 +1,6 @@
 import { q } from '../../db.js';
 import { BRIDGES } from '../../services/bridge.js';
+import { loadUsdTable } from './usd.js';
 
 // ---------------------------------------------------------------------------
 // Read models for /api/bridge/*.
@@ -36,6 +37,13 @@ export interface BridgeHealthRow {
   unclaimed_amount: number | null;
   escrow: { locked: number | null; decimals: number; observed_at: string | null } | null;
   minted: number | null;
+  /**
+   * USD value of the locked collateral. Priced off the *Beam-side* asset, which
+   * is the one we have an on-chain BEAM-quoted pool for — the wrapped asset
+   * tracks its collateral 1:1, so that price applies to both sides. Null when
+   * no pool prices that asset.
+   */
+  locked_usd: number | null;
   /** minted / locked. Null when either side is unknown. ~1.0 means fully backed. */
   collateral_ratio: number | null;
   settlement_source: 'etherscan' | 'unavailable';
@@ -47,7 +55,7 @@ interface StatusAggRow {
 }
 
 export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealthRow[]> {
-  const [agg, escrow, minted, unclaimed] = await Promise.all([
+  const [agg, escrow, minted, unclaimed, usd] = await Promise.all([
     q<StatusAggRow>(
       `SELECT bridge, direction, status, count(*)::text AS n,
               min(src_ts)::text AS oldest, max(src_ts)::text AS newest
@@ -72,6 +80,9 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
         WHERE direction = 'eth2beam' AND status = 'unclaimed'
         GROUP BY 1`,
     ),
+    // Never let a pricing failure take down the whole endpoint — the bridge
+    // health numbers are useful with or without a USD column.
+    loadUsdTable().catch(() => null),
   ]);
 
   const escrowBy = new Map(escrow.rows.map((r) => [r.bridge, r]));
@@ -140,6 +151,11 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
         ? { locked: lockedVal, decimals: esc.decimals, observed_at: esc.observed_at }
         : null,
       minted: mintedVal,
+      locked_usd: (() => {
+        if (lockedVal === null) return null;
+        const px = usd?.perAid.get(b.aid);
+        return px === undefined ? null : lockedVal * px;
+      })(),
       collateral_ratio:
         lockedVal !== null && lockedVal > 0 && mintedVal !== null ? mintedVal / lockedVal : null,
       settlement_source: etherscanOn ? 'etherscan' : 'unavailable',

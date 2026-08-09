@@ -202,3 +202,48 @@ export async function scanSettlements(
 
   return { settlements, highestBlock };
 }
+
+// ---------------------------------------------------------------------------
+// Event logs.
+//
+// Etherscan's logs/getLogs has **no block-range cap**, unlike every free RPC —
+// which is what makes Arbitrum tractable at all. That chain is ~492M blocks
+// deep, so the 10k-block windowing in ethRpc.ts would need ~49 000 requests to
+// backfill a single Pipe; here it's one request per 1 000 logs.
+// ---------------------------------------------------------------------------
+
+export interface EtherscanLog {
+  address: string;
+  topics: string[];
+  data: string;
+  blockNumber: string;   // hex
+  transactionHash: string;
+  timeStamp?: string;    // hex — free, unlike the RPC path which needs a second call
+}
+
+export async function getLogsPaged(
+  chainId: number,
+  address: string,
+  topic0: string,
+  fromBlock: number,
+): Promise<EtherscanLog[]> {
+  const out: EtherscanLog[] = [];
+  for (let page = 1; page * PAGE_SIZE <= MAX_WINDOW; page += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const logs = await call<EtherscanLog[]>({
+      chainid: String(chainId),
+      module: 'logs',
+      action: 'getLogs',
+      address,
+      topic0,
+      fromBlock: String(fromBlock),
+      toBlock: 'latest',
+      page: String(page),
+      offset: String(PAGE_SIZE),
+    });
+    if (!Array.isArray(logs) || logs.length === 0) break;
+    out.push(...logs);
+    if (logs.length < PAGE_SIZE) break;
+  }
+  return out;
+}

@@ -28,7 +28,6 @@ import {
   WarnBox,
   Select,
   Btn,
-  Row,
 } from './shared/components';
 import { theme } from './shared/theme';
 
@@ -152,7 +151,7 @@ const CardFoot = styled.div`
   /* auto, not a fixed gap: absorbs the difference in chip-row height so the
      footer and the button below it line up across the row. */
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: 10px;
   border-top: 1px solid ${theme.color.borderDim};
   font-size: 11px;
   color: ${theme.color.muted};
@@ -196,8 +195,8 @@ const Chips = styled.div`
   /* The footer's separator is positioned with margin-top:auto, which collapses
      to zero on a card whose content already fills the column — leaving the rule
      flush against these chips. The gap has to live here, where nothing can
-     collapse it. */
-  margin-bottom: 16px;
+     collapse it. Kept tight: the rule is a divider, not a section break. */
+  margin-bottom: 10px;
 `;
 
 const Filters = styled.div`
@@ -231,6 +230,13 @@ function fmtAmount(n: number | null, maxFrac = 6): string {
   if (n === 0) return '0';
   if (Math.abs(n) < 0.000001) return n.toExponential(2);
   return n.toLocaleString(undefined, { maximumFractionDigits: maxFrac });
+}
+
+function fmtUsd(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return '—';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
+  return `$${n.toFixed(0)}`;
 }
 
 function fmtAge(iso: string | null): string {
@@ -512,9 +518,12 @@ const BridgeTracker: React.FC = () => {
 
       <StatGrid>
         <StatCard>
-          <Label>Bridges</Label>
-          <Value>{totals.bridges || '—'}</Value>
-          <SubValue>Beam ⇄ Ethereum</SubValue>
+          <Label>Bridge TVL</Label>
+          <Value>{fmtUsd(health?.tvl_usd ?? null)}</Value>
+          <SubValue>
+            collateral locked across {totals.bridges || 0} {totals.bridges === 1 ? 'bridge' : 'bridges'}
+            {health && health.tvl_priced < totals.bridges ? ` · ${totals.bridges - health.tvl_priced} unpriced` : ''}
+          </SubValue>
         </StatCard>
         <StatCard>
           <Label>Transfers tracked</Label>
@@ -700,18 +709,14 @@ const BridgeTracker: React.FC = () => {
 
       <Card>
         <H2>How to read this</H2>
-        <Row>
-          <Muted style={{ maxWidth: 760 }}>
-            <strong>Ethereum → Beam</strong> takes two steps: a relayer delivers the message to Beam, then the recipient
-            claims it. <em>Not delivered</em> means the first step never happened. <em>Awaiting claim</em> means it did,
-            and the funds are sitting on Beam waiting for their owner — safe, but uncollected.
-            <br />
-            <br />
-            <strong>Beam → Ethereum</strong> is settled by a single relayer transaction. Because the Pipe contract emits
-            no event when it settles, confirming it requires scanning the contract&apos;s transaction history, which
-            needs an Etherscan key on the server.
-          </Muted>
-        </Row>
+        <Muted style={{ maxWidth: 720 }}>
+          <strong>Ethereum → Beam</strong> takes two steps: a relayer delivers the message to Beam, then the recipient
+          claims it. <em>Not delivered</em> means the first step never happened. <em>Awaiting claim</em> means it did,
+          and the funds are on Beam waiting for their owner — safe, but uncollected.
+          <br />
+          <br />
+          <strong>Beam → Ethereum</strong> is settled by a single relayer transaction.
+        </Muted>
       </Card>
     </Page>
   );
