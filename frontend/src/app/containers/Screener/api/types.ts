@@ -795,6 +795,8 @@ export interface ApiBridgeMessage {
   relayer_fee: number | null;
   receiver: string | null;
   src_height: number | null;
+  /** Block containing the Beam call — what the explorer will show. */
+  src_call_height: number | null;
   src_block: number | null;
   src_ts: string | null;
   src_tx: string | null;
@@ -820,7 +822,7 @@ export interface ApiBridgeLookupMatch extends ApiBridgeMessage {
 
 export interface ApiBridgeLookup {
   query: string;
-  kind: 'evm_tx' | 'beam_kernel' | 'unrecognised';
+  kind: 'evm_tx' | 'beam_kernel' | 'beam_height' | 'unrecognised';
   resolved_height: number | null;
   matches: ApiBridgeLookupMatch[];
 }

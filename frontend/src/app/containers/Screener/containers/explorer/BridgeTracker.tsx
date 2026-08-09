@@ -250,6 +250,12 @@ const SortMark = styled.span`
   color: ${theme.color.accent};
 `;
 
+const RefCell = styled.div`
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+`;
+
 const Mono = styled.span`
   font-family: ${theme.font.mono};
 `;
@@ -359,19 +365,24 @@ function pegTone(ratio: number | null): Tone {
   return 'success';
 }
 
-function etherscanAddr(addr: string): string {
-  return `https://etherscan.io/address/${addr}`;
+// Arbitrum transactions live on Arbiscan; sending them to Etherscan just adds a
+// hop for the reader.
+function evmExplorer(chainId: number | undefined): string {
+  return chainId === 42161 ? 'https://arbiscan.io' : 'https://etherscan.io';
 }
 
-function etherscanTx(hash: string): string {
-  return `https://etherscan.io/tx/${hash}`;
+function evmAddrUrl(addr: string, chainId?: number): string {
+  return `${evmExplorer(chainId)}/address/${addr}`;
 }
 
-const ExtLink: React.FC<{ href: string; children: React.ReactNode }> = ({ href, children }) => (
-  <a href={href} target="_blank" rel="noopener noreferrer">
-    {children}
-  </a>
-);
+function evmTxUrl(hash: string, chainId?: number): string {
+  return `${evmExplorer(chainId)}/tx/${hash}`;
+}
+
+// Beam block, for the height an outgoing message's call landed in.
+function beamBlockUrl(height: number): string {
+  return `https://explorer.0xmx.net/?network=mainnet&type=block&height=${height}`;
+}
 
 // ---------------------------------------------------------------------------
 // Per-bridge card
@@ -429,7 +440,7 @@ const BridgeSummaryCard: React.FC<{
         <span>last activity {fmtAge(row.last_message_ts)} ago</span>
         <LinkRow>
           <LinkChip
-            href={etherscanAddr(row.eth_pipe)}
+            href={evmAddrUrl(row.eth_pipe, row.chain_id)}
             target="_blank"
             rel="noopener noreferrer"
             title={`Pipe contract ${row.eth_pipe} on Etherscan`}
@@ -575,7 +586,7 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <Input
             autoFocus
             value={value}
-            placeholder="0x… or a 64-character Beam kernel ID"
+            placeholder="0x…, a Beam kernel ID, or a block height"
             onChange={(e) => setValue(e.target.value)}
             style={{ flex: '1 1 320px' }}
           />
@@ -614,22 +625,31 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <PegStatValue>#{m.msg_id}</PegStatValue>
               <PegStatLabel>Age</PegStatLabel>
               <PegStatValue>{fmtAge(m.src_ts)}</PegStatValue>
-              {m.src_height !== null && (
+              {(m.src_call_height ?? m.src_height) !== null && (
                 <>
-                  <PegStatLabel>Beam height</PegStatLabel>
-                  <PegStatValue>{m.src_height}</PegStatValue>
+                  <PegStatLabel>Beam block</PegStatLabel>
+                  <PegStatValue>{m.src_call_height ?? m.src_height}</PegStatValue>
                 </>
               )}
             </ResultGrid>
             <LinkRow style={{ marginTop: 12 }}>
               {m.src_tx && (
-                <LinkChip href={etherscanTx(m.src_tx)} target="_blank" rel="noopener noreferrer">
+                <LinkChip href={evmTxUrl(m.src_tx)} target="_blank" rel="noopener noreferrer">
                   Origin tx ↗
                 </LinkChip>
               )}
               {m.settle_tx && (
-                <LinkChip href={etherscanTx(m.settle_tx)} target="_blank" rel="noopener noreferrer">
+                <LinkChip href={evmTxUrl(m.settle_tx)} target="_blank" rel="noopener noreferrer">
                   Settlement tx ↗
+                </LinkChip>
+              )}
+              {!m.src_tx && (m.src_call_height ?? m.src_height) !== null && (
+                <LinkChip
+                  href={beamBlockUrl((m.src_call_height ?? m.src_height) as number)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Beam block ↗
                 </LinkChip>
               )}
             </LinkRow>
@@ -944,15 +964,38 @@ const BridgeTracker: React.FC = () => {
                   </td>
                   <td>{fmtAge(m.src_ts)}</td>
                   <td>
-                    {m.settle_tx ? (
-                      <ExtLink href={etherscanTx(m.settle_tx)}>settled</ExtLink>
-                    ) : m.src_tx ? (
-                      <ExtLink href={etherscanTx(m.src_tx)}>origin</ExtLink>
-                    ) : m.src_height ? (
-                      <Mono>h {m.src_height}</Mono>
-                    ) : (
-                      '—'
-                    )}
+                    {(() => {
+                      const chainId = health?.bridges.find((b) => b.bridge === m.bridge)?.chain_id;
+                      // Outgoing messages have no tx hash on the Beam side — the
+                      // Pipe records only a height — so the block is the only
+                      // reference, and it doubles as a lookup key.
+                      const h = m.src_call_height ?? m.src_height;
+                      return (
+                        <RefCell>
+                          {m.settle_tx && (
+                            <LinkChip href={evmTxUrl(m.settle_tx, chainId)} target="_blank" rel="noopener noreferrer">
+                              settled ↗
+                            </LinkChip>
+                          )}
+                          {m.src_tx && (
+                            <LinkChip href={evmTxUrl(m.src_tx, chainId)} target="_blank" rel="noopener noreferrer">
+                              origin ↗
+                            </LinkChip>
+                          )}
+                          {!m.src_tx && h !== null && (
+                            <LinkChip
+                              href={beamBlockUrl(h)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Beam block ${h} — paste this height into “Check my transfer”`}
+                            >
+                              block {h} ↗
+                            </LinkChip>
+                          )}
+                          {!m.settle_tx && !m.src_tx && h === null && '—'}
+                        </RefCell>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}

@@ -187,6 +187,9 @@ export interface BridgeMessageRow {
   relayer_fee: number | null;
   receiver: string | null;
   src_height: number | null;
+  /** Block that actually contains the Beam call — what to look up in the
+   *  explorer. Differs from src_height, which is the tip the contract saw. */
+  src_call_height: number | null;
   src_block: number | null;
   src_ts: string | null;
   src_tx: string | null;
@@ -247,13 +250,14 @@ export async function listBridgeMessages(opts: {
   const rows = await q<{
     bridge: string; direction: string; msg_id: string; status: string;
     amount: string | null; relayer_fee: string | null; receiver: string | null;
-    src_height: string | null; src_block: string | null; src_ts: string | null;
+    src_height: string | null; src_call_height: string | null;
+    src_block: string | null; src_ts: string | null;
     src_tx: string | null; settle_tx: string | null; settle_block: string | null;
     settle_ts: string | null;
   }>(
     `SELECT bridge, direction, msg_id::text, status, amount::text, relayer_fee::text,
-            receiver, src_height::text, src_block::text, src_ts::text, src_tx,
-            settle_tx, settle_block::text, settle_ts::text
+            receiver, src_height::text, src_call_height::text, src_block::text,
+            src_ts::text, src_tx, settle_tx, settle_block::text, settle_ts::text
        FROM bridge_messages ${clause}
       ORDER BY ${orderBy}
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -280,6 +284,7 @@ export async function listBridgeMessages(opts: {
         relayer_fee: scale(r.relayer_fee, dec),
         receiver: r.receiver,
         src_height: r.src_height === null ? null : Number(r.src_height),
+        src_call_height: r.src_call_height === null ? null : Number(r.src_call_height),
         src_block: r.src_block === null ? null : Number(r.src_block),
         src_ts: r.src_ts,
         src_tx: r.src_tx,
@@ -300,7 +305,7 @@ export async function listBridgeMessages(opts: {
 // then matched against outgoing messages at that height.
 // ---------------------------------------------------------------------------
 
-export type LookupKind = 'evm_tx' | 'beam_kernel' | 'unrecognised';
+export type LookupKind = 'evm_tx' | 'beam_kernel' | 'beam_height' | 'unrecognised';
 
 export interface BridgeLookupMatch extends BridgeMessageRow {
   label: string;
@@ -387,13 +392,14 @@ async function rowsWhere(clause: string, params: Array<string | number>): Promis
   const { rows } = await q<{
     bridge: string; direction: string; msg_id: string; status: string;
     amount: string | null; relayer_fee: string | null; receiver: string | null;
-    src_height: string | null; src_block: string | null; src_ts: string | null;
+    src_height: string | null; src_call_height: string | null;
+    src_block: string | null; src_ts: string | null;
     src_tx: string | null; settle_tx: string | null; settle_block: string | null;
     settle_ts: string | null;
   }>(
     `SELECT bridge, direction, msg_id::text, status, amount::text, relayer_fee::text,
-            receiver, src_height::text, src_block::text, src_ts::text, src_tx,
-            settle_tx, settle_block::text, settle_ts::text
+            receiver, src_height::text, src_call_height::text, src_block::text,
+            src_ts::text, src_tx, settle_tx, settle_block::text, settle_ts::text
        FROM bridge_messages
       WHERE ${clause}
       ORDER BY bridge_messages.src_ts DESC NULLS LAST
@@ -413,6 +419,7 @@ async function rowsWhere(clause: string, params: Array<string | number>): Promis
       relayer_fee: scale(r.relayer_fee, dec),
       receiver: r.receiver,
       src_height: r.src_height === null ? null : Number(r.src_height),
+      src_call_height: r.src_call_height === null ? null : Number(r.src_call_height),
       src_block: r.src_block === null ? null : Number(r.src_block),
       src_ts: r.src_ts,
       src_tx: r.src_tx,
@@ -425,6 +432,24 @@ async function rowsWhere(clause: string, params: Array<string | number>): Promis
 
 export async function lookupBridgeTransfer(raw: string): Promise<BridgeLookupResult> {
   const trimmed = raw.trim();
+
+  // A bare number is a Beam height — the only reference the transfers table can
+  // show for an outgoing message, since the Pipe records no kernel id per
+  // message. Accepting it means what's on screen can be pasted straight in.
+  if (/^\d{1,9}$/.test(trimmed)) {
+    const h = Number(trimmed);
+    const byHeight = await rowsWhere(
+      "direction = 'beam2eth' AND (src_call_height = $1 OR src_height = $1)",
+      [h],
+    );
+    return {
+      query: trimmed,
+      kind: 'beam_height',
+      resolved_height: h,
+      matches: byHeight.map((r) => toMatch(r, 'origin')),
+    };
+  }
+
   const bare = trimmed.replace(/^0x/i, '').toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(bare)) {
     return { query: trimmed, kind: 'unrecognised', resolved_height: null, matches: [] };
@@ -465,8 +490,10 @@ export async function lookupBridgeTransfer(raw: string): Promise<BridgeLookupRes
     return { query: trimmed, kind: 'unrecognised', resolved_height: null, matches: [] };
   }
 
+  // Match the resolved call height first — that's the block the kernel is
+  // actually in — and fall back to the contract-reported tip.
   const beam = await rowsWhere(
-    "direction = 'beam2eth' AND src_height = $1",
+    "direction = 'beam2eth' AND (src_call_height = $1 OR src_height = $1)",
     [height],
   );
   return {

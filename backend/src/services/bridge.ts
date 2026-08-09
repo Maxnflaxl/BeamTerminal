@@ -479,6 +479,70 @@ async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: n
   return { scanned: msgId, open };
 }
 
+
+// ---------------------------------------------------------------------------
+// Resolving a message's real block
+//
+// `local_msg` reports Env::get_Height() — the chain tip the wallet saw when it
+// built the transaction — not the block the call ended up in. Looking that
+// height up in the explorer shows nothing, which is exactly what a user chasing
+// a pending transfer runs into.
+//
+// The Pipe's own call history has the true heights, so the reported height is
+// mapped to the first call at or after it rather than assuming a fixed +1
+// offset. Cheap: one /contract fetch per bridge, a few dozen to a few hundred
+// rows.
+// ---------------------------------------------------------------------------
+
+async function pipeCallHeights(cid: string): Promise<number[]> {
+  const res = await getContract({ id: cid });
+  const table = (res as unknown as Record<string, unknown>)['Calls history'];
+  const rows = (table as { value?: unknown[] } | undefined)?.value;
+  if (!Array.isArray(rows)) return [];
+  const heights: number[] = [];
+  for (const row of rows.slice(1)) {
+    const r = (row && typeof row === 'object' && (row as { type?: string }).type === 'group')
+      ? ((row as { value: unknown[] }).value[0] as unknown[])
+      : (row as unknown[]);
+    if (!Array.isArray(r) || r.length === 0) continue;
+    const cell = r[0] as { value?: unknown } | number | undefined;
+    const h = typeof cell === 'number' ? cell : Number((cell as { value?: unknown })?.value);
+    if (Number.isFinite(h)) heights.push(h);
+  }
+  return heights.sort((a, b) => a - b);
+}
+
+async function resolveCallHeights(b: BridgeDef): Promise<number> {
+  const { rows } = await q<{ msg_id: string; src_height: string }>(
+    `SELECT msg_id::text, src_height::text
+       FROM bridge_messages
+      WHERE bridge = $1 AND direction = 'beam2eth'
+        AND src_height IS NOT NULL AND src_call_height IS NULL`,
+    [b.key],
+  );
+  if (rows.length === 0) return 0;
+
+  const heights = await pipeCallHeights(b.cid);
+  if (heights.length === 0) return 0;
+
+  let resolved = 0;
+  for (const r of rows) {
+    const reported = Number(r.src_height);
+    // First call at or after the reported height. A message's call can never
+    // precede the tip its transaction was built against.
+    const hit = heights.find((h) => h >= reported);
+    if (hit === undefined) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await q(
+      `UPDATE bridge_messages SET src_call_height = $3, updated_at = now()
+        WHERE bridge = $1 AND direction = 'beam2eth' AND msg_id = $2`,
+      [b.key, Number(r.msg_id), hit],
+    );
+    resolved += 1;
+  }
+  return resolved;
+}
+
 // ---------------------------------------------------------------------------
 // Ethereum -> Beam: ingest NewLocalMessage logs
 //
@@ -739,12 +803,13 @@ export interface BridgeSyncResult {
   logsIngested: number;
   settled: number;
   logsCaughtUp: number;
+  heightsResolved: number;
 }
 
 export async function syncBridges(): Promise<BridgeSyncResult> {
   const res: BridgeSyncResult = {
     bridges: 0, outgoingIngested: 0, incomingOpen: 0, shaderCalls: 0,
-    logsIngested: 0, settled: 0, logsCaughtUp: 0,
+    logsIngested: 0, settled: 0, logsCaughtUp: 0, heightsResolved: 0,
   };
 
   for (const b of BRIDGES) {
@@ -756,6 +821,8 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
       // eslint-disable-next-line no-await-in-loop
       const ingested = await ingestOutgoing(b);
       // eslint-disable-next-line no-await-in-loop
+      const resolvedHeights = await resolveCallHeights(b);
+      // eslint-disable-next-line no-await-in-loop
       const { scanned, open } = await refreshIncoming(b);
       // eslint-disable-next-line no-await-in-loop
       const settled = await settleOutgoing(b);
@@ -766,6 +833,7 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
       res.incomingOpen += open;
       res.shaderCalls += scanned + ingested + 1;
       res.logsIngested += found;
+      res.heightsResolved += resolvedHeights;
       res.settled += settled;
       if (caughtUp) res.logsCaughtUp += 1;
       logger.debug({ bridge: b.key, ingested, scanned, open }, 'bridge synced');

@@ -733,7 +733,10 @@ kernel ID.
 }
 ```
 
-`kind` is `evm_tx`, `beam_kernel`, or `unrecognised`. Both identifiers are 32
+`kind` is `evm_tx`, `beam_kernel`, `beam_height`, or `unrecognised`. A bare
+number is treated as a Beam block height — the only reference an outgoing
+message has, since the Pipe records no kernel ID per message, so the height shown
+in the transfers table can be pasted straight in. Both identifiers are 32
 bytes so the input alone can't distinguish them: the EVM side is tried first,
 then the kernel is resolved to a Beam height and matched against outgoing
 messages at that height (a height can carry several, so all are returned).
@@ -764,7 +767,7 @@ across bridges with different decimals.
       "bridge": "beam-wbeam", "direction": "beam2eth", "msg_id": 496,
       "status": "pending", "amount": 15000.0, "relayer_fee": 95.42684516,
       "receiver": "24c32736a24f2ccc95a3249b17ea5c23222df71c",
-      "src_height": 3981297, "src_block": null,
+      "src_height": 3981297, "src_call_height": 3981298, "src_block": null,
       "src_ts": "2026-08-07T01:03:30.000Z", "src_tx": null,
       "settle_tx": null, "settle_block": null, "settle_ts": null
     }
@@ -772,6 +775,12 @@ across bridges with different decimals.
   "total": 1283, "limit": 50, "offset": 0
 }
 ```
+
+`src_height` is the chain tip the Pipe contract recorded when the transaction was
+built; `src_call_height` is the block that actually contains the call, resolved
+against the contract's call history. **Use `src_call_height` for explorer links**
+— looking up `src_height` shows no contract activity, because the call landed a
+block later.
 
 `amount` and `relayer_fee` are scaled to the side the message was observed on:
 Beam-side decimals for `beam2eth`, Ethereum-side for `eth2beam`. These differ —
