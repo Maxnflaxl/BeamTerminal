@@ -281,7 +281,24 @@ export interface BridgeLookupResult {
   matches: BridgeLookupMatch[];
 }
 
-function explain(status: string, direction: string, ageDays: number | null): string {
+// Values at or near 2^256 aren't transfers, they're junk pushed into the Pipe.
+// Scaled by the asset's decimals they still land astronomically high, so one
+// threshold catches them regardless of which side they came from.
+const ABSURD = 1e20;
+
+function explain(
+  status: string,
+  direction: string,
+  ageDays: number | null,
+  amount: number | null,
+  fee: number | null,
+): string {
+  const malformed = (amount !== null && amount > ABSURD) || (fee !== null && fee > ABSURD);
+  if (malformed && status === 'not_delivered') {
+    return 'This message carries a nonsensical value (around 2^256, the maximum a uint256 can '
+      + 'hold) rather than a real amount. It is junk pushed into the bridge contract, not a '
+      + 'transfer, and the relayer will not process it.';
+  }
   if (direction === 'eth2beam') {
     switch (status) {
       case 'complete':
@@ -291,6 +308,11 @@ function explain(status: string, direction: string, ageDays: number | null): str
           + 'BEAM wallet and receive the funds — only your wallet can sign for them, so this will '
           + 'wait indefinitely until you do.';
       case 'not_delivered':
+        if (fee !== null && amount !== null && fee > 0 && amount > 0 && fee / amount < 0.0001) {
+          return 'The relayer has not delivered this to Beam. Its relayer fee is very small '
+            + 'relative to the amount — likely too small to cover the Ethereum gas the delivery '
+            + 'costs — so it may stay here until fees fall far enough to make it worthwhile.';
+        }
         return 'The relayer has not delivered this to Beam yet. Relaying costs Ethereum gas, so '
           + 'when the network is expensive the relayer waits for fees to come down before '
           + 'submitting. Nothing is lost while it waits.';
@@ -317,7 +339,12 @@ function explain(status: string, direction: string, ageDays: number | null): str
 function toMatch(r: BridgeMessageRow, role: 'origin' | 'settlement'): BridgeLookupMatch {
   const label = BRIDGES.find((b) => b.key === r.bridge)?.label ?? r.bridge;
   const ageDays = r.src_ts ? (Date.now() - Date.parse(r.src_ts)) / 86_400_000 : null;
-  return { ...r, label, role, explanation: explain(r.status, r.direction, ageDays) };
+  return {
+    ...r,
+    label,
+    role,
+    explanation: explain(r.status, r.direction, ageDays, r.amount, r.relayer_fee),
+  };
 }
 
 async function rowsWhere(clause: string, params: Array<string | number>): Promise<BridgeMessageRow[]> {

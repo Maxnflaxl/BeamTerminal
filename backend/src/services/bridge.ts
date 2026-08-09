@@ -604,14 +604,37 @@ async function settleOutgoing(b: BridgeDef): Promise<number> {
   if (!etherscanEnabled()) return 0;
 
   const { ethTxBlock } = await readCursor(b);
-  const { settlements, highestBlock } = await scanSettlements(b.chainId, b.ethPipe, ethTxBlock);
+
+  const { rows: pendingRows } = await q<{ n: string }>(
+    `SELECT count(*)::text AS n FROM bridge_messages
+      WHERE bridge = $1 AND direction = 'beam2eth' AND status = 'pending'`,
+    [b.key],
+  );
+  const pending = Number(pendingRows[0]?.n ?? 0);
+
+  let { settlements, highestBlock } = await scanSettlements(b.chainId, b.ethPipe, ethTxBlock);
+
+  // Etherscan's `startblock` filter misbehaves on Arbitrum: querying from the
+  // contract's own deploy block returns "No transactions found", while querying
+  // from 0 returns the very same transactions starting at that block. So when a
+  // bridge still has unsettled messages and a cursor-based scan comes back
+  // empty, retry from zero before believing there's nothing there. Gated on
+  // `pending` so caught-up bridges don't re-walk their history every cycle.
+  if (settlements.size === 0 && pending > 0 && ethTxBlock > 0) {
+    ({ settlements, highestBlock } = await scanSettlements(b.chainId, b.ethPipe, 0));
+    if (settlements.size > 0) {
+      logger.info({ bridge: b.key, found: settlements.size },
+        'bridge: settlement scan recovered by restarting from block 0');
+    }
+  }
+
   if (settlements.size === 0) {
     if (highestBlock > ethTxBlock) await writeEthTxCursor(b.key, highestBlock);
     return 0;
   }
 
   let updated = 0;
-  for (const s of settlements.values()) {
+  for (const s2 of settlements.values()) {
     // eslint-disable-next-line no-await-in-loop
     const { rowCount } = await q(
       `UPDATE bridge_messages
@@ -624,13 +647,11 @@ async function settleOutgoing(b: BridgeDef): Promise<number> {
           -- Never downgrade a relayed message: the relayer re-submits settled
           -- messages and those retries revert.
           AND status IS DISTINCT FROM 'relayed'`,
-      [b.key, s.msgId, b.chainId, s.success ? 'relayed' : 'failed', s.txHash, s.block, s.ts],
+      [b.key, s2.msgId, b.chainId, s2.success ? 'relayed' : 'failed', s2.txHash, s2.block, s2.ts],
     );
     updated += rowCount ?? 0;
   }
 
-  // Only rewind-proof once the whole scan completed; a partial scan would skip
-  // settlements in the blocks we didn't reach.
   if (highestBlock > ethTxBlock) await writeEthTxCursor(b.key, highestBlock);
   return updated;
 }

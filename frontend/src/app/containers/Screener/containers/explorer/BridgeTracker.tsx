@@ -22,7 +22,6 @@ import {
   Value,
   SubValue,
   Pill,
-  Dot,
   DataTable,
   ScrollX,
   ErrorBox,
@@ -230,6 +229,9 @@ const Pager = styled.div`
 function fmtAmount(n: number | null, maxFrac = 6): string {
   if (n === null || !Number.isFinite(n)) return '—';
   if (n === 0) return '0';
+  // Junk messages carry values near 2^256. Spelled out that's 78 digits, which
+  // blows the column apart — and the exact figure is meaningless anyway.
+  if (Math.abs(n) >= 1e20) return n.toExponential(2);
   if (Math.abs(n) < 0.000001) return n.toExponential(2);
   return n.toLocaleString(undefined, { maximumFractionDigits: maxFrac });
 }
@@ -282,12 +284,16 @@ function statusTone(status: string): Tone {
   }
 }
 
+// One vocabulary across the page: the cards and the table used to disagree
+// ("in flight" vs "pending") about the same API status.
 function statusLabel(status: string): string {
   switch (status) {
     case 'not_delivered':
       return 'not delivered';
     case 'unclaimed':
       return 'awaiting claim';
+    case 'pending':
+      return 'in flight';
     default:
       return status;
   }
@@ -363,7 +369,9 @@ const BridgeSummaryCard: React.FC<{
         {row.incoming.not_delivered > 0 && <Pill data-tone="warn">{row.incoming.not_delivered} not delivered</Pill>}
         {row.outgoing.failed > 0 && <Pill data-tone="danger">{row.outgoing.failed} failed</Pill>}
         {settlementAvailable && row.outgoing.pending > 0 && (
-          <Pill data-tone="purple">{row.outgoing.pending} in flight</Pill>
+          <Pill data-tone="purple">
+            {row.outgoing.pending} {statusLabel('pending')}
+          </Pill>
         )}
         {!settlementAvailable && row.outgoing.total > 0 && (
           <Pill data-tone="purple">{row.outgoing.total} out, unverified</Pill>
@@ -678,15 +686,6 @@ const BridgeTracker: React.FC = () => {
     setOffset(0);
   }, []);
 
-  const showUnclaimed = useCallback(() => {
-    setFDirection('eth2beam');
-    setFStatus('unclaimed');
-    setFBridge('');
-    setOffset(0);
-    const el = document.getElementById('bridge-transfers');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-
   const total = msgs?.total ?? 0;
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -696,7 +695,7 @@ const BridgeTracker: React.FC = () => {
       <ExplorerHeader>
         <div>
           <H1>Bridge Tracker</H1>
-          <Subtitle>Beam ⇄ Ethereum Pipe bridges · per-transfer status and collateral backing</Subtitle>
+          <Subtitle>Beam ⇄ Ethereum &amp; Arbitrum Pipe bridges · per-transfer status and collateral backing</Subtitle>
         </div>
         <Btn type="button" onClick={() => setLookupOpen(true)}>
           Check my transfer
@@ -760,20 +759,6 @@ const BridgeTracker: React.FC = () => {
         </BridgeGrid>
       </Card>
 
-      {totals.unclaimed > 0 && (
-        <Card>
-          <H2>
-            <Dot data-kind="warn" /> {totals.unclaimed} transfers awaiting claim
-          </H2>
-          <Muted>
-            These arrived on Beam and were never collected. Claiming requires the recipient&apos;s own signature —
-            nobody else can do it, and the funds stay claimable indefinitely. This is not a bridge fault; some of these
-            date back to 2022.
-          </Muted>
-          <Btn onClick={showUnclaimed}>Show them</Btn>
-        </Card>
-      )}
-
       <Card id="bridge-transfers">
         <H2>Transfers</H2>
         <Filters>
@@ -813,7 +798,7 @@ const BridgeTracker: React.FC = () => {
             <option value="">Any status</option>
             {fDirection !== 'eth2beam' && (
               <>
-                <option value="pending">pending</option>
+                <option value="pending">in flight</option>
                 <option value="relayed">relayed</option>
                 <option value="failed">failed</option>
               </>
