@@ -11,6 +11,8 @@ import type {
   ApiNetwork,
   ApiBansActions,
   ApiDaoOverview,
+  ApiBridgeHealth,
+  ApiBridgeMessages,
   ApiDaoTreasury,
   ApiDaoAssetHistory,
   ApiDaoRevenue,
@@ -120,6 +122,11 @@ export const api = {
   daoRevenue: (groupBy: 'source' | 'pool' | 'tier' | 'asset' = 'source'): Promise<ApiDaoRevenue> =>
     get<ApiDaoRevenue>(`/dao/revenue?groupBy=${groupBy}`),
   daoGovernance: (): Promise<ApiDaoGovernance> => get<ApiDaoGovernance>('/dao/governance'),
+
+  bridgeHealth: (): Promise<ApiBridgeHealth> => get<ApiBridgeHealth>('/bridge/health'),
+  bridgeMessages: (
+    opts: { bridge?: string; direction?: string; status?: string; limit?: number; offset?: number } = {},
+  ): Promise<ApiBridgeMessages> => get<ApiBridgeMessages>(`/bridge/messages${qs(opts)}`),
   daoProposal: (id: number, offset = 0, limit = 25): Promise<ApiDaoProposalDetail> =>
     get<ApiDaoProposalDetail>(`/dao/governance/proposals/${id}?offset=${offset}&limit=${limit}`),
   miningBlocks: (limit = 50, offset = 0): Promise<ApiMiningBlocks> =>

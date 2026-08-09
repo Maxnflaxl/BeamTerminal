@@ -731,3 +731,75 @@ export interface ApiDaoOverview {
   governance: { current_epoch: number | null; active_proposals: number; turnout_pct: number | null };
   recent: Array<Record<string, unknown>>;
 }
+
+// --- Bridge monitor -------------------------------------------------------
+// Status vocabularies differ per direction because the Pipe contract's states
+// do. `unclaimed` is not a failure: the recipient must sign ReceiveFunds, and
+// only they can, so a message can sit there indefinitely.
+
+export type ApiBridgeDirection = 'beam2eth' | 'eth2beam';
+
+export interface ApiBridgeOutgoingCounts {
+  pending: number;
+  relayed: number;
+  failed: number;
+  unknown: number;
+  total: number;
+}
+
+export interface ApiBridgeIncomingCounts {
+  not_delivered: number;
+  unclaimed: number;
+  complete: number;
+  unknown: number;
+  total: number;
+}
+
+export interface ApiBridgeHealthRow {
+  bridge: string;
+  label: string;
+  chain_id: number;
+  aid: number;
+  eth_pipe: string;
+  eth_token: string | null;
+  outgoing: ApiBridgeOutgoingCounts;
+  incoming: ApiBridgeIncomingCounts;
+  oldest_open_ts: string | null;
+  last_message_ts: string | null;
+  unclaimed_amount: number | null;
+  escrow: { locked: number | null; decimals: number; observed_at: string | null } | null;
+  minted: number | null;
+  collateral_ratio: number | null;
+  settlement_source: 'etherscan' | 'unavailable';
+}
+
+export interface ApiBridgeHealth {
+  bridges: ApiBridgeHealthRow[];
+  /** False when no Etherscan key is configured — then `failed: 0` means
+   *  "unverifiable", not "none". */
+  settlement_available: boolean;
+}
+
+export interface ApiBridgeMessage {
+  bridge: string;
+  direction: ApiBridgeDirection;
+  msg_id: number;
+  status: string;
+  amount: number | null;
+  relayer_fee: number | null;
+  receiver: string | null;
+  src_height: number | null;
+  src_block: number | null;
+  src_ts: string | null;
+  src_tx: string | null;
+  settle_tx: string | null;
+  settle_block: number | null;
+  settle_ts: string | null;
+}
+
+export interface ApiBridgeMessages {
+  messages: ApiBridgeMessage[];
+  total: number;
+  limit: number;
+  offset: number;
+}
