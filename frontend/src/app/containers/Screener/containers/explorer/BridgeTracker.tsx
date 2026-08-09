@@ -193,6 +193,11 @@ const Chips = styled.div`
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 12px;
+  /* The footer's separator is positioned with margin-top:auto, which collapses
+     to zero on a card whose content already fills the column — leaving the rule
+     flush against these chips. The gap has to live here, where nothing can
+     collapse it. */
+  margin-bottom: 16px;
 `;
 
 const Filters = styled.div`
