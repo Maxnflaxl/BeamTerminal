@@ -275,3 +275,47 @@ export async function getLogsPaged(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Geth proxy passthrough.
+//
+// Free-tier Etherscan exposes eth_call / eth_blockNumber / eth_getBalance for
+// every supported chain, which makes it a usable substitute for a public RPC.
+// That matters on Arbitrum: the free endpoints there proxy to rate-limited
+// upstreams and fail sporadically, which was enough to abort that bridge's sync
+// every cycle.
+//
+// The proxy module answers in JSON-RPC shape ({jsonrpc,id,result}) rather than
+// the {status:"1",result} envelope the rest of the API uses, so it can't go
+// through call().
+// ---------------------------------------------------------------------------
+
+export async function proxyCall(chainId: number, params: Record<string, string>): Promise<string> {
+  if (!config.ETHERSCAN_API_KEY) throw new EtherscanDisabledError();
+
+  const exec = async (): Promise<string> => {
+    const wait = Math.max(0, MIN_INTERVAL_MS - (Date.now() - lastStart));
+    if (wait > 0) await new Promise((r) => { setTimeout(r, wait); });
+    lastStart = Date.now();
+
+    const url = new URL(BASE);
+    url.searchParams.append('chainid', String(chainId));
+    url.searchParams.append('module', 'proxy');
+    for (const [k, v] of Object.entries(params)) url.searchParams.append(k, v);
+    url.searchParams.append('apikey', config.ETHERSCAN_API_KEY as string);
+
+    const { statusCode, body } = await request(url.toString(), { method: 'GET' });
+    const text = await body.text();
+    if (statusCode >= 400) throw new Error(`etherscan proxy HTTP ${statusCode}: ${text.slice(0, 200)}`);
+    const json = JSON.parse(text) as { result?: string; error?: { message?: string }; message?: string };
+    if (json.error) throw new Error(`etherscan proxy: ${json.error.message ?? 'error'}`);
+    if (typeof json.result !== 'string') {
+      throw new Error(`etherscan proxy: unexpected shape ${text.slice(0, 160)}`);
+    }
+    return json.result;
+  };
+
+  const p = chain.then(exec, exec);
+  chain = p.catch(() => undefined);
+  return p;
+}

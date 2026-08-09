@@ -1,6 +1,7 @@
 import { request } from 'undici';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { etherscanEnabled, proxyCall } from './etherscan.js';
 
 // ---------------------------------------------------------------------------
 // Minimal Ethereum JSON-RPC client.
@@ -39,12 +40,49 @@ async function rpc<T>(method: string, params: unknown[], chainId = 1): Promise<T
       lastErr = err;
       const msg = err instanceof Error ? err.message : String(err);
       const transient = /HTTP 5\d\d|Temporary internal error|timeout|ECONNRESET|socket hang up/i.test(msg);
-      if (!transient || attempt === MAX_ATTEMPTS) throw err;
+      const throttled = /usage limit|rate limit|too many requests|HTTP 429/i.test(msg);
+      // Public endpoints (notably Arbitrum's) proxy to rate-limited upstreams.
+      // Etherscan's proxy module serves the same methods on every chain we use,
+      // so fall over to it rather than dropping the bridge for the cycle.
+      if (throttled && etherscanEnabled()) {
+        const viaEtherscan = await proxyFallback<T>(method, params, chainId);
+        if (viaEtherscan !== undefined) return viaEtherscan;
+      }
+      if ((!transient && !throttled) || attempt === MAX_ATTEMPTS) throw err;
       // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => { setTimeout(r, 250 * attempt); });
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/** Serves the read-only subset we need through Etherscan. Returns undefined for
+ *  anything it can't express, so the caller falls back to normal retries. */
+async function proxyFallback<T>(method: string, params: unknown[], chainId: number): Promise<T | undefined> {
+  try {
+    if (method === 'eth_blockNumber') {
+      return (await proxyCall(chainId, { action: 'eth_blockNumber' })) as unknown as T;
+    }
+    if (method === 'eth_call') {
+      const call = params[0] as { to?: string; data?: string } | undefined;
+      if (!call?.to || !call.data) return undefined;
+      return (await proxyCall(chainId, {
+        action: 'eth_call', to: call.to, data: call.data, tag: 'latest',
+      })) as unknown as T;
+    }
+    if (method === 'eth_getBalance') {
+      const addr = params[0] as string | undefined;
+      if (!addr) return undefined;
+      return (await proxyCall(chainId, {
+        action: 'eth_getBalance', address: addr, tag: 'latest',
+      })) as unknown as T;
+    }
+    return undefined;
+  } catch (err) {
+    logger.debug({ method, err: err instanceof Error ? err.message : err },
+      'bridge: etherscan proxy fallback failed');
+    return undefined;
+  }
 }
 
 async function rpcOnce<T>(method: string, params: unknown[], chainId = 1): Promise<T> {
