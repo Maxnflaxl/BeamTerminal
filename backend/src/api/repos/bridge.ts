@@ -188,10 +188,29 @@ export interface BridgeMessageRow {
   settle_ts: string | null;
 }
 
+// Whitelisted sort columns. The table is server-paginated, so sorting has to
+// happen here — sorting a page client-side would only reorder the 25 rows the
+// server happened to pick.
+//
+// `amount` sorts on the raw stored value, which is in each side's own units:
+// comparing a bDAI amount to a bWBTC one isn't meaningful, but sorting within
+// one bridge (the usual case, since the filter is right there) is.
+const SORT_COLUMNS: Record<string, string> = {
+  age: 'src_ts',
+  amount: 'amount',
+  fee: 'relayer_fee',
+  msg_id: 'msg_id',
+  bridge: 'bridge',
+  status: 'status',
+  direction: 'direction',
+};
+
 export async function listBridgeMessages(opts: {
   bridge?: string | undefined;
   direction?: string | undefined;
   status?: string | undefined;
+  sort?: string | undefined;
+  dir?: string | undefined;
   limit: number;
   offset: number;
 }): Promise<{ rows: BridgeMessageRow[]; total: number }> {
@@ -207,6 +226,12 @@ export async function listBridgeMessages(opts: {
     params,
   );
 
+  const sortCol = SORT_COLUMNS[opts.sort ?? 'age'] ?? 'src_ts';
+  const sortDir = opts.dir === 'asc' ? 'ASC' : 'DESC';
+  // NULLS LAST in both directions: rows missing the sort key are never the
+  // interesting ones, and a screenful of nulls at the top is just noise.
+  const orderBy = `${sortCol} ${sortDir} NULLS LAST, msg_id ${sortDir}`;
+
   params.push(opts.limit, opts.offset);
   const rows = await q<{
     bridge: string; direction: string; msg_id: string; status: string;
@@ -219,7 +244,7 @@ export async function listBridgeMessages(opts: {
             receiver, src_height::text, src_block::text, src_ts::text, src_tx,
             settle_tx, settle_block::text, settle_ts::text
        FROM bridge_messages ${clause}
-      ORDER BY src_ts DESC NULLS LAST, msg_id DESC
+      ORDER BY ${orderBy}
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );

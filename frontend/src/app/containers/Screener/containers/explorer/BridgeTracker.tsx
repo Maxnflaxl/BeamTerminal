@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { api } from '@app/containers/Screener/api/client';
 import type {
@@ -53,8 +54,6 @@ import { theme } from './shared/theme';
 
 const POLL_MS = 60_000;
 const PAGE_SIZE = 25;
-
-const EXPLORER_UI = 'https://explorer.0xmx.net/';
 
 // ---------------------------------------------------------------------------
 // Presentation atoms
@@ -188,6 +187,32 @@ const LinkChip = styled.a`
   }
 `;
 
+// Same affordance as LinkChip but for in-app navigation. The asset page is ours
+// (route /asset/:id), so this must not leave the site — and it can't be an
+// absolute URL either: the same bundle runs inside the BEAM wallet as a .dapp,
+// where beamterminal.0xmx.net isn't where it lives.
+const NavChip = styled.button`
+  display: inline-block;
+  padding: 3px 8px;
+  border: 1px solid ${theme.color.border};
+  border-radius: 5px;
+  background: transparent;
+  font-family: ${theme.font.mono};
+  font-size: 11px;
+  line-height: 1.3;
+  color: ${theme.color.textDim};
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+
+  &:hover,
+  &:focus-visible {
+    color: ${theme.color.accent};
+    border-color: ${theme.color.accent};
+    background: rgba(0, 246, 210, 0.08);
+  }
+`;
+
 const Chips = styled.div`
   display: flex;
   flex-wrap: wrap;
@@ -206,6 +231,23 @@ const Filters = styled.div`
   gap: 10px;
   align-items: center;
   margin: 12px 0;
+`;
+
+// Sorting is server-side (the table is paginated), so a header click refetches
+// rather than reordering what's on screen.
+const SortTh = styled.th`
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+
+  &:hover {
+    color: ${theme.color.text};
+  }
+`;
+
+const SortMark = styled.span`
+  margin-left: 4px;
+  color: ${theme.color.accent};
 `;
 
 const Mono = styled.span`
@@ -254,6 +296,14 @@ function fmtAge(iso: string | null): string {
   const h = Math.floor(secs / 3600);
   if (h >= 1) return `${h}h`;
   return `${Math.floor(secs / 60)}m`;
+}
+
+// Bridges span more than one EVM chain, so neither the filter nor the table can
+// say "Ethereum" unconditionally.
+function chainName(chainId: number | undefined): string {
+  if (chainId === 42161) return 'Arbitrum';
+  if (chainId === 1) return 'Ethereum';
+  return 'EVM';
 }
 
 function shortHex(s: string | null | undefined, head = 8, tail = 6): string {
@@ -309,10 +359,6 @@ function pegTone(ratio: number | null): Tone {
   return 'success';
 }
 
-function beamAssetUrl(aid: number): string {
-  return `${EXPLORER_UI}asset/${aid}`;
-}
-
 function etherscanAddr(addr: string): string {
   return `https://etherscan.io/address/${addr}`;
 }
@@ -336,6 +382,7 @@ const BridgeSummaryCard: React.FC<{
   settlementAvailable: boolean;
   onFocus: (bridge: string) => void;
 }> = ({ row, settlementAvailable, onFocus }) => {
+  const navigate = useNavigate();
   const ratio = row.collateral_ratio;
   // Fill = share of the locked collateral that has been issued, clamped so an
   // over-issued bridge pins at full rather than overflowing the track. The
@@ -389,14 +436,9 @@ const BridgeSummaryCard: React.FC<{
           >
             Pipe ↗
           </LinkChip>
-          <LinkChip
-            href={beamAssetUrl(row.aid)}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={`Beam asset ${row.aid} in the explorer`}
-          >
-            {row.aid === 0 ? 'BEAM ↗' : `Asset ${row.aid} ↗`}
-          </LinkChip>
+          <NavChip type="button" onClick={() => navigate(`/asset/${row.aid}`)} title={`Open asset ${row.aid}`}>
+            {row.aid === 0 ? 'BEAM' : `Asset ${row.aid}`}
+          </NavChip>
         </LinkRow>
       </CardFoot>
 
@@ -614,6 +656,8 @@ const BridgeTracker: React.FC = () => {
   const [fBridge, setFBridge] = useState('');
   const [fDirection, setFDirection] = useState('');
   const [fStatus, setFStatus] = useState('');
+  const [sort, setSort] = useState('age');
+  const [dir, setDir] = useState<'asc' | 'desc'>('desc');
   const [offset, setOffset] = useState(0);
 
   const loadHealth = useCallback(async () => {
@@ -632,6 +676,8 @@ const BridgeTracker: React.FC = () => {
         bridge: fBridge || undefined,
         direction: fDirection || undefined,
         status: fStatus || undefined,
+        sort,
+        dir,
         limit: PAGE_SIZE,
         offset,
       });
@@ -642,7 +688,7 @@ const BridgeTracker: React.FC = () => {
     } finally {
       setLoadingMsgs(false);
     }
-  }, [fBridge, fDirection, fStatus, offset]);
+  }, [fBridge, fDirection, fStatus, sort, dir, offset]);
 
   useEffect(() => {
     void loadHealth();
@@ -679,12 +725,38 @@ const BridgeTracker: React.FC = () => {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
+  // First click on a new column sorts descending — for age that's newest first,
+  // which is what anyone scanning a transfer list wants; a second click flips it.
+  const toggleSort = useCallback(
+    (key: string) => {
+      setOffset(0);
+      if (sort === key) {
+        setDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+      } else {
+        setSort(key);
+        setDir('desc');
+      }
+    },
+    [sort],
+  );
+
   const resetFilters = useCallback(() => {
     setFBridge('');
     setFDirection('');
     setFStatus('');
+    setSort('age');
+    setDir('desc');
     setOffset(0);
   }, []);
+
+  // With a bridge selected the filter can name its chain exactly; without one it
+  // has to cover both rather than claiming Ethereum.
+  const filterChain = fBridge
+    ? chainName(health?.bridges.find((b) => b.bridge === fBridge)?.chain_id)
+    : 'Ethereum / Arbitrum';
+
+  const mark = (key: string): React.ReactNode =>
+    sort === key ? <SortMark>{dir === 'desc' ? '▾' : '▴'}</SortMark> : null;
 
   const total = msgs?.total ?? 0;
   const page = Math.floor(offset / PAGE_SIZE) + 1;
@@ -785,8 +857,8 @@ const BridgeTracker: React.FC = () => {
             }}
           >
             <option value="">Both directions</option>
-            <option value="beam2eth">Beam → Ethereum</option>
-            <option value="eth2beam">Ethereum → Beam</option>
+            <option value="beam2eth">Beam → {filterChain}</option>
+            <option value="eth2beam">{filterChain} → Beam</option>
           </Select>
           <Select
             value={fStatus}
@@ -822,14 +894,18 @@ const BridgeTracker: React.FC = () => {
           <DataTable>
             <thead>
               <tr>
-                <th>Bridge</th>
-                <th>Direction</th>
-                <th>#</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Amount</th>
-                <th style={{ textAlign: 'right' }}>Relayer fee</th>
+                <SortTh onClick={() => toggleSort('bridge')}>Bridge{mark('bridge')}</SortTh>
+                <SortTh onClick={() => toggleSort('direction')}>Direction{mark('direction')}</SortTh>
+                <SortTh onClick={() => toggleSort('msg_id')}>#{mark('msg_id')}</SortTh>
+                <SortTh onClick={() => toggleSort('status')}>Status{mark('status')}</SortTh>
+                <SortTh style={{ textAlign: 'right' }} onClick={() => toggleSort('amount')}>
+                  Amount{mark('amount')}
+                </SortTh>
+                <SortTh style={{ textAlign: 'right' }} onClick={() => toggleSort('fee')}>
+                  Relayer fee{mark('fee')}
+                </SortTh>
                 <th>Recipient</th>
-                <th>Age</th>
+                <SortTh onClick={() => toggleSort('age')}>Age{mark('age')}</SortTh>
                 <th>Reference</th>
               </tr>
             </thead>
@@ -837,7 +913,12 @@ const BridgeTracker: React.FC = () => {
               {(msgs?.messages ?? []).map((m: ApiBridgeMessage) => (
                 <tr key={`${m.bridge}-${m.direction}-${m.msg_id}`}>
                   <td>{health?.bridges.find((b) => b.bridge === m.bridge)?.label ?? m.bridge}</td>
-                  <td>{m.direction === 'beam2eth' ? 'Beam → ETH' : 'ETH → Beam'}</td>
+                  <td>
+                    {(() => {
+                      const c = chainName(health?.bridges.find((b) => b.bridge === m.bridge)?.chain_id);
+                      return m.direction === 'beam2eth' ? `Beam → ${c}` : `${c} → Beam`;
+                    })()}
+                  </td>
                   <td>
                     <Mono>{m.msg_id}</Mono>
                   </td>

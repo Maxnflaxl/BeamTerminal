@@ -748,7 +748,13 @@ is exactly what the caller is watching.
 Individual bridge transfers, newest first.
 
 Query params: `bridge`, `direction` (`beam2eth`|`eth2beam`), `status`,
-`limit` (default 50, max 500), `offset`.
+`sort`, `dir`, `limit` (default 50, max 500), `offset`.
+
+`sort` is one of `age` (default), `amount`, `fee`, `msg_id`, `bridge`, `status`,
+`direction`; `dir` is `desc` (default) or `asc`. Unknown values fall back to the
+defaults rather than erroring. Note `amount` sorts on the raw stored value, which
+is denominated in each side's own units — meaningful within one bridge, less so
+across bridges with different decimals.
 
 ```json
 {

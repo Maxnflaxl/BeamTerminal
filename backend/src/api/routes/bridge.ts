@@ -55,6 +55,7 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
     Querystring: {
       bridge?: string; direction?: string; status?: string;
+      sort?: string; dir?: string;
       limit?: string; offset?: string;
     };
   }>('/bridge/messages', async (req, reply) => {
@@ -69,10 +70,19 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       bridge: req.query.bridge,
       direction,
       status,
+      sort: req.query.sort,
+      dir: req.query.dir,
       limit,
       offset,
     });
     void reply.header('Cache-Control', 'public, max-age=30');
-    return { messages: rows, total, limit, offset };
+    return {
+      messages: rows,
+      total,
+      limit,
+      offset,
+      sort: req.query.sort ?? 'age',
+      dir: req.query.dir === 'asc' ? 'asc' : 'desc',
+    };
   });
 }

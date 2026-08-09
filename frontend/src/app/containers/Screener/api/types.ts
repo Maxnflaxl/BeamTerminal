@@ -807,6 +807,8 @@ export interface ApiBridgeMessages {
   total: number;
   limit: number;
   offset: number;
+  sort?: string;
+  dir?: 'asc' | 'desc';
 }
 
 export interface ApiBridgeLookupMatch extends ApiBridgeMessage {

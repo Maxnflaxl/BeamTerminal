@@ -126,7 +126,15 @@ export const api = {
 
   bridgeHealth: (): Promise<ApiBridgeHealth> => get<ApiBridgeHealth>('/bridge/health'),
   bridgeMessages: (
-    opts: { bridge?: string; direction?: string; status?: string; limit?: number; offset?: number } = {},
+    opts: {
+      bridge?: string;
+      direction?: string;
+      status?: string;
+      sort?: string;
+      dir?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
   ): Promise<ApiBridgeMessages> => get<ApiBridgeMessages>(`/bridge/messages${qs(opts)}`),
   bridgeLookup: (q: string): Promise<ApiBridgeLookup> => get<ApiBridgeLookup>(`/bridge/lookup${qs({ q })}`),
   daoProposal: (id: number, offset = 0, limit = 25): Promise<ApiDaoProposalDetail> =>
