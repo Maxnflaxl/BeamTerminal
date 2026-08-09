@@ -36,6 +36,6 @@
     "typescript": "^5.7.2"
   },
   "resolutions": {
-    "undici@npm:^6.25.0": "^6.27.0"
+    "undici@npm:^6.25.0": "^6.28.0"
   }
 }
