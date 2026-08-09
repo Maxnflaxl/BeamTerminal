@@ -13,6 +13,7 @@ import type {
   ApiDaoOverview,
   ApiBridgeHealth,
   ApiBridgeMessages,
+  ApiBridgeLookup,
   ApiDaoTreasury,
   ApiDaoAssetHistory,
   ApiDaoRevenue,
@@ -127,6 +128,7 @@ export const api = {
   bridgeMessages: (
     opts: { bridge?: string; direction?: string; status?: string; limit?: number; offset?: number } = {},
   ): Promise<ApiBridgeMessages> => get<ApiBridgeMessages>(`/bridge/messages${qs(opts)}`),
+  bridgeLookup: (q: string): Promise<ApiBridgeLookup> => get<ApiBridgeLookup>(`/bridge/lookup${qs({ q })}`),
   daoProposal: (id: number, offset = 0, limit = 25): Promise<ApiDaoProposalDetail> =>
     get<ApiDaoProposalDetail>(`/dao/governance/proposals/${id}?offset=${offset}&limit=${limit}`),
   miningBlocks: (limit = 50, offset = 0): Promise<ApiMiningBlocks> =>

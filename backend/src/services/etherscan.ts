@@ -29,9 +29,12 @@ const PAGE_SIZE = 1000;
 // pending forever.
 const MAX_WINDOW = 10_000;
 
-// 3 req/s ceiling with headroom. Every call funnels through one promise chain
-// so concurrent bridges can't burst past it.
-const MIN_INTERVAL_MS = 350;
+// The documented ceiling is 3 req/s, enforced strictly enough that 350ms
+// (2.86/s nominal) still tripped it — scheduling jitter is enough to land three
+// calls inside one second. 400ms gives real headroom. Every call funnels
+// through one promise chain so concurrent bridges can't burst past it.
+const MIN_INTERVAL_MS = 400;
+const RATE_LIMIT_RETRIES = 3;
 let chain: Promise<unknown> = Promise.resolve();
 let lastStart = 0;
 
@@ -39,6 +42,13 @@ export class EtherscanDisabledError extends Error {
   constructor() {
     super('ETHERSCAN_API_KEY is not set; Beam->Ethereum settlement lookups are disabled');
     this.name = 'EtherscanDisabledError';
+  }
+}
+
+class RateLimitedError extends Error {
+  constructor(msg: string) {
+    super(`etherscan rate limited: ${msg}`);
+    this.name = 'RateLimitedError';
   }
 }
 
@@ -68,14 +78,32 @@ async function call<T>(params: Record<string, string>): Promise<T> {
     if (json.status === '1') return json.result as T;
 
     const msg = typeof json.result === 'string' ? json.result : json.message ?? 'unknown error';
-    // "No transactions found" is a normal end-of-pagination signal, not a fault.
-    if (/no transactions found/i.test(msg)) return [] as unknown as T;
-    if (/rate limit/i.test(msg)) throw new Error(`etherscan rate limited: ${msg}`);
+    // Etherscan's empty-result wording differs per module: txlist says "No
+    // transactions found", logs says "No records found". Both mean "nothing
+    // here", not a failure — treating either as an error aborts the sync.
+    if (/no transactions found|no records found/i.test(msg)) return [] as unknown as T;
+    if (/rate limit/i.test(msg)) throw new RateLimitedError(msg);
     if (/invalid api key/i.test(msg)) throw new Error(`etherscan rejected the API key: ${msg}`);
     throw new Error(`etherscan: ${msg}`);
   };
 
-  const p = chain.then(exec, exec);
+  // Back off and retry rather than failing the bridge: a rate-limit rejection
+  // is a scheduling problem, not a data problem, and losing a whole sync cycle
+  // to one is a poor trade.
+  const withRetry = async (): Promise<T> => {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        return await exec();
+      } catch (err) {
+        if (!(err instanceof RateLimitedError) || attempt >= RATE_LIMIT_RETRIES) throw err;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => { setTimeout(r, 1000 * attempt); });
+      }
+    }
+  };
+
+  const p = chain.then(withRetry, withRetry);
   chain = p.catch(() => undefined);
   return p;
 }

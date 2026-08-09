@@ -6,6 +6,7 @@ import type {
   ApiBridgeHealthRow,
   ApiBridgeMessage,
   ApiBridgeMessages,
+  ApiBridgeLookup,
 } from '@app/containers/Screener/api/types';
 import {
   Page,
@@ -28,6 +29,7 @@ import {
   WarnBox,
   Select,
   Btn,
+  Input,
 } from './shared/components';
 import { theme } from './shared/theme';
 
@@ -398,6 +400,197 @@ const BridgeSummaryCard: React.FC<{
 };
 
 // ---------------------------------------------------------------------------
+// "Where is my transfer?" lookup
+//
+// The common support question isn't "is the bridge healthy" but "I sent this an
+// hour ago, is it stuck?". Relaying costs Ethereum gas, so when the network is
+// expensive the relayer deliberately waits — a transfer sitting for hours is
+// usually fine, and saying so plainly is the point of this dialog.
+// ---------------------------------------------------------------------------
+
+const Overlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 16px 16px;
+  background: rgba(4, 12, 24, 0.72);
+  overflow-y: auto;
+`;
+
+const Dialog = styled.div`
+  width: 100%;
+  max-width: 620px;
+  border: 1px solid ${theme.color.border};
+  border-radius: 12px;
+  /* Opaque page background, not the translucent card surface — a dialog over an
+     overlay has to be solid or the page shows through it. */
+  background: ${theme.color.bg};
+  padding: 20px;
+`;
+
+const DialogTop = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+`;
+
+const CloseBtn = styled.button`
+  border: 1px solid ${theme.color.border};
+  border-radius: 6px;
+  background: transparent;
+  color: ${theme.color.muted};
+  font-size: 14px;
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+  &:hover {
+    color: ${theme.color.text};
+    border-color: ${theme.color.text};
+  }
+`;
+
+const LookupForm = styled.form`
+  display: flex;
+  gap: 8px;
+  margin: 14px 0 4px;
+  flex-wrap: wrap;
+`;
+
+const ResultCard = styled.div`
+  border: 1px solid ${theme.color.border};
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 12px;
+  background: ${theme.color.surface2};
+`;
+
+const ResultGrid = styled.div`
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin-top: 10px;
+  font-size: 12px;
+`;
+
+const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<ApiBridgeLookup | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const q = value.trim();
+      if (!q) return;
+      setBusy(true);
+      setErr(null);
+      setRes(null);
+      try {
+        setRes(await api.bridgeLookup(q));
+      } catch (e2) {
+        setErr(e2 instanceof Error ? e2.message : String(e2));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [value],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <Overlay onClick={onClose}>
+      <Dialog onClick={(e) => e.stopPropagation()}>
+        <DialogTop>
+          <H2 style={{ margin: 0 }}>Check a transfer</H2>
+          <CloseBtn type="button" onClick={onClose} aria-label="Close">
+            ✕
+          </CloseBtn>
+        </DialogTop>
+        <Muted style={{ margin: 0 }}>Paste a Beam kernel ID or an Ethereum / Arbitrum transaction hash.</Muted>
+
+        <LookupForm onSubmit={submit}>
+          <Input
+            autoFocus
+            value={value}
+            placeholder="0x… or a 64-character Beam kernel ID"
+            onChange={(e) => setValue(e.target.value)}
+            style={{ flex: '1 1 320px' }}
+          />
+          <Btn type="submit" disabled={busy || value.trim().length === 0}>
+            {busy ? 'Checking…' : 'Check'}
+          </Btn>
+        </LookupForm>
+
+        {err && <ErrorBox>{err}</ErrorBox>}
+
+        {res && res.matches.length === 0 && (
+          <WarnBox>
+            {res.kind === 'unrecognised'
+              ? 'That does not look like a Beam kernel ID or an EVM transaction hash, and nothing matched it.'
+              : 'No bridge transfer found for that ID. If you sent it in the last few minutes it may ' +
+                'not be indexed yet — the monitor refreshes every few minutes. Otherwise it may not ' +
+                'be a bridge transaction.'}
+          </WarnBox>
+        )}
+
+        {res?.matches.map((m) => (
+          <ResultCard key={`${m.bridge}-${m.direction}-${m.msg_id}`}>
+            <CardTop style={{ marginBottom: 0 }}>
+              <CardTitle>{m.label}</CardTitle>
+              <Pill data-tone={statusTone(m.status)}>{statusLabel(m.status)}</Pill>
+            </CardTop>
+            <Muted style={{ marginTop: 10 }}>{m.explanation}</Muted>
+            <ResultGrid>
+              <PegStatLabel>Direction</PegStatLabel>
+              <PegStatValue>{m.direction === 'beam2eth' ? 'Beam → Ethereum' : 'Ethereum → Beam'}</PegStatValue>
+              <PegStatLabel>Amount</PegStatLabel>
+              <PegStatValue>{fmtAmount(m.amount)}</PegStatValue>
+              <PegStatLabel>Relayer fee</PegStatLabel>
+              <PegStatValue>{fmtAmount(m.relayer_fee)}</PegStatValue>
+              <PegStatLabel>Message</PegStatLabel>
+              <PegStatValue>#{m.msg_id}</PegStatValue>
+              <PegStatLabel>Age</PegStatLabel>
+              <PegStatValue>{fmtAge(m.src_ts)}</PegStatValue>
+              {m.src_height !== null && (
+                <>
+                  <PegStatLabel>Beam height</PegStatLabel>
+                  <PegStatValue>{m.src_height}</PegStatValue>
+                </>
+              )}
+            </ResultGrid>
+            <LinkRow style={{ marginTop: 12 }}>
+              {m.src_tx && (
+                <LinkChip href={etherscanTx(m.src_tx)} target="_blank" rel="noopener noreferrer">
+                  Origin tx ↗
+                </LinkChip>
+              )}
+              {m.settle_tx && (
+                <LinkChip href={etherscanTx(m.settle_tx)} target="_blank" rel="noopener noreferrer">
+                  Settlement tx ↗
+                </LinkChip>
+              )}
+            </LinkRow>
+          </ResultCard>
+        ))}
+      </Dialog>
+    </Overlay>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -409,6 +602,7 @@ const BridgeTracker: React.FC = () => {
   const [msgsErr, setMsgsErr] = useState<string | null>(null);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
 
+  const [lookupOpen, setLookupOpen] = useState(false);
   const [fBridge, setFBridge] = useState('');
   const [fDirection, setFDirection] = useState('');
   const [fStatus, setFStatus] = useState('');
@@ -504,7 +698,12 @@ const BridgeTracker: React.FC = () => {
           <H1>Bridge Tracker</H1>
           <Subtitle>Beam ⇄ Ethereum Pipe bridges · per-transfer status and collateral backing</Subtitle>
         </div>
+        <Btn type="button" onClick={() => setLookupOpen(true)}>
+          Check my transfer
+        </Btn>
       </ExplorerHeader>
+
+      {lookupOpen && <LookupModal onClose={() => setLookupOpen(false)} />}
 
       {healthErr && <ErrorBox>Could not load bridge health: {healthErr}</ErrorBox>}
 

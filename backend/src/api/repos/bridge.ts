@@ -1,4 +1,5 @@
 import { q } from '../../db.js';
+import { getBlock } from '../../explorer.js';
 import { BRIDGES } from '../../services/bridge.js';
 import { loadUsdTable } from './usd.js';
 
@@ -251,5 +252,164 @@ export async function listBridgeMessages(opts: {
         settle_ts: r.settle_ts,
       };
     }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Transfer lookup: "I sent something across, where is it?"
+//
+// Accepts either side's identifier. An EVM tx hash matches directly against the
+// stored provenance; a Beam kernel id has to be resolved to a height first (we
+// don't store kernel ids — the Pipe shader reports only a height per message),
+// then matched against outgoing messages at that height.
+// ---------------------------------------------------------------------------
+
+export type LookupKind = 'evm_tx' | 'beam_kernel' | 'unrecognised';
+
+export interface BridgeLookupMatch extends BridgeMessageRow {
+  label: string;
+  /** Which end of the transfer this identifier refers to. */
+  role: 'origin' | 'settlement';
+  /** Plain-language reading of the current state. */
+  explanation: string;
+}
+
+export interface BridgeLookupResult {
+  query: string;
+  kind: LookupKind;
+  resolved_height: number | null;
+  matches: BridgeLookupMatch[];
+}
+
+function explain(status: string, direction: string, ageDays: number | null): string {
+  if (direction === 'eth2beam') {
+    switch (status) {
+      case 'complete':
+        return 'Delivered to Beam and claimed. Nothing outstanding.';
+      case 'unclaimed':
+        return 'Delivered to Beam and waiting for you to claim it. Open the bridge DApp in your '
+          + 'BEAM wallet and receive the funds — only your wallet can sign for them, so this will '
+          + 'wait indefinitely until you do.';
+      case 'not_delivered':
+        return 'The relayer has not delivered this to Beam yet. Relaying costs Ethereum gas, so '
+          + 'when the network is expensive the relayer waits for fees to come down before '
+          + 'submitting. Nothing is lost while it waits.';
+      default:
+        return 'Seen on Ethereum, but its state on Beam could not be read just now.';
+    }
+  }
+  switch (status) {
+    case 'relayed':
+      return 'Settled on Ethereum. Nothing outstanding.';
+    case 'failed':
+      return 'The settling Ethereum transaction reverted. The relayer normally retries; if this '
+        + 'persists, the message needs manual attention.';
+    case 'pending':
+      return ageDays !== null && ageDays > 1
+        ? 'Created on Beam and not yet settled on Ethereum. The relayer batches these and waits '
+          + 'for gas to come down, so a delay of hours or days during expensive periods is normal.'
+        : 'Created on Beam, waiting for the relayer to settle it on Ethereum.';
+    default:
+      return 'Created on Beam; its Ethereum settlement could not be read just now.';
+  }
+}
+
+function toMatch(r: BridgeMessageRow, role: 'origin' | 'settlement'): BridgeLookupMatch {
+  const label = BRIDGES.find((b) => b.key === r.bridge)?.label ?? r.bridge;
+  const ageDays = r.src_ts ? (Date.now() - Date.parse(r.src_ts)) / 86_400_000 : null;
+  return { ...r, label, role, explanation: explain(r.status, r.direction, ageDays) };
+}
+
+async function rowsWhere(clause: string, params: Array<string | number>): Promise<BridgeMessageRow[]> {
+  const { rows } = await q<{
+    bridge: string; direction: string; msg_id: string; status: string;
+    amount: string | null; relayer_fee: string | null; receiver: string | null;
+    src_height: string | null; src_block: string | null; src_ts: string | null;
+    src_tx: string | null; settle_tx: string | null; settle_block: string | null;
+    settle_ts: string | null;
+  }>(
+    `SELECT bridge, direction, msg_id::text, status, amount::text, relayer_fee::text,
+            receiver, src_height::text, src_block::text, src_ts::text, src_tx,
+            settle_tx, settle_block::text, settle_ts::text
+       FROM bridge_messages
+      WHERE ${clause}
+      ORDER BY src_ts DESC NULLS LAST
+      LIMIT 25`,
+    params,
+  );
+  const defs = new Map(BRIDGES.map((b) => [b.key, b]));
+  return rows.map((r) => {
+    const def = defs.get(r.bridge);
+    const dec = r.direction === 'beam2eth' ? def?.decimals ?? 8 : def?.ethDecimals ?? 8;
+    return {
+      bridge: r.bridge,
+      direction: r.direction,
+      msg_id: Number(r.msg_id),
+      status: r.status,
+      amount: scale(r.amount, dec),
+      relayer_fee: scale(r.relayer_fee, dec),
+      receiver: r.receiver,
+      src_height: r.src_height === null ? null : Number(r.src_height),
+      src_block: r.src_block === null ? null : Number(r.src_block),
+      src_ts: r.src_ts,
+      src_tx: r.src_tx,
+      settle_tx: r.settle_tx,
+      settle_block: r.settle_block === null ? null : Number(r.settle_block),
+      settle_ts: r.settle_ts,
+    };
+  });
+}
+
+export async function lookupBridgeTransfer(raw: string): Promise<BridgeLookupResult> {
+  const trimmed = raw.trim();
+  const bare = trimmed.replace(/^0x/i, '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(bare)) {
+    return { query: trimmed, kind: 'unrecognised', resolved_height: null, matches: [] };
+  }
+  const prefixed = `0x${bare}`;
+
+  // An EVM tx hash and a Beam kernel id are both 32 bytes, so the input alone
+  // can't tell them apart. Try the EVM side first (a direct index hit) and only
+  // resolve a kernel if nothing matches.
+  const evm = await rowsWhere(
+    'lower(src_tx) = $1 OR lower(settle_tx) = $1',
+    [prefixed],
+  );
+  if (evm.length > 0) {
+    return {
+      query: trimmed,
+      kind: 'evm_tx',
+      resolved_height: null,
+      matches: evm.map((r) => toMatch(
+        r,
+        r.settle_tx?.toLowerCase() === prefixed ? 'settlement' : 'origin',
+      )),
+    };
+  }
+
+  // Beam side. The Pipe shader reports only a height per outgoing message — no
+  // kernel id — so the kernel has to be resolved to its block first and matched
+  // on height. A height can hold several messages; all of them are returned
+  // rather than guessing which one the user meant.
+  let height: number | null = null;
+  try {
+    const block = await getBlock({ kernel: bare });
+    height = typeof block.height === 'number' ? block.height : null;
+  } catch {
+    height = null;
+  }
+  if (height === null) {
+    return { query: trimmed, kind: 'unrecognised', resolved_height: null, matches: [] };
+  }
+
+  const beam = await rowsWhere(
+    "direction = 'beam2eth' AND src_height = $1",
+    [height],
+  );
+  return {
+    query: trimmed,
+    kind: 'beam_kernel',
+    resolved_height: height,
+    matches: beam.map((r) => toMatch(r, 'origin')),
   };
 }

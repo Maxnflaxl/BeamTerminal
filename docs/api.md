@@ -712,6 +712,37 @@ the Beam-side locked amount and `minted` is the WBEAM ERC20 total supply.
 state `beam2eth` messages stay `pending` and no failure can be observed —
 `"failed": 0` then means "unverifiable", not "none". `Cache-Control: public, max-age=30`.
 
+## `GET /api/bridge/lookup`
+
+Point lookup for a single transfer — "I sent this, where is it?". Takes either
+side's identifier via `q`: an Ethereum/Arbitrum transaction hash, or a Beam
+kernel ID.
+
+```json
+{
+  "query": "0x9a51…", "kind": "evm_tx", "resolved_height": null,
+  "matches": [
+    {
+      "bridge": "beam-wbeam", "label": "BEAM / WBEAM", "direction": "eth2beam",
+      "msg_id": 219, "status": "unclaimed", "amount": 605.47244962,
+      "role": "origin",
+      "explanation": "Delivered to Beam and waiting for you to claim it. …"
+    }
+  ]
+}
+```
+
+`kind` is `evm_tx`, `beam_kernel`, or `unrecognised`. Both identifiers are 32
+bytes so the input alone can't distinguish them: the EVM side is tried first,
+then the kernel is resolved to a Beam height and matched against outgoing
+messages at that height (a height can carry several, so all are returned).
+
+`explanation` is plain-language guidance for the current state — notably, a
+`pending` Beam→Ethereum transfer or a `not_delivered` message usually means the
+relayer is waiting for Ethereum gas to come down, not that anything is lost.
+`Cache-Control: public, max-age=10` — short, because a pending transfer's state
+is exactly what the caller is watching.
+
 ## `GET /api/bridge/messages`
 
 Individual bridge transfers, newest first.

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { getBridgeHealth, listBridgeMessages } from '../repos/bridge.js';
+import { getBridgeHealth, listBridgeMessages, lookupBridgeTransfer } from '../repos/bridge.js';
 import { etherscanEnabled } from '../../services/etherscan.js';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,21 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       // failures" — without an Etherscan key the beam2eth side is unverifiable.
       settlement_available: etherscanEnabled(),
     };
+  });
+
+  // Point lookup for "where is my transfer?". Takes either side's identifier:
+  // an Ethereum/Arbitrum tx hash or a Beam kernel id.
+  app.get<{ Querystring: { q?: string } }>('/bridge/lookup', async (req, reply) => {
+    const query = (req.query.q ?? '').trim();
+    if (!query) {
+      void reply.code(400);
+      return { error: 'q is required' };
+    }
+    const result = await lookupBridgeTransfer(query);
+    // Short cache: a pending transfer's state is exactly what the caller is
+    // watching for, so don't serve a stale answer for long.
+    void reply.header('Cache-Control', 'public, max-age=10');
+    return result;
   });
 
   app.get<{

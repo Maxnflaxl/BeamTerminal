@@ -808,3 +808,16 @@ export interface ApiBridgeMessages {
   limit: number;
   offset: number;
 }
+
+export interface ApiBridgeLookupMatch extends ApiBridgeMessage {
+  label: string;
+  role: 'origin' | 'settlement';
+  explanation: string;
+}
+
+export interface ApiBridgeLookup {
+  query: string;
+  kind: 'evm_tx' | 'beam_kernel' | 'unrecognised';
+  resolved_height: number | null;
+  matches: ApiBridgeLookupMatch[];
+}
