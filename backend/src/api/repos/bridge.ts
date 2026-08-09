@@ -195,14 +195,18 @@ export interface BridgeMessageRow {
 // `amount` sorts on the raw stored value, which is in each side's own units:
 // comparing a bDAI amount to a bWBTC one isn't meaningful, but sorting within
 // one bridge (the usual case, since the filter is right there) is.
+// Table-qualified on purpose. The SELECT list casts amount/msg_id to text, and
+// Postgres resolves a bare ORDER BY name to the *output* column — so
+// `ORDER BY amount` would sort the text alias lexicographically, putting "99"
+// above "115792…". Qualifying forces the numeric table column.
 const SORT_COLUMNS: Record<string, string> = {
-  age: 'src_ts',
-  amount: 'amount',
-  fee: 'relayer_fee',
-  msg_id: 'msg_id',
-  bridge: 'bridge',
-  status: 'status',
-  direction: 'direction',
+  age: 'bridge_messages.src_ts',
+  amount: 'bridge_messages.amount',
+  fee: 'bridge_messages.relayer_fee',
+  msg_id: 'bridge_messages.msg_id',
+  bridge: 'bridge_messages.bridge',
+  status: 'bridge_messages.status',
+  direction: 'bridge_messages.direction',
 };
 
 export async function listBridgeMessages(opts: {
@@ -226,11 +230,11 @@ export async function listBridgeMessages(opts: {
     params,
   );
 
-  const sortCol = SORT_COLUMNS[opts.sort ?? 'age'] ?? 'src_ts';
+  const sortCol = SORT_COLUMNS[opts.sort ?? 'age'] ?? 'bridge_messages.src_ts';
   const sortDir = opts.dir === 'asc' ? 'ASC' : 'DESC';
   // NULLS LAST in both directions: rows missing the sort key are never the
   // interesting ones, and a screenful of nulls at the top is just noise.
-  const orderBy = `${sortCol} ${sortDir} NULLS LAST, msg_id ${sortDir}`;
+  const orderBy = `${sortCol} ${sortDir} NULLS LAST, bridge_messages.msg_id ${sortDir}`;
 
   params.push(opts.limit, opts.offset);
   const rows = await q<{
@@ -385,7 +389,7 @@ async function rowsWhere(clause: string, params: Array<string | number>): Promis
             settle_tx, settle_block::text, settle_ts::text
        FROM bridge_messages
       WHERE ${clause}
-      ORDER BY src_ts DESC NULLS LAST
+      ORDER BY bridge_messages.src_ts DESC NULLS LAST
       LIMIT 25`,
     params,
   );
