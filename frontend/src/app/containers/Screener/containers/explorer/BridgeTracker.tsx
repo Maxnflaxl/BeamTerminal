@@ -281,7 +281,10 @@ function fmtAmount(n: number | null, maxFrac = 6): string {
   // blows the column apart — and the exact figure is meaningless anyway.
   if (Math.abs(n) >= 1e20) return n.toExponential(2);
   if (Math.abs(n) < 0.000001) return n.toExponential(2);
-  return n.toLocaleString(undefined, { maximumFractionDigits: maxFrac });
+  // Pinned to en-US like every other explorer surface: the browser locale would
+  // otherwise render 605.47245 as "605,47245", which reads as a thousands
+  // separator against the grouped figures sitting next to it in the column.
+  return n.toLocaleString('en-US', { maximumFractionDigits: maxFrac });
 }
 
 function fmtUsd(n: number | null): string {
@@ -383,14 +386,9 @@ function evmTxUrl(hash: string, chainId?: number): string {
 /** Tooltip for a Beam-side step: when it happened, and how long after the
  *  step before it. The elapsed part is the interesting half — it's the relayer's
  *  latency for a delivery, and the recipient's for a claim. */
-function beamStepTitle(
-  what: string,
-  height: number,
-  ts: string | null,
-  since: string | null,
-): string {
+function beamStepTitle(what: string, height: number, ts: string | null, since: string | null): string {
   const parts = [`${what} in block ${height}`];
-  if (ts) parts.push(new Date(ts).toLocaleString());
+  if (ts) parts.push(new Date(ts).toLocaleString('en-US'));
   const a = ts ? Date.parse(ts) : NaN;
   const b = since ? Date.parse(since) : NaN;
   if (!Number.isNaN(a) && !Number.isNaN(b) && a > b) {
@@ -879,7 +877,7 @@ const BridgeTracker: React.FC = () => {
         </StatCard>
         <StatCard>
           <Label>Transfers tracked</Label>
-          <Value>{totals.transfers.toLocaleString()}</Value>
+          <Value>{totals.transfers.toLocaleString('en-US')}</Value>
           <SubValue>both directions, all time</SubValue>
         </StatCard>
         <StatCard>
@@ -967,7 +965,7 @@ const BridgeTracker: React.FC = () => {
             <option value="unknown">unknown</option>
           </Select>
           <Btn onClick={resetFilters}>Reset</Btn>
-          <Muted style={{ margin: 0 }}>{loadingMsgs ? 'loading…' : `${total.toLocaleString()} matching`}</Muted>
+          <Muted style={{ margin: 0 }}>{loadingMsgs ? 'loading…' : `${total.toLocaleString('en-US')} matching`}</Muted>
         </Filters>
 
         {msgsErr && <ErrorBox>Could not load transfers: {msgsErr}</ErrorBox>}
