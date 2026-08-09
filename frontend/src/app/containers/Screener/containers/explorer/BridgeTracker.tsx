@@ -67,7 +67,12 @@ const BridgeGrid = styled.div`
   margin-top: 14px;
 `;
 
+// Column flex so the footer and action can be pushed to the bottom: the status
+// chip rows vary in height between bridges, and without this the "View
+// transfers" buttons land at a different height in every card.
 const BridgeCard = styled.div`
+  display: flex;
+  flex-direction: column;
   border: 1px solid ${theme.color.border};
   border-radius: 10px;
   padding: 16px;
@@ -144,8 +149,10 @@ const CardFoot = styled.div`
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 14px;
-  padding-top: 12px;
+  /* auto, not a fixed gap: absorbs the difference in chip-row height so the
+     footer and the button below it line up across the row. */
+  margin-top: auto;
+  padding-top: 14px;
   border-top: 1px solid ${theme.color.borderDim};
   font-size: 11px;
   color: ${theme.color.muted};
