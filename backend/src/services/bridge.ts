@@ -7,6 +7,7 @@ import { q } from '../db.js';
 import { logger } from '../logger.js';
 import { invokeContract } from '../walletApi.js';
 import { getBlockTsMap } from './blockTimestamps.js';
+import { getContract } from '../explorer.js';
 import {
   LOG_WINDOW,
   NEW_LOCAL_MESSAGE_TOPIC,
@@ -16,6 +17,7 @@ import {
   getBalance,
   getBlockTimestamp,
   getLogs,
+  erc20TotalSupply,
 } from './ethRpc.js';
 import { etherscanEnabled, scanSettlements } from './etherscan.js';
 
@@ -61,6 +63,14 @@ export interface BridgeDef {
   /** First block with code at `ethPipe`; floor for the log sweep. */
   ethDeployBlock: number;
   /**
+   * Which chain holds the collateral.
+   *   'eth'  — locked on Ethereum, wrapped asset minted on Beam (the b-assets).
+   *   'beam' — locked in the Beam Pipe (native BEAM), WBEAM minted on Ethereum.
+   * Reading the Ethereum Pipe's balance for a 'beam' bridge returns 0: it mints
+   * rather than escrows. Getting this backwards silently reports an unbacked peg.
+   */
+  custody: 'eth' | 'beam';
+  /**
    * `view_params` misreads this Pipe's Params record — it locks aid 0 directly
    * instead of pairing with a token_contract, so the layout differs and the
    * action returns garbage. Every other action works.
@@ -85,6 +95,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     decimals: 8,
     ethDecimals: 8,
     ethDeployBlock: 18190064,
+    custody: 'beam',
     noViewParams: true,
   },
   {
@@ -98,6 +109,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     decimals: 8,
     ethDecimals: 18,
     ethDeployBlock: 16590872,
+    custody: 'eth',
   },
   {
     key: 'busdt',
@@ -110,6 +122,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     decimals: 8,
     ethDecimals: 6,
     ethDeployBlock: 16590881,
+    custody: 'eth',
   },
   {
     key: 'bwbtc',
@@ -122,6 +135,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     decimals: 8,
     ethDecimals: 8,
     ethDeployBlock: 16590894,
+    custody: 'eth',
   },
   {
     key: 'bdai',
@@ -134,6 +148,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     decimals: 8,
     ethDecimals: 18,
     ethDeployBlock: 16590911,
+    custody: 'eth',
   },
 ];
 
@@ -571,19 +586,70 @@ async function settleOutgoing(b: BridgeDef): Promise<number> {
 // Escrow: what actually backs the minted supply
 // ---------------------------------------------------------------------------
 
+/** Native BEAM (aid 0) locked in a Beam-side Pipe, read from the explorer's
+ *  "Locked Funds" table. Raw groths — request without `exp_am`, which would
+ *  return a formatted string like "1,736,549.28438526". */
+async function beamLockedFunds(cid: string): Promise<bigint | null> {
+  const res = await getContract({ id: cid });
+  const table = (res as unknown as Record<string, unknown>)['Locked Funds'];
+  const rows = (table as { value?: unknown[] } | undefined)?.value;
+  if (!Array.isArray(rows)) return null;
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length < 2) continue;
+    const key = row[0] as { type?: string; value?: unknown } | undefined;
+    const val = row[1] as { type?: string; value?: unknown } | undefined;
+    if (key?.type === 'aid' && Number(key.value) === 0 && val?.value !== undefined) {
+      try {
+        return BigInt(String(val.value).replace(/[,\s]/g, ''));
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
 async function snapshotEscrow(b: BridgeDef): Promise<void> {
-  const locked = b.ethToken
-    ? await erc20BalanceOf(b.ethToken, b.ethPipe)
-    : await getBalance(b.ethPipe);
   const block = await blockNumber();
+  let locked: bigint;
+  let lockedDecimals: number;
+  let minted: bigint | null = null;
+  let mintedDecimals: number | null = null;
+
+  if (b.custody === 'beam') {
+    // Collateral is native BEAM held by the Beam Pipe; the wrapped asset is the
+    // ERC20 minted on Ethereum. Asking the Ethereum Pipe for a balance here
+    // yields 0 — it mints rather than escrows.
+    const beamLocked = await beamLockedFunds(b.cid);
+    if (beamLocked === null) {
+      logger.warn({ bridge: b.key }, 'bridge: could not read Beam-side locked funds; skipping escrow snapshot');
+      return;
+    }
+    locked = beamLocked;
+    lockedDecimals = b.decimals;
+    minted = b.ethToken ? await erc20TotalSupply(b.ethToken) : 0n;
+    mintedDecimals = b.ethDecimals;
+  } else {
+    locked = b.ethToken
+      ? await erc20BalanceOf(b.ethToken, b.ethPipe)
+      : await getBalance(b.ethPipe);
+    lockedDecimals = b.ethDecimals;
+    // minted stays null: the repo derives it from the Beam asset's emission.
+  }
+
   await q(
-    `INSERT INTO bridge_escrow (bridge, chain_id, token, locked, decimals, block_number, observed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, now())
+    `INSERT INTO bridge_escrow
+       (bridge, chain_id, token, locked, decimals, minted, minted_decimals, block_number, observed_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
      ON CONFLICT (bridge) DO UPDATE SET
        chain_id = EXCLUDED.chain_id, token = EXCLUDED.token, locked = EXCLUDED.locked,
-       decimals = EXCLUDED.decimals, block_number = EXCLUDED.block_number,
+       decimals = EXCLUDED.decimals, minted = EXCLUDED.minted,
+       minted_decimals = EXCLUDED.minted_decimals, block_number = EXCLUDED.block_number,
        observed_at = now()`,
-    [b.key, b.chainId, b.ethToken, locked.toString(), b.ethDecimals, block],
+    [
+      b.key, b.chainId, b.ethToken, locked.toString(), lockedDecimals,
+      minted === null ? null : minted.toString(), mintedDecimals, block,
+    ],
   );
 }
 

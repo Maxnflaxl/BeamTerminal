@@ -53,8 +53,13 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
               min(src_ts)::text AS oldest, max(src_ts)::text AS newest
          FROM bridge_messages GROUP BY 1, 2, 3`,
     ),
-    q<{ bridge: string; locked: string; decimals: number; observed_at: string }>(
-      'SELECT bridge, locked::text, decimals, observed_at::text FROM bridge_escrow',
+    q<{
+      bridge: string; locked: string; decimals: number; observed_at: string;
+      minted: string | null; minted_decimals: number | null;
+    }>(
+      `SELECT bridge, locked::text, decimals, observed_at::text,
+              minted::text, minted_decimals
+         FROM bridge_escrow`,
     ),
     q<{ aid: string; emission: string | null; decimals: number }>(
       `SELECT aid::text, emission::text, decimals FROM assets
@@ -109,7 +114,15 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
     const esc = escrowBy.get(b.key);
     const mint = mintedBy.get(b.aid);
     const lockedVal = esc ? scale(esc.locked, esc.decimals) : null;
-    const mintedVal = mint?.emission ? scale(mint.emission, mint.decimals ?? b.decimals) : null;
+    // Bridges whose collateral sits on Beam record the minted side explicitly
+    // (it's an Ethereum ERC20 supply). For the rest it's the Beam asset's own
+    // emission. Using assets.emission for a custody:'beam' bridge would report
+    // BEAM's entire emission as if it were bridged.
+    const mintedVal = esc?.minted !== null && esc?.minted !== undefined
+      ? scale(esc.minted, esc.minted_decimals ?? b.ethDecimals)
+      : mint?.emission
+        ? scale(mint.emission, mint.decimals ?? b.decimals)
+        : null;
 
     return {
       bridge: b.key,

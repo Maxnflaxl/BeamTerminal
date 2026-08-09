@@ -690,8 +690,15 @@ Status vocabularies differ by direction, because the underlying contract states 
 `unclaimed` is **not** an error: only the recipient can claim, so a message can sit
 there indefinitely. Don't count it as a bridge failure.
 
-`collateral_ratio` is Beam-side minted supply ÷ Ethereum-side locked collateral.
-≈1.0 means fully backed; small deviations are in-flight messages and relayer fees.
+`collateral_ratio` is minted supply ÷ locked collateral. ≤1.0 means every wrapped
+unit is backed; small deviations are in-flight messages and relayer fees, and a
+ratio above 1 means more has been issued than is held.
+
+**Custody direction differs per bridge.** The b-asset bridges lock collateral on
+Ethereum and mint on Beam, so `escrow.locked` is the Ethereum Pipe's balance and
+`minted` is the Beam asset's emission. BEAM/WBEAM is the reverse: native BEAM is
+locked in the *Beam* Pipe and WBEAM is minted on Ethereum, so `escrow.locked` is
+the Beam-side locked amount and `minted` is the WBEAM ERC20 total supply.
 
 `settlement_available` is `false` when no `ETHERSCAN_API_KEY` is configured. In that
 state `beam2eth` messages stay `pending` and no failure can be observed —

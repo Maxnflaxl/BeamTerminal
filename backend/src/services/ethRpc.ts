@@ -127,3 +127,10 @@ export function decodeNewLocalMessage(log: EthLog): NewLocalMessage | null {
     return null;
   }
 }
+
+/** ERC20 totalSupply() — selector 0x18160ddd. */
+export async function erc20TotalSupply(token: string): Promise<bigint> {
+  const out = await rpc<string>('eth_call', [{ to: token, data: '0x18160ddd' }, 'latest']);
+  if (!out || out === '0x') return 0n;
+  return BigInt(out);
+}
