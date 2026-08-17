@@ -190,8 +190,12 @@ function parseCallRow(row: Row, nested: ReadonlyArray<Row>): AmmCall | null {
   const args = row[4];
   if (typeof args !== 'object' || args === null || Array.isArray(args)) return null;
   const a = args as Record<string, unknown>;
-  const rawAid1 = pickNumber(a.Aid1);
-  const rawAid2 = pickNumber(a.Aid2);
+  // `Trade` names the pool's two assets after the side the user took
+  // (`Buy`/`Sell`); every other method names them `Aid1`/`Aid2`. Both spellings
+  // are accepted for every method — the pair is canonicalized below either way,
+  // and trade direction comes from the Funds signs, not from these keys.
+  const rawAid1 = pickNumber(a.Aid1 ?? a.Buy);
+  const rawAid2 = pickNumber(a.Aid2 ?? a.Sell);
   const volatility = typeof a.Volatility === 'string' ? a.Volatility : null;
   if (rawAid1 === null || rawAid2 === null || volatility === null) return null;
   const kind = VOLATILITY_KIND[volatility];
