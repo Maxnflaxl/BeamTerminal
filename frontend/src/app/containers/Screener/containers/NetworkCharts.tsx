@@ -559,6 +559,9 @@ function fmtUsd(v: number): string {
   if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
   if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
   if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}k`;
+  // One decimal count across the whole sub-dollar range so an axis spanning it
+  // doesn't mix label widths.
+  if (v !== 0 && Math.abs(v) < 1) return `$${v.toFixed(6)}`;
   return `$${v.toFixed(2)}`;
 }
 
