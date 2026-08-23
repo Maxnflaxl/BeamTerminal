@@ -94,9 +94,31 @@ const TOTALS_SQL = `
     FROM dex_stats_daily
 `;
 
+// BEAM's all-time high predates this indexer: oracle_snapshots begins
+// 2022-08-13, and the highest price it has ever seen is ~$0.29. The real high
+// is $4.28 on 2019-01-04, the day after genesis (verified against CoinGecko's
+// `beam` — genesis 2019-01-03, hashing "Beam Hash"; note `beam-2` is the Merit
+// Circle rebrand that took the ticker and reports an ATH of $0.044).
+//
+// Reporting the in-database maximum on its own would be a confidently wrong
+// answer, so the cached value is the greater of this constant and whatever the
+// oracle has recorded — which means a genuine new high supersedes it without a
+// code change.
+const KNOWN_ATH_USD = 4.28;
+const KNOWN_ATH_TS = new Date('2019-01-04T16:00:00.000Z');
+
+// The low needs no equivalent constant. BEAM's all-time low is $0.00616752 on
+// 2026-07-03, well inside the indexed window, so the oracle minimum is the real
+// figure — the asymmetry is only because the price has fallen over the years,
+// putting the high before this indexer existed and the low after.
+
 export interface CachedDexStats {
   total_volume_usd: number | null;
   total_trades: number | null;
+  ath_usd: number | null;
+  ath_ts: Date | null;
+  atl_usd: number | null;
+  atl_ts: Date | null;
   refreshed_at: Date | null;
 }
 
@@ -105,11 +127,27 @@ export async function readDexStats(): Promise<CachedDexStats> {
     total_volume_usd: string | null;
     total_trades: string | null;
     refreshed_at: Date | null;
-  }>('SELECT total_volume_usd::text, total_trades::text, refreshed_at FROM dex_stats WHERE id = 1');
+    ath_usd: string | null;
+    ath_ts: Date | null;
+    atl_usd: string | null;
+    atl_ts: Date | null;
+  }>(
+    `SELECT total_volume_usd::text, total_trades::text, ath_usd::text, ath_ts,
+            atl_usd::text, atl_ts, refreshed_at
+       FROM dex_stats WHERE id = 1`,
+  );
   const row = rows[0];
+  // The constant is the floor even before the first refresh, so a fresh deploy
+  // reports the real high rather than null.
+  const cachedAth = row?.ath_usd != null ? Number(row.ath_usd) : null;
+  const useKnown = cachedAth === null || cachedAth < KNOWN_ATH_USD;
   return {
     total_volume_usd: row?.total_volume_usd != null ? Number(row.total_volume_usd) : null,
     total_trades: row?.total_trades != null ? Number(row.total_trades) : null,
+    ath_usd: useKnown ? KNOWN_ATH_USD : cachedAth,
+    ath_ts: useKnown ? KNOWN_ATH_TS : (row?.ath_ts ?? null),
+    atl_usd: row?.atl_usd != null ? Number(row.atl_usd) : null,
+    atl_ts: row?.atl_ts ?? null,
     refreshed_at: row?.refreshed_at ?? null,
   };
 }
@@ -131,16 +169,43 @@ export async function refreshDexStats(): Promise<void> {
   const { rows } = await q<{ total_volume_usd: string; has_any: boolean | null; total_trades: string }>(
     TOTALS_SQL,
   );
+  // Cheap here (once per 5 min) and unaffordable in /api/stats.
+  const [{ rows: athRows }, { rows: atlRows }] = await Promise.all([
+    q<{ beam_usd: string; ts: Date }>(
+      `SELECT beam_usd::text, ts FROM oracle_snapshots
+        WHERE beam_usd IS NOT NULL ORDER BY beam_usd DESC LIMIT 1`,
+    ),
+    q<{ beam_usd: string; ts: Date }>(
+      `SELECT beam_usd::text, ts FROM oracle_snapshots
+        WHERE beam_usd IS NOT NULL AND beam_usd > 0 ORDER BY beam_usd ASC LIMIT 1`,
+    ),
+  ]);
   const row = rows[0];
   const value = row?.has_any === true ? row.total_volume_usd : null;
   const totalTrades = row?.total_trades ?? '0';
+  const athRow = athRows[0];
+  const atlRow = atlRows[0];
   await q(
     `UPDATE dex_stats
         SET total_volume_usd = $1::numeric,
             total_trades     = $2::bigint,
+            ath_usd          = $3::numeric,
+            ath_ts           = $4,
+            atl_usd          = $5::numeric,
+            atl_ts           = $6,
             refreshed_at     = now()
       WHERE id = 1`,
-    [value, totalTrades],
+    [
+      value,
+      totalTrades,
+      athRow?.beam_usd ?? null,
+      athRow?.ts ?? null,
+      atlRow?.beam_usd ?? null,
+      atlRow?.ts ?? null,
+    ],
   );
-  logger.info({ ms: Date.now() - t0, total_volume_usd: value, total_trades: totalTrades }, 'dex_stats refreshed');
+  logger.info(
+    { ms: Date.now() - t0, total_volume_usd: value, total_trades: totalTrades, ath_usd: athRow?.beam_usd ?? null },
+    'dex_stats refreshed',
+  );
 }

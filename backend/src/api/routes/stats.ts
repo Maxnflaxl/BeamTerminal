@@ -2,12 +2,17 @@ import type { FastifyInstance } from 'fastify';
 import { q } from '../../db.js';
 import { loadUsdTable } from '../repos/usd.js';
 import { readDexStats } from '../../services/dexStats.js';
+import { BRIDGES } from '../../services/bridge.js';
 
 interface ScalarRow {
   oracle_ts: Date | null;
   last_indexed_height: string | null;
   cursor_ts: Date | null;
   total_pairs: string;
+  // BEAM's circulating supply in groths. Synced from the explorer's
+  // /status?exp_am=1 totals by services/beamSupply.ts, stored on the aid-0
+  // asset row rather than a table of its own.
+  circulating_groths: string | null;
 }
 
 interface PoolReserveRow {
@@ -17,6 +22,12 @@ interface PoolReserveRow {
   decimals2: number;
   reserve1: string | null;
   reserve2: string | null;
+}
+
+interface EscrowRow {
+  bridge: string;
+  locked: string | null;
+  decimals: number;
 }
 
 interface VolumeRow {
@@ -34,14 +45,15 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
     // Load USD-per-AID rates in parallel with the scalar/aggregate queries.
     // `total_volume_usd` comes from the precomputed `dex_stats` table —
     // see services/dexStats.ts for why it's not inlined here.
-    const [usd, scalarsRes, reservesRes, volumesRes, cachedStats] = await Promise.all([
+    const [usd, scalarsRes, reservesRes, volumesRes, cachedStats, escrowRes] = await Promise.all([
       loadUsdTable(),
       q<ScalarRow>(`
         SELECT
           (SELECT ts FROM oracle_snapshots ORDER BY ts DESC LIMIT 1) AS oracle_ts,
           (SELECT last_indexed_height::text FROM cursor WHERE id = 1) AS last_indexed_height,
           (SELECT updated_at FROM cursor WHERE id = 1) AS cursor_ts,
-          (SELECT count(*)::text FROM pools WHERE destroyed_at_height IS NULL) AS total_pairs
+          (SELECT count(*)::text FROM pools WHERE destroyed_at_height IS NULL) AS total_pairs,
+          (SELECT emission::text FROM assets WHERE aid = 0) AS circulating_groths
       `),
       // Latest reserves per active pool, joined with both side's decimals
       // so we can value each leg via the per-AID USD table.
@@ -80,6 +92,10 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
          GROUP BY t.pool_id, p.aid1, p.aid2, a1.decimals, a2.decimals
       `),
       readDexStats(),
+      // One row per bridge — a handful. The rest of /bridge/health is far
+      // heavier (a GROUP BY over bridge_messages), which is why only the
+      // escrow slice is pulled in here rather than calling getBridgeHealth().
+      q<EscrowRow>('SELECT bridge, locked::text, decimals FROM bridge_escrow'),
     ]);
 
     const scalars = scalarsRes.rows[0];
@@ -140,12 +156,48 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
     // first refresh completes after a fresh deploy.
     const totalVolumeUsd = cachedStats.total_volume_usd;
 
+    // Escrowed collateral across the bridges, valued the same way
+    // /bridge/health does: off the Beam-side asset, since the wrapped token
+    // tracks its collateral 1:1 and that is the side with a BEAM-quoted pool.
+    // Bridges we cannot price are absent from the total rather than counted
+    // as zero, so the figure is null until at least one is priceable.
+    const aidOf = new Map(BRIDGES.map((b) => [b.key, b.aid]));
+    let bridgeTvlUsd: number | null = null;
+    for (const row of escrowRes.rows) {
+      if (row.locked === null) continue;
+      const aid = aidOf.get(row.bridge);
+      if (aid === undefined) continue;
+      const price = usd.perAid.get(aid);
+      if (price === undefined) continue;
+      bridgeTvlUsd = (bridgeTvlUsd ?? 0) + (Number(row.locked) / 10 ** row.decimals) * price;
+    }
+
+    // Circulating supply in whole BEAM, and the market cap it implies. Both
+    // are null unless the supply sync has run and the oracle has a price —
+    // a market cap computed from half the inputs is worse than no answer.
+    const circulatingSupply =
+      scalars?.circulating_groths != null ? Number(scalars.circulating_groths) / 1e8 : null;
+    const marketCapUsd =
+      circulatingSupply !== null && usd.beam_usd !== null
+        ? +(circulatingSupply * usd.beam_usd).toFixed(2)
+        : null;
+
     void reply.header('cache-control', 'public, max-age=15');
     return {
       beam_usd: usd.beam_usd,
       total_tvl_usd: tvlHasAny ? +totalTvlUsd.toFixed(2) : null,
       volume_24h_usd: volHasAny ? +volume24hUsd.toFixed(2) : null,
       total_volume_usd: totalVolumeUsd !== null ? +totalVolumeUsd.toFixed(2) : null,
+      circulating_supply: circulatingSupply !== null ? +circulatingSupply.toFixed(8) : null,
+      market_cap_usd: marketCapUsd,
+      // All-time high BEAM/USD. Served from the dex_stats cache because the
+      // query behind it scans a hypertable — see services/dexStats.ts, which
+      // also explains why the figure is not simply max(oracle_snapshots).
+      ath_usd: cachedStats.ath_usd,
+      ath_ts: cachedStats.ath_ts ? Math.floor(cachedStats.ath_ts.getTime() / 1000) : null,
+      atl_usd: cachedStats.atl_usd,
+      atl_ts: cachedStats.atl_ts ? Math.floor(cachedStats.atl_ts.getTime() / 1000) : null,
+      bridge_tvl_usd: bridgeTvlUsd !== null ? +bridgeTvlUsd.toFixed(2) : null,
       total_pairs: Number(scalars?.total_pairs ?? 0),
       total_trades: cachedStats.total_trades ?? 0,
       last_indexed_height: Number(scalars?.last_indexed_height ?? 0),

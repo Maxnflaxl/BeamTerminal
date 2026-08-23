@@ -37,24 +37,43 @@ Liveness. Returns 200 with the lag between `now()` and `cursor.updated_at`. 503 
 
 ## `GET /api/stats`
 
-Header strip data: BEAM/USD, total TVL, 24h volume, lifetime volume, pair/trade counts.
+Header strip data: BEAM/USD, supply and market cap, DEX and bridge TVL, 24h volume, lifetime volume, all-time high and low, pair/trade counts.
+
+Example below uses real figures from 2026-08-23, so the arithmetic checks out:
+`192,100,675 × 0.00764726 = 1,468,921.51`.
 
 ```json
 {
-  "beam_usd": 0.02175,
-  "total_tvl_usd": 124501.22,
-  "volume_24h_usd": 9182.04,
-  "total_volume_usd": 4521903.55,
-  "total_pairs": 95,
-  "total_trades": 41812,
-  "last_indexed_height": 3863512,
-  "block_ts": 1747400940
+  "beam_usd": 0.00764726,
+  "circulating_supply": 192100675.0,
+  "market_cap_usd": 1468921.51,
+  "total_tvl_usd": 42157.68,
+  "bridge_tvl_usd": 38210.55,
+  "volume_24h_usd": 49.47,
+  "total_volume_usd": 1337274.88,
+  "ath_usd": 4.28,
+  "ath_ts": 1546617600,
+  "atl_usd": 0.00616752,
+  "atl_ts": 1783082120,
+  "total_pairs": 94,
+  "total_trades": 60237,
+  "last_indexed_height": 4004167,
+  "block_ts": 1787438794
 }
 ```
 
+* `circulating_supply` — whole BEAM, from the aid-0 asset row (`assets.emission`), which `services/beamSupply.ts` syncs from the explorer's `/status?exp_am=1` **Current Circulation** (emission plus released treasury). `null` until that sync has run.
+
+  Note this is **not** the figure CoinGecko publishes: it lists 201,543,500 against the explorer's 192,100,675. The chain is the authority here; do not "correct" ours to match theirs.
+* `market_cap_usd` — `circulating_supply × beam_usd`. `null` if either input is missing; a market cap computed from half its inputs is worse than no answer.
 * `total_tvl_usd` — sums `reserve1_usd + reserve2_usd` per active pool. For pools where only one side has a USD rate (via the [USD valuation routing](database.md#usd-valuation-strategy)), the known side is doubled (AMMs hold equal value on both sides at equilibrium). Pools where neither side is priceable are skipped.
+* `bridge_tvl_usd` — escrowed collateral across the bridges, valued off the Beam-side asset exactly as [`/api/bridge/health`](#get-apibridgehealth) does. Bridges that cannot be priced are absent from the total rather than counted as zero, so this is `null` until at least one is priceable. Only the `bridge_escrow` slice is read here — the rest of `/bridge/health` groups over `bridge_messages` and is far heavier.
 * `volume_24h_usd` — sums one priced side per pool over the 24h trade window.
 * `total_volume_usd` — point-in-time-valued lifetime volume, served from the precomputed `dex_stats` cache (refreshed by the indexer every 5 minutes). `null` until the first refresh after a fresh deploy.
+* `ath_usd` / `ath_ts` — highest BEAM/USD ever, and when. **Not simply `max(oracle_snapshots)`**: this indexer starts 2022-08-13 and the highest price it has ever seen is ~$0.29, whereas the real high is $4.28 on 2019-01-04, the day after genesis. The served value is the greater of that known constant and the oracle maximum, so a genuine new high supersedes it without a code change.
+* `atl_usd` / `atl_ts` — lowest BEAM/USD ever. This one *is* just `min(oracle_snapshots)` and needs no known-value floor: the all-time low is $0.00616752 on 2026-07-03, inside the indexed window. The asymmetry with the high is only that the price has fallen over the years, putting the high before this indexer existed and the low after.
+
+Both extremes are cached in `dex_stats` because the queries behind them scan a hypertable with no index on `beam_usd`, and this endpoint is on the hot path.
 * `block_ts` — timestamp of the latest oracle snapshot (proxy for last-tick wall-clock time).
 
 `Cache-Control: public, max-age=15`.
