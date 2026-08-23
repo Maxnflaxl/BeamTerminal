@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { queryBool } from '../query.js';
 import { q } from '../../db.js';
 import { BadRequest, NotFound } from '../error.js';
 import { listPairs, resolvePair, type PairRowRaw, type SortKey } from '../repos/pairs.js';
@@ -238,7 +239,7 @@ const ListQuery = z.object({
   offset: z.coerce.number().int().nonnegative().default(0),
   search: z.string().optional(),
   kind: z.coerce.number().int().min(0).max(2).optional(),
-  include_imposters: z.coerce.boolean().default(false),
+  include_imposters: queryBool(false),
   // 'pair' collapses fee tiers into one combined row per (aid1, aid2).
   group: z.enum(['tier', 'pair']).default('tier'),
 });

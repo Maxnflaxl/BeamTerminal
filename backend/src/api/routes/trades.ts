@@ -4,6 +4,7 @@ import { q } from '../../db.js';
 import { BadRequest, NotFound } from '../error.js';
 import { resolvePair } from '../repos/pairs.js';
 import { loadUsdTable } from '../repos/usd.js';
+import { queryBool } from '../query.js';
 
 const Query = z.object({
   kind: z.enum(['Trade', 'lp']).default('Trade'),
@@ -14,8 +15,8 @@ const Query = z.object({
   // `before`. `count=true` additionally returns the pool's total row count so
   // the UI can render "Showing X to Y of N entries".
   offset: z.coerce.number().int().min(0).optional(),
-  count: z.coerce.boolean().default(false),
-  include_unconfirmed: z.coerce.boolean().default(true),
+  count: queryBool(false),
+  include_unconfirmed: queryBool(true),
 });
 
 interface TradeRow {
@@ -269,8 +270,8 @@ const GLOBAL_KIND_LABEL: Record<number, string> = { 0: 'Low', 1: 'Medium', 2: 'H
 const GlobalQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   before: z.coerce.number().int().positive().optional(),
-  include_unconfirmed: z.coerce.boolean().default(true),
-  include_imposters: z.coerce.boolean().default(false),
+  include_unconfirmed: queryBool(true),
+  include_imposters: queryBool(false),
   kind: z.coerce.number().int().min(0).max(2).optional(),
   aid: z.coerce.number().int().min(0).optional(),
 });

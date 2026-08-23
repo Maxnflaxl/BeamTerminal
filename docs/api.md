@@ -15,6 +15,10 @@ The public CoinGecko-compliant endpoints (`/cg/*`) are documented separately in 
   { "error": { "code": "PAIR_NOT_FOUND", "message": "no pair 0-31-1" } }
   ```
   `code` is stable; `message` is human-readable and may change.
+* **Booleans in query strings**: `1`, `true`, `yes`, `on` are true; `0`, `false`,
+  `no`, `off` and an empty value are false (case-insensitive). Anything else is a
+  400 rather than a guess — a bool param that silently ignored `?flag=0` would be
+  write-only.
 * **Auth**: none.
 * **CORS**: open (`Access-Control-Allow-Origin: *`). The in-wallet origin works the same way.
 * **Rate limit**: per-IP via `@fastify/rate-limit`, `RATE_LIMIT_PER_MIN` (default 600/min). Set to 0 to disable. Excess responses are `{ "error": { "code": "RATE_LIMITED", "message": "…" } }`.
