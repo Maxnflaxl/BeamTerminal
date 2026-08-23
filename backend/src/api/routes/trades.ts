@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { q } from '../../db.js';
 import { BadRequest, NotFound } from '../error.js';
 import { resolvePair } from '../repos/pairs.js';
+import { loadUsdTable } from '../repos/usd.js';
 
 const Query = z.object({
   kind: z.enum(['Trade', 'lp']).default('Trade'),
@@ -252,4 +253,136 @@ async function countRows(
     [poolIds],
   );
   return rows[0] ? Number(rows[0].n) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/trades — DEX-wide trade tape, newest first.
+//
+// Same per-trade shape as /api/pairs/{id}/trades plus the pool identity fields
+// a consumer needs when rows arrive from many pools at once. Cursor-only
+// pagination (`before`): with no pool filter there is no stable offset to page
+// against while the indexer keeps writing to the head of the feed.
+// ---------------------------------------------------------------------------
+
+const GLOBAL_KIND_LABEL: Record<number, string> = { 0: 'Low', 1: 'Medium', 2: 'High' };
+
+const GlobalQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  before: z.coerce.number().int().positive().optional(),
+  include_unconfirmed: z.coerce.boolean().default(true),
+  include_imposters: z.coerce.boolean().default(false),
+  kind: z.coerce.number().int().min(0).max(2).optional(),
+  aid: z.coerce.number().int().min(0).optional(),
+});
+
+interface GlobalTradeRow extends TradeRow {
+  pool_id: string;
+  aid2: string;
+  kind: number;
+  symbol1: string | null;
+  symbol2: string | null;
+}
+
+export async function globalTradesRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/trades', async (req, reply) => {
+    const parsed = GlobalQuery.safeParse(req.query);
+    if (!parsed.success) {
+      throw BadRequest('BAD_REQUEST', parsed.error.issues[0]?.message ?? 'invalid query');
+    }
+    const { limit, before, include_unconfirmed, include_imposters, kind, aid } = parsed.data;
+
+    const beforeTs = before ? new Date(before * 1000) : new Date();
+    const where: string[] = ['t.block_ts < $1', 'p.destroyed_at_height IS NULL'];
+    const params: (Date | number | boolean)[] = [beforeTs];
+
+    if (!include_unconfirmed) where.push('t.confirmed = TRUE');
+    if (!include_imposters) where.push('a1.is_imposter = FALSE', 'a2.is_imposter = FALSE');
+    if (kind !== undefined) {
+      params.push(kind);
+      where.push(`p.kind = $${params.length}`);
+    }
+    if (aid !== undefined) {
+      params.push(aid);
+      where.push(`(p.aid1 = $${params.length} OR p.aid2 = $${params.length})`);
+    }
+    params.push(limit);
+
+    const [lastHeight, usd, { rows }] = await Promise.all([
+      readLastIndexedHeight(),
+      loadUsdTable(),
+      q<GlobalTradeRow>(
+        `SELECT t.trade_id::text, t.height::text, t.block_ts,
+                t.aid_in::text, t.aid_out::text,
+                t.amount_in::text, t.amount_out::text,
+                t.volume_aid1::text, t.volume_aid2::text,
+                t.price_native::text,
+                t.confirmed,
+                p.pool_id::text, p.aid1::text, p.aid2::text, p.kind,
+                a1.decimals AS decimals1,
+                a1.short_name AS symbol1, a2.short_name AS symbol2
+           FROM trades t
+           JOIN pools p   ON p.pool_id = t.pool_id
+           JOIN assets a1 ON a1.aid    = p.aid1
+           JOIN assets a2 ON a2.aid    = p.aid2
+          WHERE ${where.join(' AND ')}
+          ORDER BY t.block_ts DESC, t.trade_id DESC
+          LIMIT $${params.length}`,
+        params,
+      ),
+    ]);
+
+    const trades = rows.map((r) => {
+      const aid1 = Number(r.aid1);
+      const aidIn = Number(r.aid_in);
+      const priceNative = r.price_native ? Number(r.price_native) : null;
+      // See the per-pair handler: aid_in == aid1 means the base was paid in.
+      const side: 'buy' | 'sell' = aidIn === aid1 ? 'sell' : 'buy';
+      const volumeAid1Human = r.volume_aid1
+        ? Number(r.volume_aid1) / 10 ** r.decimals1
+        : null;
+      // Unlike the per-pair route (BEAM-base only), price the base off the
+      // shared USD table so non-BEAM-quoted pools carry USD figures too. For a
+      // BEAM base the rate is beam_usd, so the two agree by construction.
+      const usdPerBase = usd.perAid.get(aid1) ?? null;
+      const priceUsd =
+        usdPerBase !== null && priceNative !== null && priceNative > 0
+          ? usdPerBase / priceNative
+          : null;
+      const valueUsd =
+        usdPerBase !== null && volumeAid1Human !== null
+          ? +(volumeAid1Human * usdPerBase).toFixed(4)
+          : null;
+
+      return {
+        trade_id: Number(r.trade_id),
+        pool_id: Number(r.pool_id),
+        pair_id: Number(r.pool_id),
+        aid1,
+        aid2: Number(r.aid2),
+        symbol1: r.symbol1,
+        symbol2: r.symbol2,
+        kind: r.kind,
+        kind_label: GLOBAL_KIND_LABEL[r.kind] ?? 'Unknown',
+        timestamp: Math.floor(r.block_ts.getTime() / 1000),
+        height: Number(r.height),
+        aid_in: aidIn,
+        aid_out: Number(r.aid_out),
+        amount_in: r.amount_in,
+        amount_out: r.amount_out,
+        side,
+        price_native: priceNative,
+        price_usd: priceUsd,
+        value_usd: valueUsd,
+        confirmed: r.confirmed,
+        confirmations: r.confirmed ? 80 : Math.max(0, lastHeight - Number(r.height)),
+      };
+    });
+
+    void reply.header('cache-control', 'public, max-age=15');
+    return {
+      trades,
+      before: trades.at(-1)?.timestamp ?? null,
+      limit,
+    };
+  });
 }

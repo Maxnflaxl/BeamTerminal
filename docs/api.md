@@ -332,6 +332,67 @@ LP-event response (`kind=lp`):
 
 `Cache-Control: public, max-age=15`.
 
+## `GET /api/trades`
+
+DEX-wide trade tape, newest first — the same rows `/api/pairs/{id}/trades`
+serves, but across every pool instead of one. Saves a consumer from fanning out
+over ~100 pairs to see what the DEX is doing.
+
+Query params:
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `limit` | int, 1..200 | 50 | |
+| `before` | int (unix seconds) | `now` | Cursor — "load older". |
+| `include_unconfirmed` | bool | true | |
+| `include_imposters` | bool | false | If true, includes pools where either side has `is_imposter = TRUE`. |
+| `kind` | `0 \| 1 \| 2` | — | Filter to one volatility tier. |
+| `aid` | int ≥ 0 | — | Only trades in pools that have this asset on either side. |
+
+There is **no** `offset` / `count` mode here. With no pool filter the head of the
+feed moves as the indexer ticks, so a numbered offset would silently skip or
+repeat rows between pages; cursor paging on `before` is the only stable option.
+Destroyed pools are always excluded.
+
+```json
+{
+  "trades": [
+    {
+      "trade_id": 81729,
+      "pool_id": 17, "pair_id": 17,
+      "aid1": 0, "aid2": 31,
+      "symbol1": "BEAM", "symbol2": "USDT",
+      "kind": 1, "kind_label": "Medium",
+      "timestamp": 1747400940,
+      "height": 3863500,
+      "aid_in": 0, "aid_out": 31,
+      "amount_in":  "1000000000",
+      "amount_out": "29342934",
+      "side": "buy",
+      "price_native": 29.342934,
+      "price_usd": 0.00026,
+      "value_usd": 0.0764,
+      "confirmed": true,
+      "confirmations": 80
+    }
+  ],
+  "before": 1747399118,
+  "limit": 50
+}
+```
+
+`before` in the response is the oldest returned trade's timestamp — feed it back
+as the `before` param to page further. `null` when the page came back empty.
+
+One deliberate difference from the per-pair route: `price_usd` and `value_usd`
+are priced off the shared [USD table](#usd-valuation) rather than only from
+`beam_usd`, so pools that aren't BEAM-quoted still carry USD figures as long as
+their base asset is reachable through some BEAM-quoted pool. For a BEAM-base
+pool the rate *is* `beam_usd`, so the two routes agree there by construction.
+Both stay `null` when the base has no USD path.
+
+`Cache-Control: public, max-age=15`.
+
 ## `GET /api/pairs/{id}/liquidity`
 
 Pooled-amount time series for one pool, decomposed by the source of the reserve changes. Drives the trade page's Pool History chart (two series: pooled aid1 + pooled aid2). A **combined-pair** id (`<aid1>_<aid2>`) sums the series across every fee tier per bucket (so it matches the grouped `tvl_usd` / pooled totals); a single-tier id returns that pool's series.

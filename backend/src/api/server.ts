@@ -8,7 +8,7 @@ import { statsRoutes } from './routes/stats.js';
 import { pairsRoutes } from './routes/pairs.js';
 import { lpPositionRoutes } from './routes/lp_position.js';
 import { ohlcvRoutes } from './routes/ohlcv.js';
-import { tradesRoutes } from './routes/trades.js';
+import { tradesRoutes, globalTradesRoutes } from './routes/trades.js';
 import { liquidityRoutes } from './routes/liquidity.js';
 import { assetRoutes } from './routes/asset.js';
 import { assetSwapsRoutes } from './routes/asset_swaps.js';
@@ -77,6 +77,7 @@ export function buildApp(): FastifyInstance {
   void app.register(lpPositionRoutes, { prefix: '/api' });
   void app.register(ohlcvRoutes, { prefix: '/api' });
   void app.register(tradesRoutes, { prefix: '/api' });
+  void app.register(globalTradesRoutes, { prefix: '/api' });
   void app.register(liquidityRoutes, { prefix: '/api' });
   void app.register(assetRoutes, { prefix: '/api' });
   void app.register(assetSwapsRoutes, { prefix: '/api' });
