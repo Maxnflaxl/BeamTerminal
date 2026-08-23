@@ -822,6 +822,411 @@ bUSDT is 8 decimals on Beam against USDT's 6 on Ethereum. `receiver` is a 20-byt
 Ethereum address for `beam2eth` and a 33-byte Beam pubkey for `eth2beam`, hex, no
 `0x`. `Cache-Control: public, max-age=30`.
 
+## `GET /api/search`
+
+Global omnibox. One query string fans out across Postgres (assets, pools, dapps,
+publishers), two static catalogs (charts, app pages) and — only when the query's
+*shape* warrants it — the explorer.
+
+Exactly one param: `q` (1–128 chars). 400 (`BAD_QUERY`) otherwise.
+
+Explorer lookups are shape-gated and each bounded to 700 ms: an all-digits query
+tries a block height, 64 hex chars tries both a kernel and a contract id, and a
+bare name tries the BANS registry. A query matching none of those shapes never
+touches the explorer at all, which is what keeps the common case fast.
+
+```json
+{
+  "query": "beam",
+  "groups": [
+    {
+      "type": "asset",
+      "label": "Assets",
+      "items": [
+        { "type": "asset", "id": "0", "title": "Beam (BEAM)", "subtitle": "AID 0",
+          "href": "/asset/0", "score": 90, "flags": [], "color": null, "logoUrl": null }
+      ]
+    }
+  ],
+  "sources": { "db": "ok", "explorer": "ok" }
+}
+```
+
+Item fields beyond `type`/`id`/`title`/`subtitle`/`href`/`score`/`flags` are
+per-type extras the UI uses for rendering (assets carry `color` and `logoUrl`,
+for instance); treat them as optional.
+
+Groups come back in a fixed display order — pages, assets, pools, dapps,
+publishers, blocks, kernels, contracts, BANS domains, charts, IPFS — with empty
+ones omitted and items sorted by descending `score`.
+
+`sources` tells the UI *why* a group may be missing rather than making it guess:
+`db` is `ok | error`, `explorer` is `ok | error | timeout | skipped`. A partial
+result is still a 200 — one slow explorer never fails the whole search.
+
+`Cache-Control: public, max-age=15`.
+
+## `GET /api/dao/overview`
+
+Landing summary for the DAO explorer: treasury value and asset count, all-time
+revenue, and the current governance epoch, plus a short merged activity feed.
+
+```json
+{
+  "treasury": { "value_usd": 9408.74, "assets": 38 },
+  "revenue": { "all_time_usd": 9408.68 },
+  "governance": { "current_epoch": 107, "active_proposals": 0, "turnout_pct": null },
+  "recent": [
+    { "kind": "flow", "height": 4004442, "ts": "2026-08-23T03:30:06.000Z",
+      "method": "DEX", "funds": { "47": "+297030" } }
+  ]
+}
+```
+
+`turnout_pct` is `null` when the current epoch has no closed vote to measure.
+`Cache-Control: public, max-age=60`.
+
+## `GET /api/dao/treasury`
+
+DaoVault holdings, the flows that produced them, and the USD value series.
+
+```json
+{
+  "total_usd": 9408.74,
+  "holdings": [
+    { "aid": 47, "symbol": "Nph", "amount": "470947472099", "value_usd": 5223.38, "pct": 55.52 }
+  ],
+  "flows": [
+    { "height": 4004442, "ts": "2026-08-23T03:30:06.000Z", "method": "DEX",
+      "funds": { "47": "+297030" } }
+  ],
+  "value_series": [ { "day": "2022-08-16", "usd": 276.67 } ]
+}
+```
+
+`funds` is keyed by AID with signed groth strings (`+` in, `-` out) — one flow
+can move several assets at once. `amount` is groths; `pct` is the holding's
+share of `total_usd`. Assets with no USD path contribute `null` value and are
+excluded from the total rather than counted as zero.
+
+`Cache-Control: public, max-age=60`.
+
+## `GET /api/dao/treasury/asset/{aid}`
+
+Per-asset drill-down: lifetime in/out totals plus the individual flows.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `limit` | int, 1..500 | 100 | Most recent flows first. |
+
+```json
+{
+  "aid": 47,
+  "deposits_groth": "470947472099",
+  "withdrawals_groth": "0",
+  "rows": [
+    { "height": 4003503, "ts": "2026-08-22T11:51:40.000Z", "method": "DEX", "amount": "+297030" }
+  ]
+}
+```
+
+400 (`BAD_REQUEST`) for a non-integer or negative `aid`.
+`Cache-Control: public, max-age=60`.
+
+## `GET /api/dao/revenue`
+
+Protocol revenue accrued to the DAO, sliced four ways.
+
+```json
+{
+  "total_usd": 9408.68,
+  "series":    [ { "day": "2022-08-16", "by_asset": { "47": 12.4 } } ],
+  "by_tier":   [ { "tier": 0, "usd": 0.57 } ],
+  "by_source": [ { "source": "Nephrite", "usd": 4759.59, "pct": 50.59 } ],
+  "top_pools": [ { "pool_id": 30, "pair": "BEAM/Nph", "tier": 2, "usd": 1181.11 } ]
+}
+```
+
+Revenue is valued at the point in time it accrued, not at today's price — the
+same convention as `total_volume_usd` on [`/api/stats`](#get-apistats).
+
+`Cache-Control: public, max-age=300` (the heaviest DAO query; it aggregates the
+full history).
+
+## `GET /api/dao/governance`
+
+DaoVote state: current epoch, staked BeamX, and every proposal with its tally.
+
+```json
+{
+  "current_epoch": 107,
+  "total_staked": "363984601011879",
+  "kpis": { "active_proposals": 0, "turnout_pct": null,
+            "voting_power": "363984601011879", "voters": 0 },
+  "voting_power_series": [ { "day": "2022-07-04", "staked": 14111.1 } ],
+  "epochs": [],
+  "proposals": [
+    { "id": 4, "epoch": 93, "title": "…", "status": "closed", "outcome": "passed",
+      "variant_count": 2, "quorum_pct": 50, "yes_needed": "181992300505940",
+      "turnout_pct": 58.3, "voted_groth": "265555615982351", "tallies": [] }
+  ]
+}
+```
+
+Groth strings are BeamX stake weight, not vote counts — voting power is stake.
+`status` is `open | closed`; `outcome` is `null` while a proposal is open.
+
+`Cache-Control: public, max-age=60`.
+
+## `GET /api/dao/governance/proposals/{id}`
+
+One proposal in full, including its description (markdown) and a paginated
+voter list.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `offset` | int ≥ 0 | 0 | |
+| `limit` | int, 1..200 | 25 | |
+
+```json
+{
+  "proposal": { "id": 4, "epoch": 93, "title": "…", "description": "…",
+                "forum_link": "…", "status": "closed", "outcome": "passed",
+                "variant_count": 2, "quorum_pct": 50, "yes_needed": "…",
+                "turnout_pct": 58.3, "voted_groth": "…", "tallies": [] },
+  "votes": {
+    "total": 4,
+    "rows": [
+      { "voter": "2f79…5301", "variant": 1, "label": "Yes",
+        "weight": "57756791178674", "height": 3920348 }
+    ]
+  }
+}
+```
+
+The proposal object carries the same fields as a `/api/dao/governance` entry
+plus `description` (markdown) and `forum_link`. `votes.total` is the full voter
+count, unaffected by `offset`/`limit`, so a client can page without a second
+request. `weight` is the voter's BeamX stake in groths.
+
+400 (`BAD_REQUEST`) for a non-integer id, 404 (`NOT_FOUND`) when no such
+proposal exists. `Cache-Control: public, max-age=60`.
+
+## `GET /api/dapps`
+
+The DApp Store registry, projected from on-chain calls by
+`services/dappStore.ts`.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `include_deleted` | bool (`1`/`true`) | false | Include dapps with `deleted_at` set. |
+
+Returns `{ "dapps": [ … ] }`, newest-updated first, capped at 500. Each entry:
+`id`, `publisher { pubkey, name }`, `name`, `description`, `category`, `icon`,
+`ipfs_id`, `api_version`, `min_api_version`, `version` (+ `version_parts`),
+`first_seen_height` / `first_seen_at`, `last_updated_height` / `last_updated_at`,
+`deleted_at`.
+
+The height/timestamp fields are nullable: a dapp published under a multi-dapp
+publisher has no unambiguous on-chain attribution, so we return `null` rather
+than guessing. `version` is composed from `version_parts` when the projector
+didn't record a version string.
+
+`Cache-Control: public, max-age=60`.
+
+## `GET /api/dapps/{id}`
+
+One dapp plus its full version history.
+
+```json
+{
+  "dapp": { "id": "…", "name": "BeamTerminal", "…": "…" },
+  "versions": [
+    { "version": "1.0.0.0", "ipfs_hash": "…", "height": 3980112,
+      "block_ts": "2026-07-01T10:00:00.000Z", "action": 0 }
+  ]
+}
+```
+
+`versions` is oldest-first. `action` is the raw registry opcode from the
+contract call that produced the row. 404 (`DAPP_NOT_FOUND`) when unknown.
+`Cache-Control: public, max-age=60`.
+
+## `GET /api/dapps/publishers`
+
+Known publishers, most-prolific first, capped at 500.
+
+Each entry: `pubkey`, `name`, `short_title`, `about_me`, `website`,
+`social { twitter, linkedin, instagram, telegram, discord }`, the same nullable
+`first_seen_*` / `last_updated_*` pairs as `/api/dapps`, and `dapps_count`
+(non-deleted dapps only).
+
+`Cache-Control: public, max-age=60`.
+
+## `GET /api/dapps/calls`
+
+Raw DApp Store contract calls, newest first — the projection's source of truth.
+While the projector is still maturing, read this to see what the registry
+actually contains before trusting a projected row.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `limit` | int, 1..1000 | 200 | |
+| `action` | int | — | Filter to one registry opcode. |
+
+Returns `{ "calls": [ { "kernel_id", "call_index", "height", "block_ts",
+"action", "args", "confirmed" } ] }`. `args` is the explorer's decoded argument
+object, passed through unchanged — its shape follows the parser, not us.
+
+`Cache-Control: public, max-age=30`.
+
+## `GET /api/dapp/{cid}`
+
+Streams a `.dapp` bundle out of BEAM's private mainnet IPFS swarm
+(wallet-api → asio-ipfs → bitswap). This is what the site's Download button
+points at.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `filename` | string | `<cid>.dapp` | Sanitized, then sent as `Content-Disposition: attachment`. |
+
+Open gateway by design — any CID streams, with no allowlist check against the
+`dapps` table.
+
+Errors: 400 (`BAD_CID`) when the path segment doesn't look like a CID; 503
+(`IPFS_UNAVAILABLE`) when wallet-api has no IPFS configured; 503
+(`IPFS_CONTENT_UNAVAILABLE`) when no swarm peer serves the CID. The last one is
+deliberately 503 rather than 504 — Cloudflare rewrites origin 502/504 bodies,
+and the Download button needs the JSON error to explain itself. The IPFS fetch
+is bounded at 60 s, under Cloudflare's 100 s origin-response limit.
+
+## `GET /api/ipfs/{cid}`
+
+General-purpose read-only IPFS gateway over the same transport.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `download` | bool (`1`/`true`) | false | Force `Content-Disposition: attachment`. |
+| `filename` | string | `<cid>` | Sanitized before use. |
+
+Content-Type is sniffed from the payload. Types that could script in our origin
+(`text/html`, `image/svg+xml`, XML, `application/wasm`) are **always** coerced to
+`application/octet-stream` and forced to attachment regardless of `download`, so
+the browser saves them instead of rendering them. Responses also carry
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and
+`Content-Security-Policy: default-src 'none'; sandbox; frame-ancestors 'none'`.
+
+Same error codes as `/api/dapp/{cid}`. CIDs are immutable, so
+`Cache-Control: public, max-age=31536000, immutable`.
+
+## `GET /api/asset-swaps`
+
+Wallet-gossiped asset-to-asset swap offers, mirrored from the wallet-api by
+`services/assetSwapOffers.ts`. These are peer-to-peer offers, **not** AMM pools —
+the explorer cannot serve them.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `include` | `closed \| all` | — | Also return offers we've marked gone. Changes sort to `last_seen_at DESC`. |
+| `send` | int (AID) | — | Filter by the asset being sent. |
+| `receive` | int (AID) | — | Filter by the asset being received. |
+
+Default is open offers only (`gone_at IS NULL AND expire_time > now()`), soonest
+to expire first, capped at 500.
+
+```json
+{
+  "offers": [
+    {
+      "id": "…", "is_my": false,
+      "send":    { "asset_id": 0,  "amount": "1000000000", "currency_name": "BEAM" },
+      "receive": { "asset_id": 31, "amount": "29342934",   "currency_name": "USDT" },
+      "create_time": "2026-08-23T03:00:00.000Z",
+      "expire_time": "2026-08-24T03:00:00.000Z",
+      "first_seen_at": "2026-08-23T03:00:30.000Z",
+      "last_seen_at":  "2026-08-23T04:00:30.000Z",
+      "gone_at": null
+    }
+  ]
+}
+```
+
+`first_seen_at` / `last_seen_at` / `gone_at` are *our* observation window, not
+chain facts — gossip has no on-chain record, so an offer is "gone" once it stops
+being re-advertised. `Cache-Control: public, max-age=15`.
+
+## `GET /api/atomic-swaps`
+
+Cross-chain (BEAM ↔ BTC/LTC/ETH/…) atomic-swap offers, mirrored the same way.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `include` | `closed \| all` | — | Also return offers marked gone. |
+| `currency` | string | — | Counter-currency symbol, case-insensitive (`BTC`, `USDT`, …). |
+| `side` | `beam \| counter` | — | Which side of the swap the offer is on. |
+
+Default is open offers only, newest first, capped at 500. Each entry: `tx_id`,
+`is_beam_side`, `status` + `status_string`, `beam_amount`, `swap_amount`,
+`swap_currency` + `swap_currency_name`, `time_created`, `min_height`,
+`height_expired`, and the same `first_seen_at` / `last_seen_at` / `gone_at`
+observation window as `/api/asset-swaps`.
+
+`Cache-Control: public, max-age=15`.
+
+## `GET /api/atomic-swaps/totals`
+
+Latest aggregate atomic-swap totals snapshot.
+
+```json
+{
+  "latest": {
+    "ts": "2026-08-23T04:00:00.000Z",
+    "height": 4005100,
+    "total_swaps_count": 1284,
+    "offered": { "BEAM": "…", "BTC": "…", "LTC": "…", "QTUM": "…", "DOGE": "…",
+                 "DASH": "…", "ETH": "…", "DAI": "…", "USDT": "…", "WBTC": "…" }
+  }
+}
+```
+
+`latest` is `null` before the first snapshot lands. Amounts are strings in each
+currency's smallest unit. `Cache-Control: public, max-age=30`.
+
+## `GET /api/atomic-swaps/totals/history`
+
+The same totals as a time series, for charting.
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `since` | ISO 8601 | 30 days ago | |
+| `bucket` | `15m \| 1h \| 1d` | `1h` | Down-sampling interval. |
+
+Returns `{ "bucket", "since", "points": [ … ] }` where each point has the same
+shape as `latest` above, oldest first. Buckets aggregate with `MAX` — these are
+monotonic cumulative totals, so the bucket's high is its end state.
+
+`Cache-Control: public, max-age=60`.
+
+## Social-card images
+
+Three routes render images rather than JSON, for link unfurls and embeds. They
+are part of the public surface but aren't meant to be consumed as data.
+
+| Route | Type | Notes |
+|---|---|---|
+| `GET /api/og/site.svg` | `image/svg+xml` | Site-wide Open Graph card: headline stats. |
+| `GET /api/og/pair/{id}.svg` | `image/svg+xml` | Per-pair card. `id` takes the same forms as [`/api/pairs/{id}`](#get-apipairsid). |
+| `GET /api/pair/{id}/chart.png` | `image/png` | Rendered price chart for one pair. |
+
+`/api/pair/{id}/chart.png` accepts `days` (int 1..3650 or `all`, default 1),
+`w` (200..2000, default 720) and `h` (150..1200, default 360). Candle
+granularity follows `days` — 5m up to a day, widening to 1d beyond a year — so
+the image stays readable at every range. An unknown pair returns a 404 whose body is still a PNG carrying a
+"Pair not found" message, so an embedding client renders something rather than a
+broken image.
+
+`Cache-Control: public, max-age=300` on the SVG cards.
+
 ## Quote endpoint — intentionally not present
 
 The swap panel asks the AMM shader for quotes directly (`pool_trade` with `bPredictOnly=1`) via the user's wallet. We **don't** mirror that on the server because:
