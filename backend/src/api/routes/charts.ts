@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { q } from '../../db.js';
 import { fetchNetworkSeries, fetchNetworkSeriesHourly, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
 import { fetchBlackholeSeries } from '../../services/blackhole.js';
+import { supplyAtHeight } from '../../services/beamEmission.js';
 import { serveRange, RANGE_META, type Res as RangeRes } from './chart-range.js';
 
 interface SeriesPoint {
@@ -596,92 +597,67 @@ const BEAM_VOL_SQL = `
 // Supply has no history anywhere in the system - `assets.emission` for aid 0 is
 // a single mutable column, rewritten in place by services/beamSupply.ts from
 // the explorer's /status, which takes no height. So it is derived from height,
-// which `block_metrics` does have per day, via Beam's emission schedule:
+// which `block_metrics` does have per day, through services/beamEmission.ts.
 //
-//   blocks       1 ...   525,600  (year 1)     100 BEAM/block (80 miner + 20 treasury)
-//   blocks 525,601 ... 2,628,000  (years 2-5)   50 BEAM/block (40 miner + 10 treasury)
-//   blocks 2,628,001 ...          (year 6 on)   25 BEAM/block, halving every 2,102,400
-//
-// Verified against production rather than taken from the docs: at indexed
-// height 4,006,678 this yields 192,146,950 BEAM, which is `assets.emission` to
-// the groth, and the schedule sums to 262,800,000 - the cap the explorer
-// reports as Total Circulation. The tail also matches the explorer's "Next
-// Block Reward" of 25, which a naive 80/40/20 halving ladder does not.
-//
-// The closed form for the halving era avoids a recursive CTE: era k starts at
-// 157,680,000 + 52,560,000 * (2 - 2^(1-k)) and pays 25 * 2^(-k) per block.
+// The multiplication happens in JS rather than in the query because the
+// emission schedule is not a smooth curve: the miner reward truncates on an
+// integer shift and the treasury arrives in 60 monthly bursts, and the closed
+// form that fits both in SQL is measurably wrong in the middle - up to 0.48%
+// during treasury vesting, which covers everything before January 2024. See
+// beamEmission.ts.
 //
 // The series starts where `oracle_snapshots` does (Aug 2022), not at genesis:
 // there is no price before that to multiply by.
-// ---------------------------------------------------------------------------
-const SUPPLY_FROM_HEIGHT = `
-           CASE
-             WHEN h <= 525600 THEN h * 100.0
-             WHEN h <= 2628000 THEN 52560000.0 + (h - 525600) * 50.0
-             ELSE 157680000.0
-                  + 52560000.0 * (2.0 - power(2.0, 1.0 - floor((h - 2628000) / 2102400)))
-                  + (h - 2628000 - floor((h - 2628000) / 2102400) * 2102400)
-                    * 25.0 * power(2.0, -floor((h - 2628000) / 2102400))
-           END`;
-
-const MARKET_CAP_SQL = `
-  WITH price_day AS (
-    SELECT time_bucket(INTERVAL '1 day', ts) AS day,
-           last(beam_usd, ts)::float8 AS beam_usd
-      FROM oracle_snapshots
-     WHERE beam_usd IS NOT NULL
-     GROUP BY 1
-  ),
-  height_day AS (
-    SELECT time_bucket(INTERVAL '1 day', block_ts) AS day,
-           MAX(height)::float8 AS h
-      FROM block_metrics
-     GROUP BY 1
-  ),
-  supply_day AS (
-    SELECT day, ${SUPPLY_FROM_HEIGHT} AS supply FROM height_day
-  )
-  SELECT EXTRACT(epoch FROM p.day)::bigint AS ts,
-         (s.supply * p.beam_usd)::float8 AS value
-    FROM price_day p
-    JOIN supply_day s ON s.day = p.day
-   ORDER BY 1
-`;
-
-const MARKET_CAP_HOURLY_SQL = `
-  WITH price_hour AS (
-    SELECT time_bucket(INTERVAL '1 hour', ts) AS hour,
-           last(beam_usd, ts)::float8 AS beam_usd
-      FROM oracle_snapshots
-     WHERE beam_usd IS NOT NULL
-       AND ts > now() - INTERVAL '35 days'
-     GROUP BY 1
-  ),
-  height_hour AS (
-    SELECT time_bucket(INTERVAL '1 hour', block_ts) AS hour,
-           MAX(height)::float8 AS h
-      FROM block_metrics
-     WHERE block_ts > now() - INTERVAL '35 days'
-     GROUP BY 1
-  ),
-  supply_hour AS (
-    SELECT hour, ${SUPPLY_FROM_HEIGHT} AS supply FROM height_hour
-  )
-  SELECT EXTRACT(epoch FROM p.hour)::bigint AS ts,
-         (s.supply * p.beam_usd)::float8 AS value
-    FROM price_hour p
-    JOIN supply_hour s ON s.hour = p.hour
-   ORDER BY 1
-`;
-
+//
 // There is deliberately no `bridge-tvl` series to match. Bridge collateral has
 // no history to chart: `bridge_escrow` is one row per bridge rewritten in place
 // (migration 045 calls it "a 'current value' gauge, not a time series"), and
-// unlike supply it cannot be derived — the Ethereum-side balance is not a
+// unlike supply it cannot be derived - the Ethereum-side balance is not a
 // function of Beam height. Reconstructing it from `bridge_messages` flow would
 // also need a per-asset historical price, and 045 records that a claimed
 // message's amount survives only in the Ethereum log, not on the Beam side. A
 // chart would mean a new snapshot table starting from today.
+// ---------------------------------------------------------------------------
+interface HeightPriceRow {
+  ts: string;
+  h: string;
+  beam_usd: string;
+}
+
+function marketCapSql(bucket: '1 day' | '1 hour', recentOnly: boolean): string {
+  const window = recentOnly ? "WHERE ts > now() - INTERVAL '35 days'" : '';
+  const blockWindow = recentOnly ? "WHERE block_ts > now() - INTERVAL '35 days'" : '';
+  return `
+    WITH price_b AS (
+      SELECT time_bucket(INTERVAL '${bucket}', ts) AS b,
+             last(beam_usd, ts)::float8 AS beam_usd
+        FROM oracle_snapshots
+       ${window ? `${window} AND beam_usd IS NOT NULL` : 'WHERE beam_usd IS NOT NULL'}
+       GROUP BY 1
+    ),
+    height_b AS (
+      SELECT time_bucket(INTERVAL '${bucket}', block_ts) AS b,
+             MAX(height)::bigint AS h
+        FROM block_metrics
+       ${blockWindow}
+       GROUP BY 1
+    )
+    SELECT EXTRACT(epoch FROM p.b)::bigint::text AS ts,
+           hb.h::text AS h,
+           p.beam_usd::text AS beam_usd
+      FROM price_b p
+      JOIN height_b hb ON hb.b = p.b
+     ORDER BY 1
+  `;
+}
+
+async function marketCapSeries(bucket: '1 day' | '1 hour', recentOnly: boolean): Promise<SeriesPoint[]> {
+  const { rows } = await q<HeightPriceRow>(marketCapSql(bucket, recentOnly));
+  return rows.map((r) => ({
+    ts: Number(r.ts),
+    value: supplyAtHeight(Number(r.h)) * Number(r.beam_usd),
+  }));
+}
 
 const PRICE_SQL = `
   SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', ts))::bigint AS ts,
@@ -917,7 +893,8 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'beam-vol',   sql: BEAM_VOL_SQL,   maxAgeSec: 1800 },
   { name: 'dex-vol',    sql: DEX_VOL_SQL,    maxAgeSec: 1800 },
   { name: 'price',      sql: PRICE_SQL,      hourlySql: PRICE_HOURLY_SQL,      maxAgeSec: 600 },
-  { name: 'market-cap', sql: MARKET_CAP_SQL, hourlySql: MARKET_CAP_HOURLY_SQL, maxAgeSec: 600 },
+  { name: 'market-cap', fetch: () => marketCapSeries('1 day', false),
+                        hourlyFetch: () => marketCapSeries('1 hour', true), maxAgeSec: 600 },
   // From the explorer's /hdrs endpoint (one fetch yields all ten).
   { name: 'transactions-daily',  fetch: netFetcher('daily_txs'),            hourlyFetch: netFetcherHourly('daily_txs'),            maxAgeSec: 600 },
   { name: 'transactions-total',  fetch: netFetcher('total_txs'),            hourlyFetch: netFetcherHourly('total_txs'),            maxAgeSec: 600 },

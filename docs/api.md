@@ -698,7 +698,7 @@ Available series (the full set is defined in `backend/src/api/routes/charts.ts`)
 | `block-time` | seconds | 600 s | Postgres: daily average block interval from `block_metrics` |
 | `tvl` | USD | 1800 s | Postgres: end-of-day pooled reserves × BEAM/USD per day |
 | `price` | BEAM/USD | 600 s | Postgres: daily closing price from `oracle_snapshots` |
-| `market-cap` | USD | 600 s | Postgres: circulating supply (derived from `block_metrics` height via Beam's emission schedule) × daily closing price |
+| `market-cap` | USD | 600 s | Postgres + `services/beamEmission.ts`: daily closing price × circulating supply at that day's block height |
 | `coinbase` | count/day | 600 s | Postgres: blocks per day (one coinbase output per block) |
 | `assets` | cumulative count | 600 s | Postgres: cumulative registered confidential assets |
 | `dex-volume` | USD | 1800 s | Postgres: daily DEX volume in USD |
