@@ -29,6 +29,7 @@ import { LADDERS, MAX_POINTS, TILE_BUCKETS, type ZoomRes } from '../lib/zoomReso
 // path — see `canZoom` in ExpandedChart.
 const RANGE_FETCHERS: Record<string, (a?: { res?: ZoomRes; from?: number; to?: number }) => Promise<ApiChartSeries>> = {
   price: (a) => api.charts.price(a),
+  marketCap: (a) => api.charts.marketCap(a),
   tvl: (a) => api.charts.tvl(a),
   hashrate: (a) => api.charts.hashrate(a),
   difficulty: (a) => api.charts.difficulty(a),
@@ -1094,6 +1095,11 @@ export const NetworkCharts: React.FC = () => {
     () => api.charts.price({ res: '1h' }),
     res,
   );
+  const marketCap = useTiered(
+    () => api.charts.marketCap(),
+    () => api.charts.marketCap({ res: '1h' }),
+    res,
+  );
   const dexVolume = useTiered(
     () => api.charts.dexVolume(),
     () => api.charts.dexVolume({ res: '1h' }),
@@ -1409,6 +1415,13 @@ export const NetworkCharts: React.FC = () => {
       key: 'price',
       title: 'BEAM/USD (oracle median)',
       state: price,
+      formatter: fmtUsd,
+      category: 'defi',
+    },
+    {
+      key: 'marketCap',
+      title: 'BEAM market cap',
+      state: marketCap,
       formatter: fmtUsd,
       category: 'defi',
     },

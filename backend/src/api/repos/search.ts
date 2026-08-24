@@ -306,6 +306,7 @@ const CHART_CATALOG: ReadonlyArray<{ key: string; title: string }> = [
   { key: 'shieldedOutsTotal', title: 'Shielded outputs (total)' },
   { key: 'dexVolume', title: 'DEX volume / day' },
   { key: 'dexVolumeCumulative', title: 'DEX volume (total)' },
+  { key: 'marketCap', title: 'BEAM market cap' },
   { key: 'tvl', title: 'DEX TVL' },
   { key: 'beamVol', title: 'BEAM Volatility Index (30d)' },
   { key: 'dexVol', title: 'DEX Volatility Index (30d)' },

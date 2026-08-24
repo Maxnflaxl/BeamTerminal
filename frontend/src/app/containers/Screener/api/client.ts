@@ -228,6 +228,8 @@ export const api = {
     difficulty: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
       get<ApiChartSeries>(`/charts/difficulty${qs(o)}`),
     price: (o: { res?: ChartRes; from?: number; to?: number } = {}) => get<ApiChartSeries>(`/charts/price${qs(o)}`),
+    marketCap: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiChartSeries>(`/charts/market-cap${qs(o)}`),
     blockTime: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
       get<ApiChartSeries>(`/charts/block-time${qs(o)}`),
     tvl: (o: { res?: ChartRes; from?: number; to?: number } = {}) => get<ApiChartSeries>(`/charts/tvl${qs(o)}`),
