@@ -1,5 +1,6 @@
 // backend/src/api/repos/search.ts
 import { q } from '../../db.js';
+import { config } from '../../config.js';
 
 export type SearchType =
   | 'asset' | 'pool' | 'dapp' | 'publisher'
@@ -327,6 +328,62 @@ export function searchCharts(c: Candidates): SearchItem[] {
       score: ch.title.toLowerCase() === needle ? 100 : 70,
       flags: [],
     }));
+}
+
+// Static catalog of the contracts we hold a CID for. The explorer resolves a
+// CID to a name already — searching 729fe098… returns "DEX v0" — but there was
+// no way in from the name, so "what contract id does the DEX have?" had no
+// answer anywhere on the site.
+//
+// Config is the source: these eight are validated CIDs the indexer already
+// reads, so the catalog cannot drift from what is actually being indexed, and
+// there is nothing to maintain when one changes. Most are `.optional()`, so an
+// absent one is skipped rather than emitted as an empty id.
+//
+// Deliberately *not* every contract the explorer has seen. Those names come
+// from a third-party parser and would need the same imposter caution assets
+// get; a wrong name attached to a real CID is worse than no name.
+// `cid: string | undefined` rather than `cid?:` — several of these are
+// optional config and `exactOptionalPropertyTypes` rejects an explicit
+// undefined against an optional property.
+const CONTRACT_CATALOG: ReadonlyArray<{ title: string; keywords: string; cid: string | undefined }> = [
+  { title: 'DEX',          keywords: 'dex amm pool swap trade contract cid',        cid: config.DEX_CID },
+  { title: 'Oracle',       keywords: 'oracle price feed contract cid',              cid: config.ORACLE_CID },
+  { title: 'DAO Vault',    keywords: 'dao vault treasury contract cid',             cid: config.DAO_VAULT_CID },
+  { title: 'DAO Vote',     keywords: 'dao vote voting governance contract cid',     cid: config.DAO_VOTE_CID },
+  { title: 'DApp Store',   keywords: 'dapp store registry apps contract cid',       cid: config.DAPP_STORE_CID },
+  { title: 'BANS',         keywords: 'bans names domains registry contract cid',    cid: config.BANS_CID },
+  { title: 'Asset Minter', keywords: 'minter asset mint contract cid',              cid: config.ASSET_MINTER_CID },
+  { title: 'Black Hole',   keywords: 'blackhole black hole burn contract cid',      cid: config.BLACKHOLE_CID },
+];
+
+/**
+ * Match the free-text query against known contract names + keywords
+ * (synchronous, no I/O — same shape as `searchPages`).
+ *
+ * Emits `type: 'contract'`, so a name hit and a CID hit land in the same group
+ * and the response schema is unchanged.
+ */
+export function searchContracts(c: Candidates): SearchItem[] {
+  if (c.text === null) return [];
+  const needle = c.text.toLowerCase();
+  return CONTRACT_CATALOG
+    .filter((k): k is { title: string; keywords: string; cid: string } => Boolean(k.cid))
+    .filter((k) => k.title.toLowerCase().includes(needle) || k.keywords.toLowerCase().includes(needle))
+    .slice(0, PER_TYPE_LIMIT)
+    .map((k) => {
+      const titleLc = k.title.toLowerCase();
+      const score = titleLc === needle ? 100 : titleLc.startsWith(needle) ? 80 : 60;
+      return {
+        type: 'contract' as const,
+        id: k.cid,
+        title: k.title,
+        subtitle: `${k.cid.slice(0, 8)}\u2026${k.cid.slice(-6)}`,
+        href: `/explorer/beam?network=mainnet&type=contract&id=${encodeURIComponent(k.cid)}`,
+        score,
+        flags: [],
+      };
+    });
 }
 
 // Static catalog of navigable app pages.

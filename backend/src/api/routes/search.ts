@@ -5,6 +5,7 @@ import { BadRequest } from '../error.js';
 import { getBlock, getContract } from '../../explorer.js';
 import {
   classify, searchAssets, searchPools, searchDapps, searchPublishers, searchCharts, searchPages,
+  searchContracts,
   type SearchItem, type SearchGroup, type SearchResponse, type SourceStatus,
 } from '../repos/search.js';
 
@@ -178,6 +179,10 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
 
     // App pages — static catalog, matched synchronously (no I/O).
     items.push(...searchPages(c));
+
+    // Known contracts by name — static catalog from config, no I/O. The
+    // explorer already answers CID -> name; this is the way in from the name.
+    items.push(...searchContracts(c));
 
     // Any IPFS CID is viewable via our gateway, whether or not it's a known
     // DApp's content id. Offer the gateway link (a real resource, not an

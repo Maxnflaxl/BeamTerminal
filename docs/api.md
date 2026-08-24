@@ -900,6 +900,16 @@ tries a block height, 64 hex chars tries both a kernel and a contract id, and a
 bare name tries the BANS registry. A query matching none of those shapes never
 touches the explorer at all, which is what keeps the common case fast.
 
+**Contracts also resolve by name**, from a static catalog of the CIDs in config
+— DEX, Oracle, DAO Vault, DAO Vote, DApp Store, BANS, Asset Minter, Black Hole.
+The explorer already answers CID → name (searching `729fe098…` returns
+"DEX v0"); this is the way in from the other side, so `q=dex` returns the DEX
+contract alongside the DEX page. Matched synchronously with no I/O, in the same
+`contract` group as a CID hit, so the response shape is unchanged. Contracts
+whose CID is not configured are omitted. Deliberately not every contract the
+explorer has seen: those names come from a third-party parser and would need
+the imposter handling assets get.
+
 ```json
 {
   "query": "beam",
