@@ -29,6 +29,7 @@ import { DeltaPanel } from '../../components/chart-compare/DeltaPanel';
 import { ChartModal } from '../../components/chart-compare/ChartModal';
 import type { SeriesDescriptor, ResolvedPoint } from '../../components/chart-compare/types';
 import { downloadBlob, downloadSvgAsPng } from '../../components/chart-compare/download';
+import { Overlay, CloseBtn, useEscapeClose } from '../../components/modalChrome';
 import { buildHdrsCsv, buildHdrsSvg } from './hdrs-chart/hdrsExport';
 import type { HdrsExportRow, HdrsSvgModel } from './hdrs-chart/hdrsExport';
 
@@ -67,6 +68,51 @@ const explorerNodes: Record<string, NetworkConfig> = {
     description: 'PoS, ~15-sec blocks',
     url: ['https://explorer.0xmx.net/api/warp_dev3/'],
   },
+};
+
+// Version of the explorer front end, tracking the upstream standalone
+// BeamExplorer.htm (github.com/BeamMW/beam/tree/master/explorer/htm) that this
+// page mirrors. Clicking the badge opens the release notes below.
+const EXPLORER_VERSION = 'v0.9';
+
+const WHATS_NEW: { version: string; items: string[] }[] = [
+  {
+    version: 'v0.9',
+    items: [
+      'Rename status figures to Treasury Emission, Current Supply and Total Supply.',
+      'Add this "What\'s new" popup!',
+    ],
+  },
+  {
+    version: 'v0.8.4',
+    items: [
+      'Ignore spaces, dots and commas in search.',
+      'Add collapsibles to Inputs/Outputs/Kernels.',
+      'Update list of explorer nodes.',
+      'Add hard fork 6 to historical blocks.',
+      'Add id:0 to CA ranges of post-HF6 UTXOs.',
+    ],
+  },
+  {
+    version: 'v0.8.3',
+    items: [
+      'Add Peer nodes list.',
+      'Add Atomic Swap list.',
+      'Propose multiple options for the X axis of graphs.',
+      'Display all graph values directly on the graph axis.',
+      'Make timestamps human-readable.',
+      'Use ms in timestamps for PoS chains.',
+      'Adjust columns names for PoS chains.',
+    ],
+  },
+];
+
+// The explorer node still reports the pre-v0.9 wording for these status rows;
+// the front end shows the newer, clearer names.
+const TH_LABEL_OVERRIDES: Record<string, string> = {
+  'Treasury Released': 'Treasury Emission',
+  'Current Circulation': 'Current Supply',
+  'Total Circulation': 'Total Supply',
 };
 
 // ---------------------------------------------------------------------------
@@ -697,6 +743,31 @@ const TinyPill = styled.span`
   }
 `;
 
+// Clickable version badge in the header — opens the release notes.
+const VersionBadge = styled.button`
+  background: none;
+  border: none;
+  padding: 0 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: ${theme.color.muted};
+  cursor: pointer;
+  &:hover {
+    color: ${theme.color.accent};
+  }
+`;
+
+const WhatsNewCard = styled.div`
+  width: 100%;
+  max-width: 460px;
+  background: ${theme.color.surface};
+  border: 1px solid ${theme.color.borderDim};
+  border-radius: ${theme.radius.lg};
+  padding: 16px 18px;
+  max-height: 70vh;
+  overflow-y: auto;
+`;
+
 const Collapsible = styled.details`
   background: ${theme.color.surface};
   border: 1px solid ${theme.color.borderDim};
@@ -922,12 +993,14 @@ function renderSpecial(obj: TypedCell, ctx: RenderCtx): JSX.Element | null {
   switch (obj.type) {
     case 'cid':
       return <CidLink cid={String(obj.value)} ctx={ctx} />;
-    case 'th':
+    case 'th': {
+      const label = typeof obj.value === 'string' ? TH_LABEL_OVERRIDES[obj.value] : undefined;
       return (
         <strong style={{ color: theme.color.muted }}>
-          <RenderValue value={obj.value} ctx={ctx} />
+          <RenderValue value={label ?? obj.value} ctx={ctx} />
         </strong>
       );
+    }
     case 'amount':
       return <AmountClr amount={String(obj.value)} />;
     case 'aid':
@@ -4117,6 +4190,33 @@ function HistoricalView({ ctx }: { ctx: RenderCtx }): JSX.Element {
   );
 }
 
+function WhatsNewModal({ onClose }: { onClose: () => void }): JSX.Element {
+  useEscapeClose(onClose);
+  return createPortal(
+    <Overlay z={120} onClick={onClose}>
+      <WhatsNewCard role="presentation" onClick={(e) => e.stopPropagation()}>
+        <Row style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <H2 style={{ margin: 0 }}>What&apos;s new</H2>
+          <CloseBtn type="button" onClick={onClose} aria-label="Close">
+            ×
+          </CloseBtn>
+        </Row>
+        {WHATS_NEW.map((rel) => (
+          <div key={rel.version} style={{ marginBottom: 12 }}>
+            <H3 style={{ margin: '0 0 4px' }}>{rel.version}</H3>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.5 }}>
+              {rel.items.map((it) => (
+                <li key={it}>{it}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </WhatsNewCard>
+    </Overlay>,
+    document.body,
+  );
+}
+
 // Owns the input state so typing re-renders only this small form — the
 // explorer root may be showing a multi-thousand-row table at the time.
 function KernelSearch({ onSearch }: { onSearch: (q: string) => void }): JSX.Element {
@@ -4261,12 +4361,19 @@ export const BeamExplorer: React.FC = () => {
   );
 
   const networkType = readNetworkType(view.network);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
 
   return (
     <Page>
+      {whatsNewOpen && <WhatsNewModal onClose={() => setWhatsNewOpen(false)} />}
       <DensePage>
         <ExplorerHeader>
-          <H1>Beam Smart Explorer</H1>
+          <H1>
+            Beam Smart Explorer
+            <VersionBadge type="button" onClick={() => setWhatsNewOpen(true)} title="What's new">
+              {EXPLORER_VERSION}
+            </VersionBadge>
+          </H1>
           <Row>
             <Select
               value={view.network}
