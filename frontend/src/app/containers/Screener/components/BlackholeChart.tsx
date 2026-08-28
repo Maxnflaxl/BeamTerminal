@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import {
   LineStyle,
+  LineType,
   PriceScaleMode,
   type IChartApi,
   type ISeriesApi,
@@ -11,7 +12,7 @@ import {
 } from 'lightweight-charts';
 import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
 import { PALLETE_ASSETS } from '@app/shared/constants';
-import { createBeamChart } from './chartTheme';
+import { clearChildren, createBeamChart, makeSpan } from './chartTheme';
 import type { ApiBlackholeSeries } from '../api/client';
 import type { ApiAssetListEntry } from '../api/types';
 import { useAssets } from '../hooks';
@@ -75,6 +76,56 @@ export const LINE_STYLE_DASH: Record<BlackholeLineStyle, string> = {
 };
 
 const ICON_PX = 20;
+
+// lightweight-charts spaces bars by *index*, not by elapsed time. Each asset
+// contributes only a handful of deposits at irregular moments, so plotting the
+// raw points makes one pixel worth anything from an hour to a year — the axis
+// is distorted and the crosshair leaps months between adjacent pixels. Forward
+// -fill every series onto one shared, near-uniform grid (all real event
+// timestamps, plus a regular step between them) so the cursor moves smoothly
+// and every asset has a readable value at whatever instant is hovered.
+const GRID_TARGET_POINTS = 600;
+
+// Row height and header+padding of the crosshair tooltip, used to work out how
+// many rows fit the plot before the list has to be windowed.
+const TIP_ROW_PX = 14;
+const TIP_CHROME_PX = 32;
+
+export function resampleBlackhole(series: ReadonlyArray<ApiBlackholeSeries>): Map<number, LineData[]> {
+  const out = new Map<number, LineData[]>();
+  const times = new Set<number>();
+  let min = Infinity;
+  let max = -Infinity;
+  for (const s of series) {
+    for (const p of s.points) {
+      times.add(p.ts);
+      if (p.ts < min) min = p.ts;
+      if (p.ts > max) max = p.ts;
+    }
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return out;
+  const step = Math.max(60, Math.floor((max - min) / GRID_TARGET_POINTS));
+  for (let t = min + step; t < max; t += step) times.add(t);
+  const grid = Array.from(times).sort((a, b) => a - b);
+
+  for (const s of series) {
+    const pts = s.points.slice().sort((a, b) => a.ts - b.ts);
+    const data: LineData[] = [];
+    let i = 0;
+    let cur: number | null = null;
+    for (const t of grid) {
+      while (i < pts.length && pts[i]!.ts <= t) {
+        cur = pts[i]!.value;
+        i += 1;
+      }
+      // Nothing burned yet — the line starts at the asset's first deposit.
+      if (cur == null) continue;
+      data.push({ time: t as UTCTimestamp, value: cur });
+    }
+    out.set(s.aid, data);
+  }
+  return out;
+}
 
 const Wrap = styled.div`
   width: 100%;
@@ -143,6 +194,69 @@ const Plot = styled.div`
 const Inner = styled.div`
   width: 100%;
   height: 100%;
+`;
+
+// Crosshair readout: every visible asset's cumulative burned amount at the
+// hovered instant, biggest first, with the line nearest the cursor highlighted
+// so a single asset can be followed across the plot. Positioned imperatively
+// (translate3d) from the crosshair handler — no React render per mouse move.
+const Tooltip = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  display: none;
+  max-width: 260px;
+  max-height: 100%;
+  overflow: hidden;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 246, 210, 0.28);
+  border-radius: 6px;
+  background: rgba(4, 26, 51, 0.94);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+
+  & > .when {
+    margin-bottom: 4px;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  & > .row {
+    display: flex;
+    align-items: center;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  & > .row.on {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  & > .row.rest {
+    padding-left: 16px;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  & > .row > .sw {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 0;
+    margin-right: 6px;
+    border-top-width: 2px;
+  }
+
+  & > .row > .lbl {
+    flex: 1 1 auto;
+    margin-right: 12px;
+  }
+
+  & > .row > .val {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
 `;
 
 // Overlay layer for the line-end asset icons. Spelled-out edges (no `inset`
@@ -387,6 +501,16 @@ export const BlackholeChart: React.FC<Props> = ({
   const [hidden, setHidden] = useState<Set<number>>(new Set());
   const [hoverAid, setHoverAid] = useState<number | null>(null);
   const hoverTimer = useRef<number | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  // Cached tooltip rows, keyed by aid, so a mouse move rewrites text instead of
+  // rebuilding 16 elements per frame. `sig` is the aid order they were built in.
+  const tipRowsRef = useRef<{
+    sig: string;
+    when: HTMLDivElement | null;
+    rows: Map<number, { row: HTMLDivElement; val: HTMLSpanElement }>;
+  }>({ sig: '', when: null, rows: new Map() });
+  // Series currently thickened under the crosshair.
+  const focusedRef = useRef<number | null>(null);
   const navigate = useNavigate();
 
   const { data: assetsData } = useAssets();
@@ -399,6 +523,15 @@ export const BlackholeChart: React.FC<Props> = ({
   // Stable colour + line style per asset (series order is stable per load).
   const colorByAid = useMemo(() => buildBlackholeColors(series), [series]);
   const styleByAid = useMemo(() => buildBlackholeLineStyles(series), [series]);
+
+  // Uniform-grid line data (see resampleBlackhole) — what actually gets plotted.
+  // `series` keeps its raw points for the legend, markers and popover.
+  const chartData = useMemo(() => resampleBlackhole(series), [series]);
+
+  // Latest render's view state for the imperative crosshair handler, which is
+  // subscribed once per chart and must not close over stale values.
+  const viewRef = useRef({ series, colorByAid, hidden, formatter });
+  viewRef.current = { series, colorByAid, hidden, formatter };
 
   // Full price extent across the *visible* series (recomputed only when the
   // data or legend selection changes — never on pan). Padded slightly in log
@@ -512,6 +645,118 @@ export const BlackholeChart: React.FC<Props> = ({
     });
     chartRef.current = chart;
 
+    // Crosshair readout. Every series is defined at every grid point, so the
+    // whole burn ledger can be read off one instant; the line whose value sits
+    // closest to the cursor is highlighted and thickened, which is what makes a
+    // single asset followable through the bundle of overlapping curves.
+    chart.subscribeCrosshairMove((param) => {
+      const tip = tooltipRef.current;
+      const host = innerRef.current;
+      if (!tip || !host) return;
+      const { series: ser, colorByAid: colors, hidden: hid, formatter: fmt } = viewRef.current;
+
+      const rows: Array<{ aid: number; label: string; value: number; y: number | null }> = [];
+      if (param && param.time != null && param.point) {
+        for (const s of ser) {
+          if (hid.has(s.aid)) continue;
+          const line = seriesRef.current.get(s.aid);
+          if (!line) continue;
+          const d = param.seriesData.get(line) as { value?: number } | undefined;
+          if (!d || typeof d.value !== 'number') continue;
+          rows.push({ aid: s.aid, label: s.label, value: d.value, y: line.priceToCoordinate(d.value) });
+        }
+      }
+
+      if (rows.length === 0) {
+        tip.style.display = 'none';
+        if (focusedRef.current != null) {
+          focusedRef.current = null;
+          for (const line of seriesRef.current.values()) line.applyOptions({ lineWidth: 2 });
+        }
+        return;
+      }
+
+      rows.sort((a, b) => b.value - a.value);
+      let focus: number | null = null;
+      let best = Infinity;
+      for (const r of rows) {
+        if (r.y == null) continue;
+        const d = Math.abs(r.y - param.point!.y);
+        if (d < best) {
+          best = d;
+          focus = r.aid;
+        }
+      }
+      if (focus !== focusedRef.current) {
+        focusedRef.current = focus;
+        for (const [aid, line] of seriesRef.current) line.applyOptions({ lineWidth: aid === focus ? 3 : 2 });
+      }
+
+      // A short grid cell can't show 15 rows — keep a window around the line
+      // under the cursor (the one being followed) and count the rest.
+      const maxRows = Math.max(3, Math.floor((host.clientHeight - TIP_CHROME_PX) / TIP_ROW_PX));
+      let shown = rows;
+      let more = 0;
+      if (rows.length > maxRows) {
+        const fi = Math.max(
+          0,
+          rows.findIndex((r) => r.aid === focus),
+        );
+        const span = maxRows - 1;
+        const start = Math.min(Math.max(0, fi - Math.floor(span / 2)), rows.length - span);
+        shown = rows.slice(start, start + span);
+        more = rows.length - shown.length;
+      }
+
+      // Rebuild the row elements only when the set/order of assets changes.
+      const sig = `${shown.map((r) => r.aid).join(',')}|${more}`;
+      const cache = tipRowsRef.current;
+      if (cache.sig !== sig) {
+        clearChildren(tip);
+        cache.rows = new Map();
+        cache.sig = sig;
+        const whenRow = document.createElement('div');
+        whenRow.className = 'when';
+        tip.appendChild(whenRow);
+        cache.when = whenRow;
+        for (const r of shown) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          const sw = makeSpan('sw');
+          sw.style.borderTopStyle = 'solid';
+          sw.style.borderTopColor = colors.get(r.aid) ?? '#fff';
+          const lbl = makeSpan('lbl', `${r.label} #${r.aid}`);
+          const val = makeSpan('val');
+          row.appendChild(sw);
+          row.appendChild(lbl);
+          row.appendChild(val);
+          tip.appendChild(row);
+          cache.rows.set(r.aid, { row, val });
+        }
+        if (more > 0) {
+          const rest = document.createElement('div');
+          rest.className = 'row rest';
+          rest.appendChild(makeSpan('lbl', `+${more} more`));
+          tip.appendChild(rest);
+        }
+      }
+      if (cache.when) cache.when.textContent = formatDate(param.time as number);
+      for (const r of shown) {
+        const node = cache.rows.get(r.aid);
+        if (!node) continue;
+        node.val.textContent = fmt(r.value);
+        node.row.className = r.aid === focus ? 'row on' : 'row';
+      }
+
+      tip.style.display = 'block';
+      const w = tip.offsetWidth;
+      const h = tip.offsetHeight;
+      const right = param.point!.x + 16;
+      const x = right + w <= host.clientWidth ? right : Math.max(4, param.point!.x - 16 - w);
+      const y = Math.min(Math.max(4, param.point!.y - h / 2), Math.max(4, host.clientHeight - h - 4));
+      tip.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    });
+
     // Keep the line-end icons glued to the lines every frame. lightweight-charts
     // fires no event for price-scale (vertical) pan/zoom or autoScale settling,
     // so the time-range subscriptions alone left icons stranded on vertical
@@ -548,7 +793,7 @@ export const BlackholeChart: React.FC<Props> = ({
   // page load — so we drop all series and re-add rather than diffing.
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart) return;
+    if (!chart) return undefined;
     for (const s of seriesRef.current.values()) chart.removeSeries(s);
     seriesRef.current.clear();
     for (const s of series) {
@@ -556,6 +801,9 @@ export const BlackholeChart: React.FC<Props> = ({
         color: colorByAid.get(s.aid),
         lineWidth: 2,
         lineStyle: LINE_STYLE_ENUM[styleByAid.get(s.aid) ?? 'solid'],
+        // A burn is a discrete jump, not a ramp — and never a curve, whose
+        // overshoot would draw a dip the balance can't actually take.
+        lineType: LineType.WithSteps,
         priceLineVisible: false,
         lastValueVisible: false,
         crosshairMarkerVisible: true,
@@ -569,16 +817,35 @@ export const BlackholeChart: React.FC<Props> = ({
           return r ? { priceRange: { minValue: r.min, maxValue: r.max } } : null;
         },
       });
-      const data: LineData[] = s.points.map((p) => ({ time: p.ts as UTCTimestamp, value: p.value }));
-      line.setData(data);
+      line.setData(chartData.get(s.aid) ?? []);
       seriesRef.current.set(s.aid, line);
     }
-    if (series.length > 0) chart.timeScale().fitContent();
+    if (series.length === 0) return undefined;
+    const ts = chart.timeScale();
+    ts.fitContent();
+    // The expanded modal mounts the chart before its layout settles, and
+    // fitContent on a zero-width plot leaves the whole range squeezed into a
+    // sliver at the right edge. Retry until the plot actually has a width
+    // (bounded, so a chart that never gets one doesn't spin forever).
+    let raf = 0;
+    let tries = 0;
+    const refit = (): void => {
+      tries += 1;
+      if (ts.width() > 0 || tries > 120) {
+        if (ts.width() > 0) ts.fitContent();
+        return;
+      }
+      raf = requestAnimationFrame(refit);
+    };
+    raf = requestAnimationFrame(refit);
     // The rAF reposition loop re-places the icons once the new scale settles.
     // `hidden` is intentionally omitted — visibility is applied by the effect
     // below so toggling a legend item doesn't rebuild every series.
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [series, colorByAid, styleByAid, formatter]);
+  }, [series, chartData, colorByAid, styleByAid, formatter]);
 
   useEffect(() => {
     for (const [aid, line] of seriesRef.current) {
@@ -614,6 +881,17 @@ export const BlackholeChart: React.FC<Props> = ({
     setHoverAid((cur) => (cur === aid ? null : cur));
   };
 
+  // Double-click isolates one asset (everything else off), and a second
+  // double-click brings them all back. The two single clicks that precede it
+  // toggle the same aid twice — a net no-op — so this needs no click timer.
+  const isolate = (aid: number): void => {
+    setHidden((prev) => {
+      const alone = !prev.has(aid) && series.every((s) => s.aid === aid || prev.has(s.aid));
+      return alone ? new Set<number>() : new Set(series.filter((s) => s.aid !== aid).map((s) => s.aid));
+    });
+    setHoverAid(null);
+  };
+
   const go = (aid: number): void => navigate(`/asset/${aid}`);
 
   const hoverPos = hoverAid != null ? placedRef.current.get(hoverAid) : undefined;
@@ -633,7 +911,8 @@ export const BlackholeChart: React.FC<Props> = ({
             type="button"
             off={hidden.has(s.aid)}
             onClick={() => toggle(s.aid)}
-            title={hidden.has(s.aid) ? `Show ${s.label}` : `Hide ${s.label}`}
+            onDoubleClick={() => isolate(s.aid)}
+            title={`${hidden.has(s.aid) ? 'Show' : 'Hide'} ${s.label} — double-click to show only this`}
           >
             <i
               style={{
@@ -648,6 +927,7 @@ export const BlackholeChart: React.FC<Props> = ({
       </Legend>
       <Plot>
         <Inner ref={innerRef} />
+        <Tooltip ref={tooltipRef} />
         {showMarkers ? (
           <Strip>
             {series.map((s) => {

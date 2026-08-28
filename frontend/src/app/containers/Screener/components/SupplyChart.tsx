@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { styled } from '@linaria/react';
-import type { IChartApi, ISeriesApi, LineData, UTCTimestamp } from 'lightweight-charts';
+import { LineType, type IChartApi, type ISeriesApi, type LineData, type UTCTimestamp } from 'lightweight-charts';
 import { fmtNum } from './format';
 import {
   createBeamChart,
@@ -60,7 +60,7 @@ export const SupplyChart: React.FC<Props> = ({ points, unit }) => {
     const series = chart.addLineSeries({
       color: CHART_COLORS.accent,
       lineWidth: 2,
-      lineType: 2, // WithSteps — supply changes are discrete
+      lineType: LineType.WithSteps, // supply changes are discrete
       priceFormat: { type: 'custom', formatter: (v: number) => fmtNum(v, 0), minMove: 1 },
     });
     seriesRef.current = series;

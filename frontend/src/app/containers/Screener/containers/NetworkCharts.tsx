@@ -792,8 +792,16 @@ function blackholeSvg(
     );
   });
   const paths = series.map((s) => {
+    // Stepped, like the on-screen chart: the balance holds until the next
+    // deposit, then jumps — a diagonal would invent a gradual burn.
     const d = s.points
-      .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.ts).toFixed(1)},${py(p.value).toFixed(1)}`)
+      .map((p, i) =>
+        i === 0
+          ? `M${px(p.ts).toFixed(1)},${py(p.value).toFixed(1)}`
+          : `L${px(p.ts).toFixed(1)},${py(s.points[i - 1]!.value).toFixed(1)} L${px(p.ts).toFixed(1)},${py(
+              p.value,
+            ).toFixed(1)}`,
+      )
       .join(' ');
     const dash = LINE_STYLE_DASH[styles.get(s.aid) ?? 'solid'];
     const dashAttr = dash ? ` stroke-dasharray="${dash}"` : '';
