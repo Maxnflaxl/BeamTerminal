@@ -93,7 +93,10 @@ const ETH_FLOW_SQL = `
 // Per-bucket USD cross-rates for the bridged assets, built the same way as
 // TVL_SQL in api/routes/charts.ts: the oracle for BEAM/USD, and for everything
 // else the deepest BEAM-paired pool's reserve ratio in that bucket.
-const RATE_SQL = `
+//
+// Exported so other bridge series (transfer counts, relayer fees) price off
+// the same rates instead of each re-deriving its own cross-rate query.
+export const RATE_SQL = `
   WITH oracle_b AS (
     SELECT date_trunc($1, ts AT TIME ZONE 'UTC') AS b, last(beam_usd, ts) AS beam_usd
       FROM oracle_snapshots
@@ -348,8 +351,19 @@ function densify(history: LockedHistory, bucket: Bucket): LockedHistory {
   };
 }
 
-export async function bridgeTvlSeries(bucket: Bucket): Promise<TvlPoint[]> {
-  const { spine, byBridge } = densify(await loadLockedHistory(bucket), bucket);
+export interface RatePricer {
+  /** USD rate for `aid` at `ts`, or null if none is known or the last known
+   *  rate is too stale to carry forward. Callers must query a given `aid`
+   *  with non-decreasing `ts` — the pricer walks its rate list forward and
+   *  never looks back. */
+  priceAt(aid: number, ts: number): number | null;
+}
+
+// A bucket often has no rate row of its own, so the last rate at or before it
+// stands in — but only for as long as it can plausibly still be the market
+// price. Before an asset's first rate, and past the hold window, callers
+// should treat the value as unpriced rather than counting it as zero.
+export async function loadRatePricer(bucket: Bucket): Promise<RatePricer> {
   const aids = [...new Set(BRIDGES.map((b) => b.aid))];
   const { rows } = await q<{ ts: string; aid: number; usd: number }>(RATE_SQL, [bucket, aids]);
 
@@ -360,20 +374,15 @@ export async function bridgeTvlSeries(bucket: Bucket): Promise<TvlPoint[]> {
     ratesBy.set(r.aid, list);
   }
 
-  // A bucket often has no rate row of its own, so the last rate at or before it
-  // stands in — but only for as long as it can plausibly still be the market
-  // price. Before an asset's first rate, and past the hold window, the bridge
-  // drops out of that bucket's total rather than being counted as zero, which
-  // is the rule /api/bridge/health applies to tvl_usd.
   const maxHold = maxRateHoldSeconds(bucket);
   const cursor = new Map<number, number>();
   const held = new Map<number, { ts: number; usd: number }>();
   const staleLogged = new Set<number>();
-  const out: TvlPoint[] = [];
 
-  for (let i = 0; i < spine.length; i += 1) {
-    const ts = spine[i]!;
-    for (const [aid, list] of ratesBy) {
+  return {
+    priceAt(aid: number, ts: number): number | null {
+      const list = ratesBy.get(aid);
+      if (!list) return null;
       let j = cursor.get(aid) ?? 0;
       while (j < list.length && list[j]!.ts <= ts) {
         held.set(aid, list[j]!);
@@ -381,21 +390,32 @@ export async function bridgeTvlSeries(bucket: Bucket): Promise<TvlPoint[]> {
       }
       cursor.set(aid, j);
       const rate = held.get(aid);
-      if (rate !== undefined && ts - rate.ts > maxHold) {
+      if (rate === undefined) return null;
+      if (ts - rate.ts > maxHold) {
         if (!staleLogged.has(aid)) {
           staleLogged.add(aid);
           logger.warn({ aid, ts, rate_ts: rate.ts }, 'bridgeTvl: cross-rate too stale to carry forward');
         }
-        held.delete(aid);
+        return null;
       }
-    }
+      return rate.usd;
+    },
+  };
+}
 
+export async function bridgeTvlSeries(bucket: Bucket): Promise<TvlPoint[]> {
+  const { spine, byBridge } = densify(await loadLockedHistory(bucket), bucket);
+  const pricer = await loadRatePricer(bucket);
+
+  const out: TvlPoint[] = [];
+  for (let i = 0; i < spine.length; i += 1) {
+    const ts = spine[i]!;
     let total = 0;
     let priced = false;
     for (const { def, locked } of byBridge) {
-      const rate = held.get(def.aid);
-      if (rate === undefined) continue;
-      total += locked[i]! * rate.usd;
+      const rate = pricer.priceAt(def.aid, ts);
+      if (rate === null) continue;
+      total += locked[i]! * rate;
       priced = true;
     }
     // Buckets nothing can be priced in carry no information; emitting a zero
