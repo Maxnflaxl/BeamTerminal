@@ -269,6 +269,28 @@ export const api = {
       get<ApiChartSeries>(`/charts/contract-calls-total${qs(o)}`),
     // Multi-series: cumulative locked balance per asset in the BlackHole contract.
     blackhole: (): Promise<ApiBlackholeBody> => get<ApiBlackholeBody>('/charts/blackhole'),
+
+    // Bridge (Pipe) charts. Without a range the server returns its full daily
+    // history; with `res`/`from`/`to` it buckets to `res` and tags the body with
+    // an explicit `kind` discriminant. Only '1d' and '1M' are indexed.
+    bridgeTransfers: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiChartSeries>(`/charts/bridge-transfers${qs(o)}`),
+    bridgeTransfersTotal: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiChartSeries>(`/charts/bridge-transfers-total${qs(o)}`),
+    bridgeFees: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiChartSeries>(`/charts/bridge-fees${qs(o)}`),
+    bridgeFeesTotal: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiChartSeries>(`/charts/bridge-fees-total${qs(o)}`),
+    bridgeTvl: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiChartSeries>(`/charts/bridge-tvl${qs(o)}`),
+    // Split variants of the same three metrics — one line per direction, per
+    // bridge, or per asset.
+    bridgeTransfersByDirection: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiKeyedSeriesBody>(`/charts/bridge-transfers-by-direction${qs(o)}`),
+    bridgeTransfersByBridge: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiKeyedSeriesBody>(`/charts/bridge-transfers-by-bridge${qs(o)}`),
+    bridgeTvlByAsset: (o: { res?: ChartRes; from?: number; to?: number } = {}) =>
+      get<ApiKeyedSeriesBody>(`/charts/bridge-tvl-by-asset${qs(o)}`),
   },
 };
 
@@ -293,6 +315,20 @@ export interface ApiBlackholeSeries {
 }
 export interface ApiBlackholeBody {
   series: ApiBlackholeSeries[];
+}
+
+// A multi-series chart whose lines are identified by an opaque string key
+// rather than an asset id. Bridges need this: two of them (`beam-wbeam` and
+// `beam-wbeam-arb`) move the same asset, so an aid can't tell them apart.
+// `value` is in the series' own native display units — already scaled, with no
+// decimals field, so a renderer has to adapt its precision to the magnitude.
+export interface ApiKeyedSeries {
+  key: string;
+  label: string;
+  points: ApiChartPoint[];
+}
+export interface ApiKeyedSeriesBody {
+  series: ApiKeyedSeries[];
 }
 
 export { ApiError };

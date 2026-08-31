@@ -7,6 +7,8 @@ import {
   type ApiChartSeries,
   type ApiBlackholeBody,
   type ApiBlackholeSeries,
+  type ApiKeyedSeries,
+  type ApiKeyedSeriesBody,
   type ChartRes,
 } from '../api/client';
 import { SimpleChart } from '../components/SimpleChart';
@@ -19,6 +21,7 @@ import {
   buildBlackholeLineStyles,
   LINE_STYLE_DASH,
 } from '../components/BlackholeChart';
+import { KeyedLinesChart, buildKeyedColors } from '../components/KeyedLinesChart';
 import { downloadBlob, downloadSvgAsPng } from '../components/chart-compare/download';
 import { fmtHashrate } from './explorer/shared';
 import { LADDERS, MAX_POINTS, TILE_BUCKETS, type ZoomRes } from '../lib/zoomResolution';
@@ -52,6 +55,11 @@ const RANGE_FETCHERS: Record<string, (a?: { res?: ZoomRes; from?: number; to?: n
   feesTotal: (a) => api.charts.feesTotal(a),
   callsDaily: (a) => api.charts.contractCallsDaily(a),
   callsTotal: (a) => api.charts.contractCallsTotal(a),
+  bridgeTransfers: (a) => api.charts.bridgeTransfers(a),
+  bridgeTransfersTotal: (a) => api.charts.bridgeTransfersTotal(a),
+  bridgeFees: (a) => api.charts.bridgeFees(a),
+  bridgeFeesTotal: (a) => api.charts.bridgeFeesTotal(a),
+  bridgeTvl: (a) => api.charts.bridgeTvl(a),
 };
 
 type Timeframe = '1D' | '1W' | '1M' | '3M' | 'YTD' | 'ALL';
@@ -179,12 +187,12 @@ function mergeWindow(
   return out;
 }
 
-// Timeframe filter for the multi-series blackhole chart. Anchors on the latest
-// ts across every series (they all share the chain-head point) and carries each
-// asset's pre-window balance forward to a synthetic point at the cutoff — so the
-// (cumulative) lines start at their real level instead of mid-air, and assets
-// with no in-window deposit still show their flat balance.
-function filterBlackholeByTimeframe(series: ReadonlyArray<ApiBlackholeSeries>, tf: Timeframe): ApiBlackholeSeries[] {
+// Timeframe filter for any multi-series chart. Anchors on the latest ts across
+// every series (they all share the chain-head point) and carries each line's
+// pre-window level forward to a synthetic point at the cutoff — so cumulative
+// lines start at their real level instead of mid-air, and a series with no
+// in-window movement still shows its flat level.
+function filterMultiByTimeframe<T extends { points: ApiChartPoint[] }>(series: ReadonlyArray<T>, tf: Timeframe): T[] {
   if (tf === 'ALL' || series.length === 0) return series.map((s) => ({ ...s, points: s.points.slice() }));
   let lastTs = 0;
   for (const s of series) {
@@ -624,9 +632,11 @@ function fmtVol(v: number): string {
   return `${v.toFixed(v >= 100 ? 0 : 1)}%`;
 }
 
-// Native token units (no currency symbol) for the Black Hole chart axis/tooltip.
-// Bounded width (k/M/B/T suffixes) so axis labels never grow long enough to
-// resize the (pinned) price-axis gutter.
+// Native token units (no currency symbol) for the multi-series axes/tooltips.
+// The decimal count follows the magnitude — bridge TVL by asset puts 4.6M BEAM
+// and 0.014 BTC on one axis, where any fixed count renders one end as "0.00"
+// and the other with meaningless precision. Bounded width (k/M/B/T suffixes)
+// so axis labels never grow long enough to resize the pinned price-axis gutter.
 function fmtNative(v: number): string {
   if (!Number.isFinite(v)) return '';
   const abs = Math.abs(v);
@@ -726,11 +736,52 @@ function csvField(s: string): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function blackholeCsv(series: ReadonlyArray<ApiBlackholeSeries>, title: string): string {
-  const lines = [`# ${title}`, 'timestamp_iso,timestamp_unix,aid,label,value'];
+// One line of a multi-series chart, flattened to the shape the exporters need:
+// `id` is whatever identifies the line (an aid for Black Hole, a bridge/asset
+// key for the bridge charts) and `label` is what the legend shows.
+interface MultiSeriesLine {
+  id: string;
+  label: string;
+  /** Legend text, when it differs from the CSV label. The Black Hole legend
+   *  disambiguates same-named assets with `#aid`, but the CSV label column has
+   *  to stay the bare symbol so it still joins against the `aid` column. */
+  legendLabel?: string;
+  points: ReadonlyArray<ApiChartPoint>;
+}
+
+function blackholeLines(series: ReadonlyArray<ApiBlackholeSeries>): MultiSeriesLine[] {
+  return series.map((s) => ({
+    id: String(s.aid),
+    label: s.label,
+    legendLabel: `${s.label} #${s.aid}`,
+    points: s.points,
+  }));
+}
+
+function keyedLines(series: ReadonlyArray<ApiKeyedSeries>): MultiSeriesLine[] {
+  return series.map((s) => ({ id: s.key, label: s.label, points: s.points }));
+}
+
+// Colour (and dash pattern) each exported line is drawn with — the same
+// assignment the on-screen chart makes, re-keyed to MultiSeriesLine.id.
+interface MultiSeriesStyles {
+  colors: Map<string, string>;
+  dashes: Map<string, string>;
+}
+
+function blackholeStyles(series: ReadonlyArray<ApiBlackholeSeries>): MultiSeriesStyles {
+  const colors = new Map<string, string>();
+  for (const [aid, c] of buildBlackholeColors(series)) colors.set(String(aid), c);
+  const dashes = new Map<string, string>();
+  for (const [aid, st] of buildBlackholeLineStyles(series)) dashes.set(String(aid), LINE_STYLE_DASH[st]);
+  return { colors, dashes };
+}
+
+function multiSeriesCsv(series: ReadonlyArray<MultiSeriesLine>, title: string, idColumn: string): string {
+  const lines = [`# ${title}`, `timestamp_iso,timestamp_unix,${idColumn},label,value`];
   for (const s of series) {
     for (const p of s.points) {
-      lines.push(`${new Date(p.ts * 1000).toISOString()},${p.ts},${s.aid},${csvField(s.label)},${p.value}`);
+      lines.push(`${new Date(p.ts * 1000).toISOString()},${p.ts},${csvField(s.id)},${csvField(s.label)},${p.value}`);
     }
   }
   return `${lines.join('\n')}\n`;
@@ -739,11 +790,16 @@ function blackholeCsv(series: ReadonlyArray<ApiBlackholeSeries>, title: string):
 // Multi-line SVG export. Honours the log toggle (all balances are > 0 so a
 // log10 mapping is always valid) and draws a wrapped colour legend below the
 // title. Mirrors the colours the on-screen chart assigns.
-function blackholeSvg(
-  series: ReadonlyArray<ApiBlackholeSeries>,
+function multiSeriesSvg(
+  series: ReadonlyArray<MultiSeriesLine>,
+  styles: MultiSeriesStyles,
   title: string,
   formatter: (v: number) => string,
   logScale: boolean,
+  // Stepped when the value only changes at the plotted events (a burn balance
+  // holds until the next deposit); straight when the series is a continuous
+  // daily reading and a step would invent a plateau.
+  stepped: boolean,
   emptyLabel?: string,
 ): string {
   const W = 720;
@@ -756,8 +812,7 @@ function blackholeSvg(
   };
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
-  const colors = buildBlackholeColors(series);
-  const styles = buildBlackholeLineStyles(series);
+  const { colors, dashes } = styles;
   const allPts = series.flatMap((s) => s.points);
   if (allPts.length === 0) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W / 2}" y="${
@@ -798,37 +853,33 @@ function blackholeSvg(
     );
   });
   const paths = series.map((s) => {
-    // Stepped, like the on-screen chart: the balance holds until the next
-    // deposit, then jumps — a diagonal would invent a gradual burn.
     const d = s.points
-      .map((p, i) =>
-        i === 0
-          ? `M${px(p.ts).toFixed(1)},${py(p.value).toFixed(1)}`
-          : `L${px(p.ts).toFixed(1)},${py(s.points[i - 1]!.value).toFixed(1)} L${px(p.ts).toFixed(1)},${py(
-              p.value,
-            ).toFixed(1)}`,
-      )
+      .map((p, i) => {
+        if (i === 0) return `M${px(p.ts).toFixed(1)},${py(p.value).toFixed(1)}`;
+        const to = `L${px(p.ts).toFixed(1)},${py(p.value).toFixed(1)}`;
+        return stepped ? `L${px(p.ts).toFixed(1)},${py(s.points[i - 1]!.value).toFixed(1)} ${to}` : to;
+      })
       .join(' ');
-    const dash = LINE_STYLE_DASH[styles.get(s.aid) ?? 'solid'];
+    const dash = dashes.get(s.id) ?? '';
     const dashAttr = dash ? ` stroke-dasharray="${dash}"` : '';
-    return `<path d="${d}" fill="none" stroke="${colors.get(s.aid)}" stroke-width="1.5"${dashAttr}/>`;
+    return `<path d="${d}" fill="none" stroke="${colors.get(s.id)}" stroke-width="1.5"${dashAttr}/>`;
   });
   // Wrapped legend just under the title.
   let lx = pad.l;
   let ly = 34;
   const legend: string[] = [];
   for (const s of series) {
-    const text = `${s.label} #${s.aid}`;
+    const text = s.legendLabel ?? s.label;
     const w = 18 + text.length * 6.2;
     if (lx + w > W - pad.r) {
       lx = pad.l;
       ly += 14;
     }
-    const dash = LINE_STYLE_DASH[styles.get(s.aid) ?? 'solid'];
+    const dash = dashes.get(s.id) ?? '';
     const dashAttr = dash ? ` stroke-dasharray="${dash}"` : '';
     legend.push(
       `<line x1="${lx}" y1="${ly - 3}" x2="${lx + 12}" y2="${ly - 3}" stroke="${colors.get(
-        s.aid,
+        s.id,
       )}" stroke-width="2"${dashAttr}/><text x="${lx + 16}" y="${ly}" fill="${label}">${escapeXml(text)}</text>`,
     );
     lx += w;
@@ -1037,13 +1088,40 @@ const BlackholeCell: React.FC<{
   onToggleLog: () => void;
 }> = ({ state, title, timeframe, logScale, formatter, onExpand, onToggleLog }) => {
   const filtered = useMemo(
-    () => (state.data ? filterBlackholeByTimeframe(state.data.series, timeframe) : null),
+    () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
   return (
     <ChartShell title={title} logScale={logScale} onExpand={onExpand} onToggleLog={onToggleLog}>
       {filtered && filtered.length > 0 ? (
         <BlackholeChart series={filtered} logScale={logScale} formatter={formatter} />
+      ) : (
+        <CenteredNote pad="80px 0" size={13}>
+          {state.error ?? (state.loading ? 'Loading…' : 'No data')}
+        </CenteredNote>
+      )}
+    </ChartShell>
+  );
+};
+
+// Grid cell for a string-keyed multi-series chart (the bridge splits).
+const KeyedLinesCell: React.FC<{
+  state: FetchState<ApiKeyedSeriesBody>;
+  title: string;
+  timeframe: Timeframe;
+  logScale: boolean;
+  formatter: (v: number) => string;
+  onExpand: () => void;
+  onToggleLog: () => void;
+}> = ({ state, title, timeframe, logScale, formatter, onExpand, onToggleLog }) => {
+  const filtered = useMemo(
+    () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe) : null),
+    [state.data, timeframe],
+  );
+  return (
+    <ChartShell title={title} logScale={logScale} onExpand={onExpand} onToggleLog={onToggleLog}>
+      {filtered && filtered.length > 0 ? (
+        <KeyedLinesChart series={filtered} logScale={logScale} formatter={formatter} />
       ) : (
         <CenteredNote pad="80px 0" size={13}>
           {state.error ?? (state.loading ? 'Loading…' : 'No data')}
@@ -1060,6 +1138,8 @@ interface ChartSpec {
   state?: FetchState<ApiChartSeries>;
   /** Multi-series payload — the `blackhole` chart only. */
   multiState?: FetchState<ApiBlackholeBody>;
+  /** String-keyed multi-series payload — the split bridge charts. */
+  keyedState?: FetchState<ApiKeyedSeriesBody>;
   scale?: number;
   formatter: (v: number) => string;
   overlay?: { state: FetchState<ApiChartSeries>; label: string };
@@ -1230,6 +1310,22 @@ export const NetworkCharts: React.FC = () => {
     res,
   );
   const blackhole = useOneShot<ApiBlackholeBody>(() => api.charts.blackhole());
+  const bridgeTransfers = useOneShot<ApiChartSeries>(() => api.charts.bridgeTransfers());
+  const bridgeFees = useOneShot<ApiChartSeries>(() => api.charts.bridgeFees());
+  const bridgeTvl = useOneShot<ApiChartSeries>(() => api.charts.bridgeTvl());
+  const bridgeTvlByAsset = useOneShot<ApiKeyedSeriesBody>(() => api.charts.bridgeTvlByAsset());
+  const bridgeTransfersTotalRaw = useOneShot<ApiChartSeries>(() => api.charts.bridgeTransfersTotal());
+  const bridgeFeesTotalRaw = useOneShot<ApiChartSeries>(() => api.charts.bridgeFeesTotal());
+  const bridgeTransfersTotal = useMemo(
+    () => withZeroBaseline(bridgeTransfersTotalRaw),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bridgeTransfersTotalRaw.data, bridgeTransfersTotalRaw.loading, bridgeTransfersTotalRaw.error],
+  );
+  const bridgeFeesTotal = useMemo(
+    () => withZeroBaseline(bridgeFeesTotalRaw),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bridgeFeesTotalRaw.data, bridgeFeesTotalRaw.loading, bridgeFeesTotalRaw.error],
+  );
 
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   // Interval resets to 'auto' (and the reported visible span clears) when the
@@ -1482,6 +1578,52 @@ export const NetworkCharts: React.FC = () => {
       formatter: fmtNative,
       category: 'defi',
     },
+    // DeFi — bridge (Pipe)
+    {
+      key: 'bridgeTransfers',
+      title: 'Bridge transfers / day',
+      state: bridgeTransfers,
+      formatter: fmtInt,
+      category: 'defi',
+    },
+    {
+      key: 'bridgeTransfersTotal',
+      title: 'Bridge transfers (total)',
+      state: bridgeTransfersTotal,
+      formatter: fmtInt,
+      category: 'defi',
+    },
+    {
+      key: 'bridgeFees',
+      title: 'Bridge relayer fees / day',
+      state: bridgeFees,
+      formatter: fmtUsd,
+      category: 'defi',
+    },
+    {
+      key: 'bridgeFeesTotal',
+      title: 'Bridge relayer fees (total)',
+      state: bridgeFeesTotal,
+      formatter: fmtUsd,
+      category: 'defi',
+    },
+    {
+      key: 'bridgeTvl',
+      title: 'Bridge TVL',
+      state: bridgeTvl,
+      formatter: fmtUsd,
+      category: 'defi',
+    },
+    {
+      // Per-asset balances are in each asset's own units, not USD — the lines
+      // span 4.6M BEAM and 0.014 BTC, so the axis needs fmtNative's
+      // magnitude-adaptive precision rather than a currency format.
+      key: 'bridgeTvlByAsset',
+      title: 'Bridge TVL by asset',
+      keyedState: bridgeTvlByAsset,
+      formatter: fmtNative,
+      category: 'defi',
+    },
   ];
 
   const charts = allCharts.filter((c) => c.category === category);
@@ -1490,19 +1632,39 @@ export const NetworkCharts: React.FC = () => {
   const download = (format: 'csv' | 'svg' | 'png'): void => {
     if (!expanded) return;
     const base = `${expanded.key}-${timeframe}`;
-    // Multi-series Black Hole export: long-format CSV, multi-line SVG/PNG.
-    if (expanded.multiState) {
-      if (!expanded.multiState.data) return;
-      const filtered = filterBlackholeByTimeframe(expanded.multiState.data.series, timeframe);
+    // Multi-series export: long-format CSV, multi-line SVG/PNG.
+    if (expanded.multiState || expanded.keyedState) {
+      let lines: MultiSeriesLine[];
+      let styles: MultiSeriesStyles;
+      let idColumn: string;
+      let stepped: boolean;
+      if (expanded.multiState) {
+        if (!expanded.multiState.data) return;
+        const filtered = filterMultiByTimeframe(expanded.multiState.data.series, timeframe);
+        lines = blackholeLines(filtered);
+        styles = blackholeStyles(filtered);
+        idColumn = 'aid';
+        // A burn balance holds until the next deposit, then jumps.
+        stepped = true;
+      } else {
+        if (!expanded.keyedState?.data) return;
+        const filtered = filterMultiByTimeframe(expanded.keyedState.data.series, timeframe);
+        lines = keyedLines(filtered);
+        styles = { colors: buildKeyedColors(filtered), dashes: new Map() };
+        idColumn = 'series_key';
+        stepped = false;
+      }
       if (format === 'csv') {
-        downloadBlob(blackholeCsv(filtered, expanded.title), `${base}.csv`, 'text/csv;charset=utf-8');
+        downloadBlob(multiSeriesCsv(lines, expanded.title, idColumn), `${base}.csv`, 'text/csv;charset=utf-8');
         return;
       }
-      const svg = blackholeSvg(
-        filtered,
+      const svg = multiSeriesSvg(
+        lines,
+        styles,
         expanded.title,
         expanded.formatter,
         !!logPerKey[expanded.key],
+        stepped,
         expanded.emptyLabel,
       );
       if (format === 'svg') downloadBlob(svg, `${base}.svg`, 'image/svg+xml');
@@ -1541,8 +1703,22 @@ export const NetworkCharts: React.FC = () => {
         </TimeframeGroup>
       </Toolbar>
       <Grid>
-        {charts.map((c) =>
-          c.multiState ? (
+        {charts.map((c) => {
+          if (c.keyedState) {
+            return (
+              <KeyedLinesCell
+                key={c.key}
+                state={c.keyedState}
+                title={c.title}
+                timeframe={timeframe}
+                logScale={!!logPerKey[c.key]}
+                formatter={c.formatter}
+                onExpand={() => setExpandedKey(c.key)}
+                onToggleLog={() => toggleLog(c.key)}
+              />
+            );
+          }
+          return c.multiState ? (
             <BlackholeCell
               key={c.key}
               state={c.multiState}
@@ -1567,8 +1743,8 @@ export const NetworkCharts: React.FC = () => {
               onExpand={() => setExpandedKey(c.key)}
               onToggleLog={() => toggleLog(c.key)}
             />
-          ),
-        )}
+          );
+        })}
       </Grid>
       {expanded && (
         <Overlay z={100} backdrop="rgba(0, 0, 0, 0.65)" pad="24px" onClick={closeExpanded}>
@@ -1606,6 +1782,7 @@ export const NetworkCharts: React.FC = () => {
               </ModalActionGroup>
               {expanded &&
                 !expanded.multiState &&
+                !expanded.keyedState &&
                 (LADDERS[expanded.key]?.length ?? 1) > 1 &&
                 expanded.key !== 'assets' && (
                   <IntervalGroup title="Candle interval">
@@ -1644,7 +1821,14 @@ export const NetworkCharts: React.FC = () => {
               </TimeframeGroup>
             </ModalToolbar>
             <ModalBody>
-              {expanded.multiState ? (
+              {expanded.keyedState ? (
+                <ExpandedKeyedLines
+                  state={expanded.keyedState}
+                  timeframe={timeframe}
+                  logScale={!!logPerKey[expanded.key]}
+                  formatter={expanded.formatter}
+                />
+              ) : expanded.multiState ? (
                 <ExpandedBlackhole
                   state={expanded.multiState}
                   timeframe={timeframe}
@@ -1843,7 +2027,7 @@ const ExpandedBlackhole: React.FC<{
   formatter: (v: number) => string;
 }> = ({ state, timeframe, logScale, formatter }) => {
   const filtered = useMemo(
-    () => (state.data ? filterBlackholeByTimeframe(state.data.series, timeframe) : null),
+    () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
   if (!filtered || filtered.length === 0) {
@@ -1854,6 +2038,27 @@ const ExpandedBlackhole: React.FC<{
     );
   }
   return <BlackholeChart series={filtered} logScale={logScale} formatter={formatter} showMarkers />;
+};
+
+// Expanded (modal) variant of a string-keyed multi-series chart.
+const ExpandedKeyedLines: React.FC<{
+  state: FetchState<ApiKeyedSeriesBody>;
+  timeframe: Timeframe;
+  logScale: boolean;
+  formatter: (v: number) => string;
+}> = ({ state, timeframe, logScale, formatter }) => {
+  const filtered = useMemo(
+    () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe) : null),
+    [state.data, timeframe],
+  );
+  if (!filtered || filtered.length === 0) {
+    return (
+      <CenteredNote pad="80px 0" size={13}>
+        {state.error ?? (state.loading ? 'Loading…' : 'No data')}
+      </CenteredNote>
+    );
+  }
+  return <KeyedLinesChart series={filtered} logScale={logScale} formatter={formatter} />;
 };
 
 // IndexerStatusBadge lives in the global Footer (components/Footer.tsx) now.
