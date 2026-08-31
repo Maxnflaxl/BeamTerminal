@@ -21,7 +21,7 @@ import {
   buildBlackholeLineStyles,
   LINE_STYLE_DASH,
 } from '../components/BlackholeChart';
-import { KeyedLinesChart, buildKeyedColors } from '../components/KeyedLinesChart';
+import { KeyedLinesChart, buildKeyedColors, type SeriesFill } from '../components/KeyedLinesChart';
 import { downloadBlob, downloadSvgAsPng } from '../components/chart-compare/download';
 import { fmtHashrate } from './explorer/shared';
 import { LADDERS, MAX_POINTS, TILE_BUCKETS, type ZoomRes } from '../lib/zoomResolution';
@@ -188,11 +188,19 @@ function mergeWindow(
 }
 
 // Timeframe filter for any multi-series chart. Anchors on the latest ts across
-// every series (they all share the chain-head point) and carries each line's
-// pre-window level forward to a synthetic point at the cutoff — so cumulative
-// lines start at their real level instead of mid-air, and a series with no
-// in-window movement still shows its flat level.
-function filterMultiByTimeframe<T extends { points: ApiChartPoint[] }>(series: ReadonlyArray<T>, tf: Timeframe): T[] {
+// every series (they all share the chain-head point).
+//
+// A `hold` (balance) series carries its pre-window level forward to a synthetic
+// point at the cutoff — so cumulative lines start at their real level instead of
+// mid-air, and a series with no in-window movement still shows its flat level.
+// A `zero` (flow) series must not: nothing was transferred at the cutoff, so
+// that point would be an invented reading, and it would land in the CSV/SVG
+// exports too.
+function filterMultiByTimeframe<T extends { points: ApiChartPoint[] }>(
+  series: ReadonlyArray<T>,
+  tf: Timeframe,
+  fill: SeriesFill = 'hold',
+): T[] {
   if (tf === 'ALL' || series.length === 0) return series.map((s) => ({ ...s, points: s.points.slice() }));
   let lastTs = 0;
   for (const s of series) {
@@ -206,7 +214,7 @@ function filterMultiByTimeframe<T extends { points: ApiChartPoint[] }>(series: R
   return series
     .map((s) => {
       const pts = s.points.filter((p) => p.ts >= cutoff);
-      const before = s.points.filter((p) => p.ts < cutoff);
+      const before = fill === 'hold' ? s.points.filter((p) => p.ts < cutoff) : [];
       if (before.length > 0 && (pts.length === 0 || pts[0].ts > cutoff)) {
         pts.unshift({ ts: cutoff, value: before[before.length - 1].value });
       }
@@ -1153,10 +1161,11 @@ const KeyedLinesCell: React.FC<{
   onExpand: () => void;
   onToggleLog: () => void;
   headerExtra?: React.ReactNode;
-}> = ({ state, title, timeframe, logScale, formatter, onExpand, onToggleLog, headerExtra }) => {
+  fill: SeriesFill;
+}> = ({ state, title, timeframe, logScale, formatter, onExpand, onToggleLog, headerExtra, fill }) => {
   const filtered = useMemo(
-    () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe) : null),
-    [state.data, timeframe],
+    () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe, fill) : null),
+    [state.data, timeframe, fill],
   );
   return (
     <ChartShell
@@ -1167,7 +1176,7 @@ const KeyedLinesCell: React.FC<{
       headerExtra={headerExtra}
     >
       {filtered && filtered.length > 0 ? (
-        <KeyedLinesChart series={filtered} logScale={logScale} formatter={formatter} />
+        <KeyedLinesChart series={filtered} logScale={logScale} formatter={formatter} fill={fill} />
       ) : (
         <CenteredNote pad="80px 0" size={13}>
           {state.error ?? (state.loading ? 'Loading…' : 'No data')}
@@ -1202,6 +1211,10 @@ interface ChartSpec {
   emptyLabel?: string;
   /** Renders the Total / Direction / Bridge mode toggle for this chart. */
   splittable?: boolean;
+  /** Multi-series charts only: whether a bucket with no point means the last
+   *  level still holds (a balance) or means zero (a flow). Defaults to `hold`,
+   *  the contract the multi-series helpers were originally written against. */
+  fill?: SeriesFill;
 }
 
 export const NetworkCharts: React.FC = () => {
@@ -1677,6 +1690,8 @@ export const NetworkCharts: React.FC = () => {
       title: 'Black Hole (assets burned)',
       multiState: blackhole,
       formatter: fmtNative,
+      // Cumulative burn balances: a quiet day holds the previous total.
+      fill: 'hold',
       category: 'defi',
     },
     // DeFi — bridge (Pipe)
@@ -1686,6 +1701,8 @@ export const NetworkCharts: React.FC = () => {
       ...(transfersSplit === 'none' ? { state: bridgeTransfers } : { keyedState: bridgeTransfersSplit }),
       splittable: true,
       formatter: fmtInt,
+      // A per-day count, not a level: a day a bridge was idle is zero transfers.
+      fill: 'zero',
       category: 'defi',
     },
     {
@@ -1724,6 +1741,8 @@ export const NetworkCharts: React.FC = () => {
       title: 'Bridge TVL by asset',
       keyedState: bridgeTvlByAsset,
       formatter: fmtNative,
+      // Locked balances: a bucket with no bridge activity holds its level.
+      fill: 'hold',
       category: 'defi',
     },
   ];
@@ -1733,28 +1752,32 @@ export const NetworkCharts: React.FC = () => {
 
   const download = (format: 'csv' | 'svg' | 'png'): void => {
     if (!expanded) return;
-    const base = `${expanded.key}-${timeframe}`;
+    // Split mode is part of the file's identity: Direction and Bridge are
+    // different downloads of the same chart, and a shared name would have the
+    // second overwrite the first in the browser's downloads folder.
+    const split = splitPerKey[expanded.key] ?? 'none';
+    const base = `${expanded.key}${expanded.splittable && split !== 'none' ? `-${split}` : ''}-${timeframe}`;
     // Multi-series export: long-format CSV, multi-line SVG/PNG.
     if (expanded.multiState || expanded.keyedState) {
+      const fill = expanded.fill ?? 'hold';
+      // A held (balance) line only changes at its own points, so the SVG draws
+      // it as steps; a flow line is a value per bucket and connects straight.
+      const stepped = fill === 'hold';
       let lines: MultiSeriesLine[];
       let styles: MultiSeriesStyles;
       let idColumn: string;
-      let stepped: boolean;
       if (expanded.multiState) {
         if (!expanded.multiState.data) return;
-        const filtered = filterMultiByTimeframe(expanded.multiState.data.series, timeframe);
+        const filtered = filterMultiByTimeframe(expanded.multiState.data.series, timeframe, fill);
         lines = blackholeLines(filtered);
         styles = blackholeStyles(filtered);
         idColumn = 'aid';
-        // A burn balance holds until the next deposit, then jumps.
-        stepped = true;
       } else {
         if (!expanded.keyedState?.data) return;
-        const filtered = filterMultiByTimeframe(expanded.keyedState.data.series, timeframe);
+        const filtered = filterMultiByTimeframe(expanded.keyedState.data.series, timeframe, fill);
         lines = keyedLines(filtered);
         styles = { colors: buildKeyedColors(filtered), dashes: new Map() };
         idColumn = 'series_key';
-        stepped = false;
       }
       if (format === 'csv') {
         downloadBlob(multiSeriesCsv(lines, expanded.title, idColumn), `${base}.csv`, 'text/csv;charset=utf-8');
@@ -1832,6 +1855,7 @@ export const NetworkCharts: React.FC = () => {
                 onExpand={() => setExpandedKey(c.key)}
                 onToggleLog={() => toggleLog(c.key)}
                 headerExtra={splitControl}
+                fill={c.fill ?? 'hold'}
               />
             );
           }
@@ -1957,6 +1981,7 @@ export const NetworkCharts: React.FC = () => {
                   logScale={!!logPerKey[expanded.key]}
                   formatter={expanded.formatter}
                   onViewSpan={(spanSec) => setKeyedSpan({ key: expanded.key, spanSec })}
+                  fill={expanded.fill ?? 'hold'}
                 />
               ) : expanded.multiState ? (
                 <ExpandedBlackhole
@@ -2177,10 +2202,11 @@ const ExpandedKeyedLines: React.FC<{
   logScale: boolean;
   formatter: (v: number) => string;
   onViewSpan: (spanSec: number) => void;
-}> = ({ state, timeframe, logScale, formatter, onViewSpan }) => {
+  fill: SeriesFill;
+}> = ({ state, timeframe, logScale, formatter, onViewSpan, fill }) => {
   const filtered = useMemo(
-    () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe) : null),
-    [state.data, timeframe],
+    () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe, fill) : null),
+    [state.data, timeframe, fill],
   );
   // Span actually plotted, reported up so the interval buttons size against the
   // data rather than the timeframe's nominal (Infinity for ALL) width — that is
@@ -2209,7 +2235,7 @@ const ExpandedKeyedLines: React.FC<{
       </CenteredNote>
     );
   }
-  return <KeyedLinesChart series={filtered} logScale={logScale} formatter={formatter} />;
+  return <KeyedLinesChart series={filtered} logScale={logScale} formatter={formatter} fill={fill} />;
 };
 
 // IndexerStatusBadge lives in the global Footer (components/Footer.tsx) now.

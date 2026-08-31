@@ -58,11 +58,31 @@ export function buildKeyedColors(series: ReadonlyArray<ApiKeyedSeries>): Map<str
   return map;
 }
 
+/** What a gap in a series means.
+ *
+ *  `hold` — the series is a *balance* (a locked amount, a burn total). A bucket
+ *  with no point is a bucket nothing happened in, so the previous level still
+ *  stands and must be carried forward.
+ *
+ *  `zero` — the series is a *flow* (transfers per day). A bucket with no point
+ *  is a bucket with no activity, which is zero, not "still whatever it was last
+ *  time". Carrying a flow forward invents a plateau: a bridge with two transfers
+ *  on one day would otherwise read 2/day for every day until its next transfer.
+ *
+ *  Every consumer of a keyed/multi series has to agree on this — the on-screen
+ *  line, the timeframe filter, and the CSV/SVG exports all sample the same data
+ *  and would otherwise contradict each other. */
+export type SeriesFill = 'hold' | 'zero';
+
 // lightweight-charts spaces points by index, not by elapsed time, and the
 // groups don't share a timestamp grid (a bridge that saw no activity has no
-// point that day). Forward-fill every series onto the union of all timestamps
-// so the crosshair reads one instant across every line.
-export function resampleKeyed(series: ReadonlyArray<ApiKeyedSeries>): Map<string, LineData[]> {
+// point that day). Resample every series onto the union of all timestamps so
+// the crosshair reads one instant across every line — filling the gaps the way
+// `fill` says the series' gaps mean.
+export function resampleKeyed(
+  series: ReadonlyArray<ApiKeyedSeries>,
+  fill: SeriesFill = 'hold',
+): Map<string, LineData[]> {
   const out = new Map<string, LineData[]>();
   const times = new Set<number>();
   for (const s of series) for (const p of s.points) times.add(p.ts);
@@ -70,6 +90,22 @@ export function resampleKeyed(series: ReadonlyArray<ApiKeyedSeries>): Map<string
   for (const s of series) {
     const pts = s.points.slice().sort((a, b) => a.ts - b.ts);
     const data: LineData[] = [];
+    if (fill === 'zero') {
+      // Zeros start at the series' own first point, never before it: a bridge
+      // that did not exist yet has no activity to report, and back-filling
+      // would draw it flat along the axis from the start of history.
+      const first = pts[0];
+      if (first) {
+        const byTs = new Map<number, number>();
+        for (const p of pts) byTs.set(p.ts, p.value);
+        for (const t of grid) {
+          if (t < first.ts) continue;
+          data.push({ time: t as UTCTimestamp, value: byTs.get(t) ?? 0 });
+        }
+      }
+      out.set(s.key, data);
+      continue;
+    }
     let i = 0;
     let cur: number | null = null;
     for (const t of grid) {
@@ -215,11 +251,13 @@ interface Props {
   series: ReadonlyArray<ApiKeyedSeries>;
   logScale?: boolean;
   formatter: (v: number) => string;
+  /** Whether a gap means "the level still holds" or "nothing happened". */
+  fill?: SeriesFill;
 }
 
 /** Multi-line chart for series identified by string key. Click a legend entry
  *  to hide a line, double-click to isolate it. */
-export const KeyedLinesChart: React.FC<Props> = ({ series, logScale = false, formatter }) => {
+export const KeyedLinesChart: React.FC<Props> = ({ series, logScale = false, formatter, fill = 'hold' }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
@@ -238,7 +276,7 @@ export const KeyedLinesChart: React.FC<Props> = ({ series, logScale = false, for
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   const colorByKey = useMemo(() => buildKeyedColors(series), [series]);
-  const chartData = useMemo(() => resampleKeyed(series), [series]);
+  const chartData = useMemo(() => resampleKeyed(series, fill), [series, fill]);
 
   // Latest view state for the crosshair handler, which subscribes once per
   // chart and must not close over stale values.
