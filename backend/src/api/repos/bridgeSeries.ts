@@ -1,5 +1,5 @@
 import { q } from '../../db.js';
-import { scale, ABSURD } from '../../bridgeAmounts.js';
+import { scale, isAbsurdAmount } from '../../bridgeAmounts.js';
 import { BRIDGES, type BridgeDef } from '../../services/bridge.js';
 import { type Bucket, loadRatePricer } from '../../services/bridgeTvl.js';
 
@@ -148,7 +148,7 @@ async function feeUsdRows(
     const fee = scale(row.relayer_fee, dec);
     if (fee === null) continue;
     // Junk pushed into the Pipe at around 2^256, not a real relayer fee.
-    if (fee >= ABSURD) continue;
+    if (isAbsurdAmount(fee)) continue;
 
     const rate = pricer.priceAt(def.aid, ts);
     if (rate === null) continue;

@@ -1,7 +1,7 @@
 import { q } from '../../db.js';
 import { getBlock } from '../../explorer.js';
 import { BRIDGES } from '../../services/bridge.js';
-import { scale, ABSURD } from '../../bridgeAmounts.js';
+import { scale, isAbsurdAmount } from '../../bridgeAmounts.js';
 import { loadUsdTable } from './usd.js';
 
 // ---------------------------------------------------------------------------
@@ -351,7 +351,7 @@ function explain(
     if (beam.delivered !== null) return ` Delivered in Beam block ${beam.delivered}.`;
     return '';
   })();
-  const malformed = (amount !== null && amount > ABSURD) || (fee !== null && fee > ABSURD);
+  const malformed = isAbsurdAmount(amount, fee);
   if (malformed && status === 'not_delivered') {
     return 'This message carries a nonsensical value (around 2^256, the maximum a uint256 can '
       + 'hold) rather than a real amount. It is junk pushed into the bridge contract, not a '

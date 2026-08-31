@@ -1,6 +1,6 @@
 import { q } from '../db.js';
 import { logger } from '../logger.js';
-import { scale, ABSURD } from '../bridgeAmounts.js';
+import { scale, isAbsurdAmount } from '../bridgeAmounts.js';
 import { BRIDGES, type BridgeDef } from './bridge.js';
 import { pipeFundsDeltas } from './bridgePipeFunds.js';
 import { getBlockTsMap } from './blockTimestamps.js';
@@ -155,9 +155,11 @@ async function ethCustodyDeltas(
     // each direction carries its own decimals: bUSDT is 8 on Beam against
     // USDT's 6 on Ethereum, bDAI 8 against DAI's 18.
     const dec = row.direction === 'beam2eth' ? def.decimals : def.ethDecimals;
-    const value = (scale(row.amount, dec) ?? 0) + (scale(row.relayer_fee, dec) ?? 0);
+    const amount = scale(row.amount, dec);
+    const fee = scale(row.relayer_fee, dec);
     // Junk pushed into the Pipe at around 2^256, not a transfer.
-    if (value >= ABSURD) continue;
+    if (isAbsurdAmount(amount, fee)) continue;
+    const value = (amount ?? 0) + (fee ?? 0);
 
     const target = out.get(def.key)!;
     const add = (b: number, v: number): void => {
@@ -272,14 +274,23 @@ async function lockedHistory(bucket: Bucket): Promise<LockedHistory> {
     // residual means the delta set is incomplete, and because the walk is
     // anchored forwards from today, every historical point is wrong by exactly
     // that constant while the present-day figure still matches
-    // /api/bridge/health — the one number a reader checks. Loud, because a
-    // Parser.wasm rollout renaming a decoded key has broken ingest here before.
+    // /api/bridge/health — the one number a reader checks, so nothing on screen
+    // gives the offset away.
+    //
+    // Omitted, not merely logged: this is a money series on a public site, and
+    // the upstream guards do not close the hole. bridgePipeFunds only rejects an
+    // *odd* per-height total, so a Parser.wasm rollout that stopped double-
+    // listing calls would halve every Beam-custody delta with most totals still
+    // even, and the whole history would ship silently offset by millions of
+    // BEAM. A missing bridge is a visible gap; a wrong one is not. Same
+    // treatment a bridge with no escrow anchor already gets above.
     const tolerance = Math.max(10 ** -def.decimals, Math.abs(current) * 1e-9);
     if (Math.abs(running) > tolerance) {
-      logger.warn(
+      logger.error(
         { bridge: def.key, residual: running, anchor: current, tolerance },
-        'bridgeTvl: reconstructed flow does not sum to the measured escrow; history is offset',
+        'bridgeTvl: reconstructed flow does not sum to the measured escrow; bridge omitted',
       );
+      continue;
     }
     const negative = spine.findIndex((_, i) => locked[i]! < -tolerance);
     if (negative >= 0) {
@@ -359,11 +370,9 @@ export interface RatePricer {
   priceAt(aid: number, ts: number): number | null;
 }
 
-// A bucket often has no rate row of its own, so the last rate at or before it
-// stands in — but only for as long as it can plausibly still be the market
-// price. Before an asset's first rate, and past the hold window, callers
-// should treat the value as unpriced rather than counting it as zero.
-export async function loadRatePricer(bucket: Bucket): Promise<RatePricer> {
+type RateLists = ReadonlyMap<number, ReadonlyArray<{ ts: number; usd: number }>>;
+
+async function loadRates(bucket: Bucket): Promise<RateLists> {
   const aids = [...new Set(BRIDGES.map((b) => b.aid))];
   const { rows } = await q<{ ts: string; aid: number; usd: number }>(RATE_SQL, [bucket, aids]);
 
@@ -373,6 +382,38 @@ export async function loadRatePricer(bucket: Bucket): Promise<RatePricer> {
     list.push({ ts: Number(r.ts), usd: r.usd });
     ratesBy.set(r.aid, list);
   }
+  return ratesBy;
+}
+
+// RATE_SQL is an unwindowed scan of the whole pool_state_snapshots history, and
+// a single chart pre-warm asks for it three times (bridge-tvl, bridge-fees,
+// bridge-fees-total). Cache what the scan returns on the same TTL the locked
+// history uses, so those three share one scan.
+//
+// The rate *rows* are what is cached, never the pricer built from them: a
+// pricer carries a forward-only cursor per aid, so handing the same instance to
+// two callers would leave the second one reading prices from wherever the first
+// had walked to.
+const rateCache = new Map<Bucket, { at: number; promise: Promise<RateLists> }>();
+
+function loadRateLists(bucket: Bucket): Promise<RateLists> {
+  const hit = rateCache.get(bucket);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.promise;
+  const entry = { at: Date.now(), promise: loadRates(bucket) };
+  rateCache.set(bucket, entry);
+  return entry.promise.catch((err) => {
+    // Never cache a failure — the next caller retries immediately.
+    if (rateCache.get(bucket) === entry) rateCache.delete(bucket);
+    throw err;
+  });
+}
+
+// A bucket often has no rate row of its own, so the last rate at or before it
+// stands in — but only for as long as it can plausibly still be the market
+// price. Before an asset's first rate, and past the hold window, callers
+// should treat the value as unpriced rather than counting it as zero.
+export async function loadRatePricer(bucket: Bucket): Promise<RatePricer> {
+  const ratesBy = await loadRateLists(bucket);
 
   const maxHold = maxRateHoldSeconds(bucket);
   const cursor = new Map<number, number>();

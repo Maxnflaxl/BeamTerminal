@@ -832,6 +832,13 @@ interface ChartDef {
   hourlySql?: string;
   /** Hourly-resolution custom fetcher (explorer charts). Enables `?res=1h`. */
   hourlyFetch?: () => Promise<SeriesPoint[]>;
+  /** How often the background refresher recomputes this chart. Defaults to
+   *  `REFRESH_INTERVAL_MS`, which suits a slow historical series where the only
+   *  thing a stale entry costs is a late final point. A chart whose last point
+   *  is a live headline figure needs to track `maxAgeSec` instead, or the number
+   *  it publishes drifts away from the one the range-mode path computes on
+   *  demand. */
+  refreshMs?: number;
 }
 
 // Network-stats group is fetched once and split into ten series; this group
@@ -916,8 +923,14 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   // bridge-tvl and bridge-tvl-by-asset sit adjacent: both hit the same 60s
   // `loadLockedHistory` TTL in bridgeTvl.ts, so keeping their pre-warms next to
   // each other avoids straddling that window and paying for two reconstructions.
-  { name: 'bridge-tvl',                    fetch: () => bridgeSingleSeries('bridge-tvl', '1d'), maxAgeSec: 300 },
-  { name: 'bridge-tvl-by-asset',           fetchBody: async () => ({ series: await bridgeMultiSeries('bridge-tvl-by-asset', '1d') }), maxAgeSec: 300 },
+  // The TVL pair refreshes on its own 5-minute cycle rather than the shared
+  // 30-minute one: their last point is today's locked value in USD, the same
+  // headline /api/bridge/health serves, so a half-hour-old cache publishes a
+  // figure that visibly disagrees with the range-mode path and the Bridge page.
+  // Cheap, because loadLockedHistory's own 60s TTL absorbs the reconstruction —
+  // what an extra cycle actually costs is one more cross-rate pass.
+  { name: 'bridge-tvl',                    fetch: () => bridgeSingleSeries('bridge-tvl', '1d'), maxAgeSec: 300, refreshMs: 300_000 },
+  { name: 'bridge-tvl-by-asset',           fetchBody: async () => ({ series: await bridgeMultiSeries('bridge-tvl-by-asset', '1d') }), maxAgeSec: 300, refreshMs: 300_000 },
   { name: 'bridge-transfers',              fetch: () => bridgeSingleSeries('bridge-transfers', '1d'), maxAgeSec: 300 },
   { name: 'bridge-transfers-by-direction', fetchBody: async () => ({ series: await bridgeMultiSeries('bridge-transfers-by-direction', '1d') }), maxAgeSec: 300 },
   { name: 'bridge-transfers-by-bridge',    fetchBody: async () => ({ series: await bridgeMultiSeries('bridge-transfers-by-bridge', '1d') }), maxAgeSec: 300 },
@@ -1028,8 +1041,11 @@ export function startChartCacheRefresher(): void {
       });
     }
   })();
-  // Periodic refresh, each unit on its own offset to spread DB load.
+  // Periodic refresh, each unit on its own offset to spread DB load. The offset
+  // is spread over the shared interval even for a unit that then runs faster —
+  // it only decides which second in the cycle that unit starts on.
   units.forEach((u, i) => {
+    const every = u.def.refreshMs ?? REFRESH_INTERVAL_MS;
     const offset = (REFRESH_INTERVAL_MS / units.length) * i;
     setTimeout(() => {
       setInterval(() => {
@@ -1037,7 +1053,7 @@ export function startChartCacheRefresher(): void {
           // eslint-disable-next-line no-console
           console.warn(`[charts] refresh failed for ${u.def.name}:${u.res}:`, err instanceof Error ? err.message : err);
         });
-      }, REFRESH_INTERVAL_MS);
+      }, every);
     }, offset);
   });
 }

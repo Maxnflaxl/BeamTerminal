@@ -21,3 +21,14 @@ export function scale(raw: string | null, decimals: number): number | null {
 // Scaled by the asset's decimals they still land astronomically high, so one
 // threshold catches them regardless of which side they came from.
 export const ABSURD = 1e20;
+
+// The spam predicate, in one place. Every read model that puts a bridge value
+// in front of a reader — TVL, fee series, single-message explanations — has to
+// draw the junk line in exactly the same spot; three hand-written spellings of
+// it is how the next spam shape gets through one of them and not the others.
+// A message is junk if ANY of its scaled figures is absurd: the spam carries a
+// uint256-max relayer fee alongside a merely large amount, so testing the sum
+// alone would depend on which fields a given call site happened to add up.
+export function isAbsurdAmount(...values: ReadonlyArray<number | null>): boolean {
+  return values.some((v) => v !== null && Math.abs(v) >= ABSURD);
+}
