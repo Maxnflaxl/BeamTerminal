@@ -1,9 +1,12 @@
-export type ZoomRes = '1m' | '1h' | '1d';
-export const BUCKET_SECONDS: Record<ZoomRes, number> = { '1m': 60, '1h': 3600, '1d': 86_400 };
+export type ZoomRes = '1m' | '1h' | '1d' | '1M';
+// '1M' is a calendar month, so its width varies. It is only ever the coarsest
+// rung of a ladder, and the figure below feeds point-count estimation and
+// pan-reuse padding only — never the bucketing itself, which the server does.
+export const BUCKET_SECONDS: Record<ZoomRes, number> = { '1m': 60, '1h': 3600, '1d': 86_400, '1M': 2_592_000 };
 export const MAX_POINTS = 2000;
 export const TILE_BUCKETS = 256;
 
-const ORDER: ZoomRes[] = ['1m', '1h', '1d']; // finest → coarsest
+const ORDER: ZoomRes[] = ['1m', '1h', '1d', '1M']; // finest → coarsest
 
 /** Finest bucket in `ladder` whose visible-point count stays ≤ MAX_POINTS; coarsest if none. */
 export function pickResolution(spanSeconds: number, ladder: ZoomRes[]): ZoomRes {
@@ -22,7 +25,7 @@ export function stickyPick(spanSeconds: number, ladder: ZoomRes[], current: Zoom
 }
 
 /** Per-tier widen multiplier: ~1× at 1m (cheap not to over-fetch), up to 3× at 1d. */
-const WIDEN: Record<ZoomRes, number> = { '1m': 1, '1h': 2, '1d': 3 };
+const WIDEN: Record<ZoomRes, number> = { '1m': 1, '1h': 2, '1d': 3, '1M': 3 };
 
 /** Widen the window for pan-reuse, capped so span/bucket ≤ MAX_POINTS, tile-aligned. */
 export function widenWindow(fromSec: number, toSec: number, res: ZoomRes): { from: number; to: number } {
@@ -39,6 +42,10 @@ export function widenWindow(fromSec: number, toSec: number, res: ZoomRes): { fro
 
 const FULL: ZoomRes[] = ['1m', '1h', '1d'];
 const DAILY: ZoomRes[] = ['1d'];
+// The bridge series are indexed from daily rollups and go back over three years,
+// so a month rung is the only coarser view worth offering — and the only chart
+// family the server buckets monthly.
+const MONTHLY: ZoomRes[] = ['1M', '1d'];
 export const LADDERS: Record<string, ZoomRes[]> = {
   price: FULL,
   tvl: FULL,
@@ -69,4 +76,10 @@ export const LADDERS: Record<string, ZoomRes[]> = {
   blackhole: DAILY,
   poolsCreated: DAILY,
   poolsClosed: DAILY,
+  bridgeTransfers: MONTHLY,
+  bridgeTransfersTotal: MONTHLY,
+  bridgeFees: MONTHLY,
+  bridgeFeesTotal: MONTHLY,
+  bridgeTvl: MONTHLY,
+  bridgeTvlByAsset: MONTHLY,
 };

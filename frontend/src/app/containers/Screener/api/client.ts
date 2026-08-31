@@ -272,7 +272,7 @@ export const api = {
   },
 };
 
-export type ChartRes = '1m' | '1h' | '1d';
+export type ChartRes = '1m' | '1h' | '1d' | '1M';
 
 export interface ApiChartPoint {
   ts: number;

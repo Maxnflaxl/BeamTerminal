@@ -98,8 +98,8 @@ function filterByTimeframe(series: ReadonlyArray<ApiChartPoint>, tf: Timeframe):
 // reference while loading (avoids a useMemo/effect refire loop on every render).
 const EMPTY_SERIES: ApiChartPoint[] = [];
 
-const INTERVAL_ORDER: ZoomRes[] = ['1m', '1h', '1d']; // finest → coarsest
-const INTERVAL_SEC: Record<ZoomRes, number> = { '1m': 60, '1h': 3600, '1d': 86_400 };
+const INTERVAL_ORDER: ZoomRes[] = ['1m', '1h', '1d', '1M']; // finest → coarsest
+const INTERVAL_SEC: Record<ZoomRes, number> = { '1m': 60, '1h': 3600, '1d': 86_400, '1M': 2_592_000 };
 
 // Approximate window length of a timeframe, data-independent — lets the toolbar
 // size the interval buttons before the series has loaded. ALL → Infinity (so
@@ -138,6 +138,12 @@ function rangeBoundsFor(series: ReadonlyArray<ApiChartPoint>, tf: Timeframe): { 
 // Tile-align the visible window so mouse-zoom refetches share cache keys and the
 // key only changes when you cross a tile boundary (no refetch-per-pixel storm).
 // Clamped to the data's real [dataFrom, dataTo] — never epoch-0 (no 1970 axis).
+//
+// At '1M' the tile is ~21 years, so the clamp to [dataFrom, dataTo] collapses
+// every monthly window onto the same single tile and the request always asks for
+// the whole history. That is deliberate: the monthly rung exists only for the
+// bridge charts, whose entire history is ~41 buckets, so one cached fetch serves
+// every timeframe and zoom instead of one per window.
 function alignFetchWindow(
   fromSec: number,
   toSec: number,
