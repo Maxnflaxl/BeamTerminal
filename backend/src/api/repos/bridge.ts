@@ -1,6 +1,7 @@
 import { q } from '../../db.js';
 import { getBlock } from '../../explorer.js';
 import { BRIDGES } from '../../services/bridge.js';
+import { scale, ABSURD } from '../../bridgeAmounts.js';
 import { loadUsdTable } from './usd.js';
 
 // ---------------------------------------------------------------------------
@@ -9,20 +10,6 @@ import { loadUsdTable } from './usd.js';
 // Postgres only — no shader calls and no Etherscan on the request path. The
 // indexer owns all of that; these are projections of what it already wrote.
 // ---------------------------------------------------------------------------
-
-function scale(raw: string | null, decimals: number): number | null {
-  if (raw === null) return null;
-  // Amounts are NUMERIC(40,0) strings well past Number.MAX_SAFE_INTEGER in
-  // groths, so divide as BigInt first and only then convert for display.
-  const neg = raw.startsWith('-');
-  const digits = neg ? raw.slice(1) : raw;
-  const d = BigInt(digits);
-  const div = 10n ** BigInt(decimals);
-  const whole = d / div;
-  const frac = d % div;
-  const val = Number(whole) + Number(frac) / Number(div);
-  return neg ? -val : val;
-}
 
 export interface BridgeHealthRow {
   bridge: string;
@@ -347,11 +334,6 @@ export interface BridgeLookupResult {
   resolved_height: number | null;
   matches: BridgeLookupMatch[];
 }
-
-// Values at or near 2^256 aren't transfers, they're junk pushed into the Pipe.
-// Scaled by the asset's decimals they still land astronomically high, so one
-// threshold catches them regardless of which side they came from.
-const ABSURD = 1e20;
 
 function explain(
   status: string,
