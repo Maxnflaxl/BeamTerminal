@@ -5,26 +5,30 @@ import { createHash } from 'node:crypto';
 import { q } from '../../db.js';
 import { fetchNetworkRangeByHeight, resToDh, type ExplorerRow } from '../../services/networkStats.js';
 
-export type Res = '1m' | '1h' | '1d';
+export type Res = '1m' | '1h' | '1d' | '1M';
 
-export const BUCKET_SECONDS: Record<Res, number> = { '1m': 60, '1h': 3600, '1d': 86_400 };
+// '1M' has no fixed width — it never reaches the tile arithmetic below, so it's
+// excluded from every fixed-width table and signature (see serveRange's '1M' branch).
+export type TiledRes = Exclude<Res, '1M'>;
+
+export const BUCKET_SECONDS: Record<TiledRes, number> = { '1m': 60, '1h': 3600, '1d': 86_400 };
 export const TILE_BUCKETS = 256;
 export const MAX_POINTS = 2000;
 
 export interface RangePoint { ts: number; value: number }
 
-export function tileSpan(res: Res): number {
+export function tileSpan(res: TiledRes): number {
   return BUCKET_SECONDS[res] * TILE_BUCKETS;
 }
 
 /** Floor `from` / ceil `to` onto the bucket grid — result is always a superset. */
-export function alignRange(fromSec: number, toSec: number, res: Res): { from: number; to: number } {
+export function alignRange(fromSec: number, toSec: number, res: TiledRes): { from: number; to: number } {
   const b = BUCKET_SECONDS[res];
   return { from: Math.floor(fromSec / b) * b, to: Math.ceil(toSec / b) * b };
 }
 
 /** Ascending tile-start epochs whose [start, start+tileSpan) cover [from, to). */
-export function tilesFor(fromSec: number, toSec: number, res: Res): number[] {
+export function tilesFor(fromSec: number, toSec: number, res: TiledRes): number[] {
   const span = tileSpan(res);
   const first = Math.floor(fromSec / span) * span;
   const out: number[] = [];
@@ -85,12 +89,12 @@ export class RangeCache {
   }
 }
 
-const PG_INTERVAL: Record<Res, string> = { '1m': "INTERVAL '1 minute'", '1h': "INTERVAL '1 hour'", '1d': "INTERVAL '1 day'" };
+const PG_INTERVAL: Record<TiledRes, string> = { '1m': "INTERVAL '1 minute'", '1h': "INTERVAL '1 hour'", '1d': "INTERVAL '1 day'" };
 
 // Per-bucket value expressions over `block_metrics`/`oracle_snapshots`, bucketed
 // by $B on the scan's timestamp column, windowed to [$from, $to). Mirrors the
 // legacy hourly SQL bodies but with a request-sized window, never a 35d constant.
-function simpleLevelSql(res: Res, fromSec: number, toSec: number, opts: {
+function simpleLevelSql(res: TiledRes, fromSec: number, toSec: number, opts: {
   table: 'block_metrics' | 'oracle_snapshots';
   tsCol: 'block_ts' | 'ts';
   value: string;          // aggregate expression
@@ -113,7 +117,7 @@ function simpleLevelSql(res: Res, fromSec: number, toSec: number, opts: {
   `;
 }
 
-function tvlRangeSql(res: Res, fromSec: number, toSec: number): string {
+function tvlRangeSql(res: TiledRes, fromSec: number, toSec: number): string {
   const B = PG_INTERVAL[res];
   // Same cross-rate pricing as TVL_HOURLY_SQL, bucketed at $B over [from,to).
   // Raw pool_state_snapshots scan (candles carry no reserves) — bounded window
@@ -168,7 +172,7 @@ function tvlRangeSql(res: Res, fromSec: number, toSec: number): string {
   `;
 }
 
-function assetsRangeSql(res: Res, fromSec: number, toSec: number): string {
+function assetsRangeSql(res: TiledRes, fromSec: number, toSec: number): string {
   const B = PG_INTERVAL[res];
   // Cumulative confidential-asset count, seeded with the pre-window baseline.
   return `
@@ -188,7 +192,7 @@ function assetsRangeSql(res: Res, fromSec: number, toSec: number): string {
   `;
 }
 
-export function buildLevelRangeSql(name: string, res: Res, fromSec: number, toSec: number): string {
+export function buildLevelRangeSql(name: string, res: TiledRes, fromSec: number, toSec: number): string {
   switch (name) {
     case 'price':
       return simpleLevelSql(res, fromSec, toSec, {
@@ -216,10 +220,10 @@ export function buildLevelRangeSql(name: string, res: Res, fromSec: number, toSe
   }
 }
 
-const CANDLES_TABLE: Record<Res, string> = { '1m': 'candles_1m', '1h': 'candles_1h', '1d': 'candles_1d' };
+const CANDLES_TABLE: Record<TiledRes, string> = { '1m': 'candles_1m', '1h': 'candles_1h', '1d': 'candles_1d' };
 const SECS_PER_DAY = 86_400;
 
-export function buildRateRangeSql(name: 'coinbase' | 'dex-volume', res: Res, fromSec: number, toSec: number): string {
+export function buildRateRangeSql(name: 'coinbase' | 'dex-volume', res: TiledRes, fromSec: number, toSec: number): string {
   const B = PG_INTERVAL[res];
   const bucketSec = BUCKET_SECONDS[res];
   const windowRows = Math.round(SECS_PER_DAY / bucketSec); // buckets in a trailing 24h
@@ -362,7 +366,7 @@ function trailing24hCol(rows: ExplorerRow[], code: string, fromSec: number): Ran
  * Explorer chart over [from,to) at `res`. `isDelta` charts (…/day) use a
  * trailing-24h delta and fetch 24h of lookback; `total_*` pass through.
  */
-export async function explorerRangeSeries(col: string, isDelta: boolean, res: Res, fromSec: number, toSec: number): Promise<RangePoint[]> {
+export async function explorerRangeSeries(col: string, isDelta: boolean, res: TiledRes, fromSec: number, toSec: number): Promise<RangePoint[]> {
   const hMax = await heightAtOrBefore(toSec);
   if (hMax === null) return [];
   const stopTs = isDelta ? fromSec - SECS_PER_DAY : fromSec;
@@ -372,9 +376,23 @@ export async function explorerRangeSeries(col: string, isDelta: boolean, res: Re
 
 type Kind = 'level' | 'rate' | 'explorer' | 'daily-only';
 const FULL: Res[] = ['1d', '1h', '1m'];
+// For charts that also register `monthSeries` — the ladder is the single source
+// of truth for whether '1M' is offered (see serveRange's '1M' branch).
+export const FULL_M: Res[] = ['1d', '1h', '1m', '1M'];
 const DAILY: Res[] = ['1d'];
 
-export const RANGE_META: Record<string, { kind: Kind; col?: string; isDelta?: boolean; ladder: Res[] }> = {
+export interface RangeMetaEntry {
+  kind: Kind;
+  col?: string;
+  isDelta?: boolean;
+  ladder: Res[];
+  // Whole-history fetcher for the '1M' rung (see serveRange). Requires '1M' in
+  // `ladder` too — omitting either keeps falling back to the ladder's coarsest
+  // tiled resolution.
+  monthSeries?: (name: string) => Promise<RangePoint[]>;
+}
+
+export const RANGE_META: Record<string, RangeMetaEntry> = {
   price: { kind: 'level', ladder: FULL }, tvl: { kind: 'level', ladder: FULL },
   hashrate: { kind: 'level', ladder: FULL }, difficulty: { kind: 'level', ladder: FULL },
   'block-time': { kind: 'level', ladder: FULL }, assets: { kind: 'level', ladder: FULL },
@@ -403,12 +421,12 @@ export const RANGE_META: Record<string, { kind: Kind; col?: string; isDelta?: bo
 const rangeCache = new RangeCache();
 const CONFIRMATION_SECONDS = 80 * 60; // 80 blocks × ~60s — a settled horizon
 
-async function fetchTile(name: string, meta: { kind: Kind; col?: string; isDelta?: boolean }, res: Res, tileStart: number, tileEnd: number): Promise<RangePoint[]> {
+async function fetchTile(name: string, meta: RangeMetaEntry, res: TiledRes, tileStart: number, tileEnd: number): Promise<RangePoint[]> {
   if (meta.kind === 'level') { const { rows } = await q<{ ts: string; value: number | null }>(buildLevelRangeSql(name, res, tileStart, tileEnd)); return toRange(rows); }
   if (meta.kind === 'rate')  { const { rows } = await q<{ ts: string; value: number | null }>(buildRateRangeSql(name as 'coinbase' | 'dex-volume', res, tileStart, tileEnd)); return toRange(rows); }
   if (meta.kind === 'explorer') return explorerRangeSeries(meta.col!, !!meta.isDelta, res, tileStart, tileEnd);
-  // daily-only: only 1d makes sense; reuse level path over the window on the daily bucket is N/A here —
-  // these three keep their legacy full-series bodies, so range mode just returns [] (frontend never zooms them).
+  // daily-only: only 1d makes sense; these three keep their legacy full-series
+  // bodies, so range mode just returns [] (frontend never zooms them).
   return [];
 }
 
@@ -421,11 +439,28 @@ function toRange(rows: ReadonlyArray<{ ts: string | number; value: number | null
 export async function serveRange(name: string, res: Res, fromSec: number, toSec: number): Promise<{ body: { series: RangePoint[] }; etag: string; immutable: boolean }> {
   const meta = RANGE_META[name];
   if (!meta) throw new Error(`unknown chart: ${name}`);
-  // Ladders are coarsest-first (e.g. ['1d','1h','1m']); fall back to the coarsest
-  // tier when the requested res isn't offered for this chart.
-  const effRes: Res = meta.ladder.includes(res) ? res : meta.ladder[0]!;
-  const { from, to } = alignRange(fromSec, toSec, effRes);
   const nowSec = Math.floor(Date.now() / 1000);
+
+  // A month has no fixed width, so it cannot ride the tile grid below. The month
+  // tier is small enough (tens of buckets) to compute whole and slice, which is
+  // what every '1M' request does — charts that never registered '1M' on their
+  // ladder, or never registered a fetcher, just fall through to the normal
+  // ladder resolution instead (ladder is the single source of truth here).
+  if (res === '1M' && meta.ladder.includes('1M') && meta.monthSeries) {
+    const monthKey = `${name}:1M:full`;
+    const all = await rangeCache.inflight(monthKey, () => meta.monthSeries!(name));
+    const series = all.filter((p) => p.ts >= fromSec && p.ts < toSec);
+    const body = { series };
+    return { body, etag: etagOf(body), immutable: false };
+  }
+
+  // Ladders are coarsest-first (e.g. ['1d','1h','1m']); fall back to the coarsest
+  // tiled tier when the requested res isn't offered for this chart, or is '1M'
+  // without a registered month fetcher.
+  const tiledLadder = meta.ladder.filter((r): r is TiledRes => r !== '1M');
+  if (tiledLadder.length === 0) throw new Error(`chart ${name}: ladder has no tiled resolution`);
+  const effRes: TiledRes = res !== '1M' && tiledLadder.includes(res) ? res : tiledLadder[0]!;
+  const { from, to } = alignRange(fromSec, toSec, effRes);
 
   const tiles = tilesFor(from, to, effRes);
   const span = tileSpan(effRes);

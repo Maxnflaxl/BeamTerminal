@@ -1037,7 +1037,7 @@ export async function chartsRoutes(app: FastifyInstance): Promise<void> {
       const qp = req.query as { res?: string; from?: string; to?: string };
       if (qp.from !== undefined && qp.to !== undefined && RANGE_META[def.name]) {
         const fromSec = Number(qp.from), toSec = Number(qp.to);
-        const res: RangeRes = qp.res === '1m' ? '1m' : qp.res === '1h' ? '1h' : '1d';
+        const res: RangeRes = qp.res === '1m' ? '1m' : qp.res === '1h' ? '1h' : qp.res === '1M' ? '1M' : '1d';
         if (!Number.isFinite(fromSec) || !Number.isFinite(toSec) || toSec <= fromSec) {
           void reply.status(400); return { error: 'bad from/to' };
         }
