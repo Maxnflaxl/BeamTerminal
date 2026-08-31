@@ -250,16 +250,14 @@ function useOneShot<T>(fetcher: () => Promise<T>, enabled = true): FetchState<T>
 // Two-tier chart series: always loads the daily tier; lazily loads the hourly
 // tier the first time a sub-daily window is selected. Returns whichever tier
 // the current resolution asks for.
-// Fetch an ApiChartSeries and REFETCH whenever `key` changes (the expanded
+// Fetch a chart payload and REFETCH whenever `key` changes (the expanded
 // chart's key = chartKey:timeframe:interval). Unlike useOneShot (fetch-once),
 // this re-runs on key change and keeps the prior data visible during the
-// refetch so switching interval/timeframe doesn't flash "Loading…".
-function useKeyedSeries(
-  fetcher: () => Promise<ApiChartSeries>,
-  key: string,
-  enabled: boolean,
-): FetchState<ApiChartSeries> {
-  const [state, setState] = useState<FetchState<ApiChartSeries>>({ data: null, loading: enabled, error: null });
+// refetch so switching interval/timeframe doesn't flash "Loading…". Generic
+// over the payload so the single-series and string-keyed multi-series charts
+// share one refetch model.
+function useKeyedSeries<T>(fetcher: () => Promise<T>, key: string, enabled: boolean): FetchState<T> {
+  const [state, setState] = useState<FetchState<T>>({ data: null, loading: enabled, error: null });
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   useEffect(() => {
@@ -468,6 +466,37 @@ const ExpandButton = styled.button`
 const ScaleToggle = styled.button<{ active?: boolean }>`
   height: 22px;
   padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: ${(p) => (p.active ? 'rgba(0, 246, 210, 0.18)' : 'rgba(0, 0, 0, 0.25)')};
+  color: ${(p) => (p.active ? '#00f6d2' : 'rgba(255, 255, 255, 0.6)')};
+  border: 1px solid ${(p) => (p.active ? 'rgba(0, 246, 210, 0.5)' : 'rgba(255, 255, 255, 0.12)')};
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+
+  &:hover {
+    color: #00f6d2;
+    border-color: rgba(0, 246, 210, 0.5);
+  }
+`;
+
+// Grid-card variant of the split-mode buttons: same chrome as ScaleToggle so
+// the card header keeps one visual weight, grouped with a hairline gap.
+const CellSplitGroup = styled.div`
+  display: flex;
+  align-items: center;
+  & > * + * {
+    margin-left: 4px;
+  }
+`;
+
+const SplitToggle = styled.button<{ active?: boolean }>`
+  height: 22px;
+  padding: 0 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1019,14 +1048,17 @@ const ChartShell: React.FC<{
   logScale?: boolean;
   onExpand: () => void;
   onToggleLog: () => void;
+  /** Extra card-header control (the bridge split-mode toggle), left of lin/log. */
+  headerExtra?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ title, logScale, onExpand, onToggleLog, children }) => {
+}> = ({ title, logScale, onExpand, onToggleLog, headerExtra, children }) => {
   const [areaRef, inView] = useInView<HTMLDivElement>();
   return (
     <Cell>
       <CellHeader>
         <CellTitle>{title}</CellTitle>
         <CellActions>
+          {headerExtra}
           <ScaleToggle active={logScale} onClick={onToggleLog} title="Toggle linear / logarithmic Y axis">
             {logScale ? 'log' : 'lin'}
           </ScaleToggle>
@@ -1040,7 +1072,7 @@ const ChartShell: React.FC<{
   );
 };
 
-const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = ({
+const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void; headerExtra?: React.ReactNode }> = ({
   state,
   title,
   timeframe,
@@ -1051,13 +1083,20 @@ const ChartCell: React.FC<ChartCellProps & { onToggleLog: () => void }> = ({
   emptyLabel,
   onExpand,
   onToggleLog,
+  headerExtra,
 }) => {
   const filtered = useMemo(
     () => (state.data ? filterByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
   return (
-    <ChartShell title={title} logScale={logScale} onExpand={onExpand} onToggleLog={onToggleLog}>
+    <ChartShell
+      title={title}
+      logScale={logScale}
+      onExpand={onExpand}
+      onToggleLog={onToggleLog}
+      headerExtra={headerExtra}
+    >
       {filtered && filtered.length > 0 ? (
         <InnerChart
           chartKey={chartKey}
@@ -1113,13 +1152,20 @@ const KeyedLinesCell: React.FC<{
   formatter: (v: number) => string;
   onExpand: () => void;
   onToggleLog: () => void;
-}> = ({ state, title, timeframe, logScale, formatter, onExpand, onToggleLog }) => {
+  headerExtra?: React.ReactNode;
+}> = ({ state, title, timeframe, logScale, formatter, onExpand, onToggleLog, headerExtra }) => {
   const filtered = useMemo(
     () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
   return (
-    <ChartShell title={title} logScale={logScale} onExpand={onExpand} onToggleLog={onToggleLog}>
+    <ChartShell
+      title={title}
+      logScale={logScale}
+      onExpand={onExpand}
+      onToggleLog={onToggleLog}
+      headerExtra={headerExtra}
+    >
       {filtered && filtered.length > 0 ? (
         <KeyedLinesChart series={filtered} logScale={logScale} formatter={formatter} />
       ) : (
@@ -1130,6 +1176,15 @@ const KeyedLinesCell: React.FC<{
     </ChartShell>
   );
 };
+
+// How a bridge chart is broken down: one aggregate line, one line per transfer
+// direction, or one line per bridge.
+type BridgeSplit = 'none' | 'direction' | 'bridge';
+const SPLIT_MODES: ReadonlyArray<{ value: BridgeSplit; label: string; title: string }> = [
+  { value: 'none', label: 'Total', title: 'One line for all bridges' },
+  { value: 'direction', label: 'Direction', title: 'One line per transfer direction' },
+  { value: 'bridge', label: 'Bridge', title: 'One line per bridge' },
+];
 
 interface ChartSpec {
   key: string;
@@ -1145,6 +1200,8 @@ interface ChartSpec {
   overlay?: { state: FetchState<ApiChartSeries>; label: string };
   /** Message shown when the series is empty (defaults to "No data"). */
   emptyLabel?: string;
+  /** Renders the Total / Direction / Bridge mode toggle for this chart. */
+  splittable?: boolean;
 }
 
 export const NetworkCharts: React.FC = () => {
@@ -1313,7 +1370,6 @@ export const NetworkCharts: React.FC = () => {
   const bridgeTransfers = useOneShot<ApiChartSeries>(() => api.charts.bridgeTransfers());
   const bridgeFees = useOneShot<ApiChartSeries>(() => api.charts.bridgeFees());
   const bridgeTvl = useOneShot<ApiChartSeries>(() => api.charts.bridgeTvl());
-  const bridgeTvlByAsset = useOneShot<ApiKeyedSeriesBody>(() => api.charts.bridgeTvlByAsset());
   const bridgeTransfersTotalRaw = useOneShot<ApiChartSeries>(() => api.charts.bridgeTransfersTotal());
   const bridgeFeesTotalRaw = useOneShot<ApiChartSeries>(() => api.charts.bridgeFeesTotal());
   const bridgeTransfersTotal = useMemo(
@@ -1362,6 +1418,51 @@ export const NetworkCharts: React.FC = () => {
   // assets, so it opens on a log Y axis; everything else defaults to linear.
   const [logPerKey, setLogPerKey] = useState<Record<string, boolean>>({ blackhole: true });
   const toggleLog = (k: string): void => setLogPerKey((m) => ({ ...m, [k]: !m[k] }));
+  // How a splittable chart is broken down, per chart key — same shape and reset
+  // semantics as logPerKey. Absent = 'none' (the single aggregate series).
+  const [splitPerKey, setSplitPerKey] = useState<Record<string, BridgeSplit>>({});
+  const setSplit = (k: string, v: BridgeSplit): void => setSplitPerKey((m) => ({ ...m, [k]: v }));
+  const transfersSplit: BridgeSplit = splitPerKey.bridgeTransfers ?? 'none';
+
+  // Span the expanded keyed chart actually plots, tagged with the chart it came
+  // from. It is kept apart from `viewSpan` because that one is cleared by the
+  // timeframe/expand effect, which commits after the child reports — the tag
+  // makes a value left over from the previously expanded chart inert instead.
+  const [keyedSpan, setKeyedSpan] = useState<{ key: string; spanSec: number } | null>(null);
+  const keyedSpanFor = (key: string): number =>
+    keyedSpan && keyedSpan.key === key ? keyedSpan.spanSec : timeframeSpanSec(timeframe);
+
+  // Bucket to request for a string-keyed multi chart. The server's multi
+  // fetcher ignores from/to and always returns whole history, so the bucket is
+  // the only thing that varies — no window tiling, no merging. Grid cards are
+  // always daily; only the expanded chart follows the interval selector.
+  const keyedRes = (key: string): ZoomRes => {
+    if (expandedKey !== key) return '1d';
+    const valid = validIntervals(keyedSpanFor(key), LADDERS[key] ?? ['1d']);
+    return chartInterval !== 'auto' && valid.includes(chartInterval) ? chartInterval : valid[0] ?? '1d';
+  };
+
+  // These endpoints only honour `res` in range mode, and clamp the window to
+  // what they hold — so one whole-history window asks for every bucket at the
+  // chosen resolution. Rounded up to the next day boundary so the fetch key
+  // stays constant across renders.
+  const fullWindow = useMemo(() => ({ from: 0, to: (Math.floor(Date.now() / 86_400_000) + 1) * 86_400 }), []);
+
+  const tvlByAssetRes = keyedRes('bridgeTvlByAsset');
+  const bridgeTvlByAsset = useKeyedSeries<ApiKeyedSeriesBody>(
+    () => api.charts.bridgeTvlByAsset({ res: tvlByAssetRes, ...fullWindow }),
+    `bridgeTvlByAsset:${tvlByAssetRes}`,
+    true,
+  );
+  const transfersSplitRes = keyedRes('bridgeTransfers');
+  const bridgeTransfersSplit = useKeyedSeries<ApiKeyedSeriesBody>(
+    () =>
+      transfersSplit === 'direction'
+        ? api.charts.bridgeTransfersByDirection({ res: transfersSplitRes, ...fullWindow })
+        : api.charts.bridgeTransfersByBridge({ res: transfersSplitRes, ...fullWindow }),
+    `bridgeTransfers:${transfersSplit}:${transfersSplitRes}`,
+    transfersSplit !== 'none',
+  );
 
   // Ordered so each "… / day" chart sits immediately before its "… (total)"
   // twin — the 2-column auto-flow Grid then renders them side-by-side on one
@@ -1582,7 +1683,8 @@ export const NetworkCharts: React.FC = () => {
     {
       key: 'bridgeTransfers',
       title: 'Bridge transfers / day',
-      state: bridgeTransfers,
+      ...(transfersSplit === 'none' ? { state: bridgeTransfers } : { keyedState: bridgeTransfersSplit }),
+      splittable: true,
       formatter: fmtInt,
       category: 'defi',
     },
@@ -1704,6 +1806,20 @@ export const NetworkCharts: React.FC = () => {
       </Toolbar>
       <Grid>
         {charts.map((c) => {
+          const splitControl = c.splittable ? (
+            <CellSplitGroup>
+              {SPLIT_MODES.map((m) => (
+                <SplitToggle
+                  key={m.value}
+                  active={(splitPerKey[c.key] ?? 'none') === m.value}
+                  onClick={() => setSplit(c.key, m.value)}
+                  title={m.title}
+                >
+                  {m.label}
+                </SplitToggle>
+              ))}
+            </CellSplitGroup>
+          ) : undefined;
           if (c.keyedState) {
             return (
               <KeyedLinesCell
@@ -1715,6 +1831,7 @@ export const NetworkCharts: React.FC = () => {
                 formatter={c.formatter}
                 onExpand={() => setExpandedKey(c.key)}
                 onToggleLog={() => toggleLog(c.key)}
+                headerExtra={splitControl}
               />
             );
           }
@@ -1742,6 +1859,7 @@ export const NetworkCharts: React.FC = () => {
               emptyLabel={c.emptyLabel}
               onExpand={() => setExpandedKey(c.key)}
               onToggleLog={() => toggleLog(c.key)}
+              headerExtra={splitControl}
             />
           );
         })}
@@ -1779,10 +1897,20 @@ export const NetworkCharts: React.FC = () => {
                     {hideAmml ? 'Show AMML' : 'Hide AMML'}
                   </TfButton>
                 )}
+                {expanded.splittable &&
+                  SPLIT_MODES.map((m) => (
+                    <TfButton
+                      key={m.value}
+                      active={(splitPerKey[expanded.key] ?? 'none') === m.value}
+                      onClick={() => setSplit(expanded.key, m.value)}
+                      title={m.title}
+                    >
+                      {m.label}
+                    </TfButton>
+                  ))}
               </ModalActionGroup>
               {expanded &&
                 !expanded.multiState &&
-                !expanded.keyedState &&
                 (LADDERS[expanded.key]?.length ?? 1) > 1 &&
                 expanded.key !== 'assets' && (
                   <IntervalGroup title="Candle interval">
@@ -1795,7 +1923,7 @@ export const NetworkCharts: React.FC = () => {
                     </TfButton>
                     {INTERVAL_ORDER.map((iv) => {
                       const ok = validIntervals(
-                        viewSpan ?? timeframeSpanSec(timeframe),
+                        expanded.keyedState ? keyedSpanFor(expanded.key) : viewSpan ?? timeframeSpanSec(timeframe),
                         LADDERS[expanded.key]!,
                       ).includes(iv);
                       return (
@@ -1823,10 +1951,12 @@ export const NetworkCharts: React.FC = () => {
             <ModalBody>
               {expanded.keyedState ? (
                 <ExpandedKeyedLines
+                  key={expanded.key}
                   state={expanded.keyedState}
                   timeframe={timeframe}
                   logScale={!!logPerKey[expanded.key]}
                   formatter={expanded.formatter}
+                  onViewSpan={(spanSec) => setKeyedSpan({ key: expanded.key, spanSec })}
                 />
               ) : expanded.multiState ? (
                 <ExpandedBlackhole
@@ -1887,7 +2017,7 @@ const ExpandedChart: React.FC<
   const rangeable = !!fetcher && ladder.length > 1 && chartKey !== 'assets';
 
   // Stable daily full-history series: real [from,to] bounds + the ALL/1d view.
-  const full = useKeyedSeries(
+  const full = useKeyedSeries<ApiChartSeries>(
     () => (fetcher ? fetcher() : Promise.resolve({ series: [] })),
     `${chartKey ?? ''}:full`,
     rangeable,
@@ -1925,7 +2055,7 @@ const ExpandedChart: React.FC<
   );
   // A daily window covering the whole history == the full series already loaded.
   const useFull = !!fetchWin && effInterval === '1d' && fetchWin.from <= dataFrom && fetchWin.to >= dataTo;
-  const win = useKeyedSeries(
+  const win = useKeyedSeries<ApiChartSeries>(
     () =>
       fetcher && fetchWin
         ? fetcher({ res: effInterval, from: fetchWin.from, to: fetchWin.to })
@@ -2046,11 +2176,32 @@ const ExpandedKeyedLines: React.FC<{
   timeframe: Timeframe;
   logScale: boolean;
   formatter: (v: number) => string;
-}> = ({ state, timeframe, logScale, formatter }) => {
+  onViewSpan: (spanSec: number) => void;
+}> = ({ state, timeframe, logScale, formatter, onViewSpan }) => {
   const filtered = useMemo(
     () => (state.data ? filterMultiByTimeframe(state.data.series, timeframe) : null),
     [state.data, timeframe],
   );
+  // Span actually plotted, reported up so the interval buttons size against the
+  // data rather than the timeframe's nominal (Infinity for ALL) width — that is
+  // what lets the month rung light up on a whole-history view.
+  const spanSec = useMemo(() => {
+    if (!filtered) return 0;
+    let lo = Number.POSITIVE_INFINITY;
+    let hi = 0;
+    for (const s of filtered) {
+      const first = s.points[0];
+      const last = s.points[s.points.length - 1];
+      if (first && first.ts < lo) lo = first.ts;
+      if (last && last.ts > hi) hi = last.ts;
+    }
+    return hi > lo ? hi - lo : 0;
+  }, [filtered]);
+  const onViewSpanRef = useRef(onViewSpan);
+  onViewSpanRef.current = onViewSpan;
+  useEffect(() => {
+    if (spanSec > 0) onViewSpanRef.current(spanSec);
+  }, [spanSec]);
   if (!filtered || filtered.length === 0) {
     return (
       <CenteredNote pad="80px 0" size={13}>
