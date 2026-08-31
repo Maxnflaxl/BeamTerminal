@@ -883,6 +883,17 @@ async function snapshotEscrow(b: BridgeDef): Promise<void> {
       minted === null ? null : minted.toString(), mintedDecimals, block,
     ],
   );
+
+  await q(
+    `INSERT INTO bridge_escrow_snapshots
+       (bridge, chain_id, locked, decimals, minted, minted_decimals, block_number)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT DO NOTHING`,
+    [
+      b.key, b.chainId, locked.toString(), lockedDecimals,
+      minted === null ? null : minted.toString(), mintedDecimals, block,
+    ],
+  );
 }
 
 // ---------------------------------------------------------------------------
