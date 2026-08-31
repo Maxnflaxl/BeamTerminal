@@ -374,12 +374,15 @@ export async function explorerRangeSeries(col: string, isDelta: boolean, res: Ti
   return isDelta ? trailing24hCol(rows, col, fromSec) : passthroughCol(rows, col, fromSec);
 }
 
-type Kind = 'level' | 'rate' | 'explorer' | 'daily-only';
+type Kind = 'level' | 'rate' | 'explorer' | 'daily-only' | 'multi';
 const FULL: Res[] = ['1d', '1h', '1m'];
 // For charts that also register `monthSeries` — the ladder is the single source
 // of truth for whether '1M' is offered (see serveRange's '1M' branch).
 export const FULL_M: Res[] = ['1d', '1h', '1m', '1M'];
 const DAILY: Res[] = ['1d'];
+
+/** One split sub-series of a 'multi' chart, e.g. per-bridge or per-direction. */
+export interface MultiSeriesGroup { key: string; label: string; points: RangePoint[] }
 
 export interface RangeMetaEntry {
   kind: Kind;
@@ -390,6 +393,8 @@ export interface RangeMetaEntry {
   // `ladder` too — omitting either keeps falling back to the ladder's coarsest
   // tiled resolution.
   monthSeries?: (name: string) => Promise<RangePoint[]>;
+  // Whole-history fetcher for 'multi' kind charts — bypasses tiling like monthSeries.
+  multiSeries?: (name: string, res: Res, fromSec: number, toSec: number) => Promise<MultiSeriesGroup[]>;
 }
 
 export const RANGE_META: Record<string, RangeMetaEntry> = {
@@ -425,8 +430,9 @@ async function fetchTile(name: string, meta: RangeMetaEntry, res: TiledRes, tile
   if (meta.kind === 'level') { const { rows } = await q<{ ts: string; value: number | null }>(buildLevelRangeSql(name, res, tileStart, tileEnd)); return toRange(rows); }
   if (meta.kind === 'rate')  { const { rows } = await q<{ ts: string; value: number | null }>(buildRateRangeSql(name as 'coinbase' | 'dex-volume', res, tileStart, tileEnd)); return toRange(rows); }
   if (meta.kind === 'explorer') return explorerRangeSeries(meta.col!, !!meta.isDelta, res, tileStart, tileEnd);
-  // daily-only: only 1d makes sense; these three keep their legacy full-series
-  // bodies, so range mode just returns [] (frontend never zooms them).
+  // daily-only / multi: neither goes through the tile grid — daily-only keeps its
+  // legacy full-series body (frontend never zooms them) and multi is handled
+  // entirely inside serveRange before fetchTile is ever called.
   return [];
 }
 
@@ -436,10 +442,39 @@ function toRange(rows: ReadonlyArray<{ ts: string | number; value: number | null
   return out;
 }
 
-export async function serveRange(name: string, res: Res, fromSec: number, toSec: number): Promise<{ body: { series: RangePoint[] }; etag: string; immutable: boolean }> {
+// `kind` is an explicit wire discriminant, not inferred from array shape:
+// `{series: []}` is ambiguous between an empty single series and an empty
+// multi-series window, so consumers must switch on `kind`, never on
+// `'points' in series[0]`.
+export type RangeBody =
+  | { kind: 'single'; series: RangePoint[] }
+  | { kind: 'multi'; series: MultiSeriesGroup[] };
+
+export async function serveRange(name: string, res: Res, fromSec: number, toSec: number): Promise<{ body: RangeBody; etag: string; immutable: boolean }> {
   const meta = RANGE_META[name];
   if (!meta) throw new Error(`unknown chart: ${name}`);
   const nowSec = Math.floor(Date.now() / 1000);
+
+  // Multi-series charts are split into a handful of small named series (e.g. per
+  // bridge) that are cheap to compute whole, so they skip the tile grid entirely
+  // rather than tiling each sub-series independently. Checked before '1M' so the
+  // response shape is a function of the chart, never of the query param — a
+  // multi chart does its own month bucketing inside `multiSeries` when `res`
+  // is '1M', instead of ever falling into the flat single-series '1M' branch.
+  if (meta.kind === 'multi') {
+    if (!meta.multiSeries) throw new Error(`chart ${name}: kind 'multi' requires a multiSeries fetcher`);
+    const key = `${name}:multi:${res}:${fromSec}:${toSec}`;
+    const body = await rangeCache.inflight(key, async (): Promise<RangeBody> => {
+      const groups = await meta.multiSeries!(name, res, fromSec, toSec);
+      const series: MultiSeriesGroup[] = groups.map((g) => ({
+        key: g.key,
+        label: g.label,
+        points: g.points.filter((p) => p.ts >= fromSec && p.ts < toSec),
+      }));
+      return { kind: 'multi', series };
+    });
+    return { body, etag: etagOf(body), immutable: false };
+  }
 
   // A month has no fixed width, so it cannot ride the tile grid below. The month
   // tier is small enough (tens of buckets) to compute whole and slice, which is
@@ -450,7 +485,7 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
     const monthKey = `${name}:1M:full`;
     const all = await rangeCache.inflight(monthKey, () => meta.monthSeries!(name));
     const series = all.filter((p) => p.ts >= fromSec && p.ts < toSec);
-    const body = { series };
+    const body: RangeBody = { kind: 'single', series };
     return { body, etag: etagOf(body), immutable: false };
   }
 
@@ -481,7 +516,7 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
   const merged: RangePoint[] = [];
   for (const pts of perTile) for (const p of pts) if (p.ts >= from && p.ts < to) merged.push(p);
   merged.sort((a, b) => a.ts - b.ts);
-  const body = { series: merged };
+  const body: RangeBody = { kind: 'single', series: merged };
   const immutable = to < nowSec - CONFIRMATION_SECONDS;
   return { body, etag: etagOf(body), immutable };
 }
