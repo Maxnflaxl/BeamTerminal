@@ -4,7 +4,7 @@ import { q } from '../../db.js';
 import { fetchNetworkSeries, fetchNetworkSeriesHourly, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
 import { fetchBlackholeSeries } from '../../services/blackhole.js';
 import { supplyAtHeight } from '../../services/beamEmission.js';
-import { serveRange, RANGE_META, type Res as RangeRes } from './chart-range.js';
+import { serveRange, RANGE_META, bridgeMultiSeries, bridgeSingleSeries, type Res as RangeRes } from './chart-range.js';
 
 interface SeriesPoint {
   ts: number;
@@ -913,6 +913,20 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'contract-calls-total',fetch: netFetcher('total_contract_calls'), hourlyFetch: netFetcherHourly('total_contract_calls'), maxAgeSec: 600 },
   // Multi-series: one cumulative line per asset locked in the BlackHole contract.
   { name: 'blackhole',           fetchBody: fetchBlackholeSeries,           maxAgeSec: 1800 },
+  // Bridge transfer, fee and TVL series — 300s matches the bridge sync cadence.
+  // Default-mode fetchers route through the same bridgeSingleSeries/bridgeMultiSeries
+  // used by serveRange's range mode so the two paths can't drift apart.
+  // bridge-tvl and bridge-tvl-by-asset sit adjacent: both hit the same 60s
+  // `loadLockedHistory` TTL in bridgeTvl.ts, so keeping their pre-warms next to
+  // each other avoids straddling that window and paying for two reconstructions.
+  { name: 'bridge-tvl',                    fetch: () => bridgeSingleSeries('bridge-tvl', '1d'), maxAgeSec: 300 },
+  { name: 'bridge-tvl-by-asset',           fetchBody: async () => ({ series: await bridgeMultiSeries('bridge-tvl-by-asset', '1d') }), maxAgeSec: 300 },
+  { name: 'bridge-transfers',              fetch: () => bridgeSingleSeries('bridge-transfers', '1d'), maxAgeSec: 300 },
+  { name: 'bridge-transfers-by-direction', fetchBody: async () => ({ series: await bridgeMultiSeries('bridge-transfers-by-direction', '1d') }), maxAgeSec: 300 },
+  { name: 'bridge-transfers-by-bridge',    fetchBody: async () => ({ series: await bridgeMultiSeries('bridge-transfers-by-bridge', '1d') }), maxAgeSec: 300 },
+  { name: 'bridge-transfers-total',        fetch: () => bridgeSingleSeries('bridge-transfers-total', '1d'), maxAgeSec: 300 },
+  { name: 'bridge-fees',                   fetch: () => bridgeSingleSeries('bridge-fees', '1d'), maxAgeSec: 300 },
+  { name: 'bridge-fees-total',             fetch: () => bridgeSingleSeries('bridge-fees-total', '1d'), maxAgeSec: 300 },
 ];
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;

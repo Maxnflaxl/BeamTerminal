@@ -4,6 +4,8 @@
 import { createHash } from 'node:crypto';
 import { q } from '../../db.js';
 import { fetchNetworkRangeByHeight, resToDh, type ExplorerRow } from '../../services/networkStats.js';
+import { bridgeTransfers, bridgeTransfersTotal, bridgeFees, bridgeFeesTotal } from '../repos/bridgeSeries.js';
+import { bridgeTvlSeries, bridgeTvlByAsset, type Bucket as BridgeBucket } from '../../services/bridgeTvl.js';
 
 export type Res = '1m' | '1h' | '1d' | '1M';
 
@@ -380,9 +382,59 @@ const FULL: Res[] = ['1d', '1h', '1m'];
 // of truth for whether '1M' is offered (see serveRange's '1M' branch).
 export const FULL_M: Res[] = ['1d', '1h', '1m', '1M'];
 const DAILY: Res[] = ['1d'];
+// Bridge series only ever bucket by day or whole-calendar-month — there is no
+// sub-daily bridge_messages granularity to offer, so '1h'/'1m' are absent.
+const BRIDGE_LADDER: Res[] = ['1M', '1d'];
 
 /** One split sub-series of a 'multi' chart, e.g. per-bridge or per-direction. */
 export interface MultiSeriesGroup { key: string; label: string; points: RangePoint[] }
+
+function bridgeBucketFor(res: Res): BridgeBucket {
+  return res === '1M' ? 'month' : 'day';
+}
+
+// etagOf hashes JSON.stringify(body), so groups must come back in a stable
+// order — an unordered SQL result would churn the ETag and defeat 304s.
+// Plain comparison, not localeCompare: collation is locale/ICU-dependent and
+// the ETag must not vary by environment.
+function sortGroups(groups: MultiSeriesGroup[]): MultiSeriesGroup[] {
+  return [...groups].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+export async function bridgeMultiSeries(name: string, res: Res): Promise<MultiSeriesGroup[]> {
+  const bucket = bridgeBucketFor(res);
+  switch (name) {
+    case 'bridge-transfers-by-direction':
+      return sortGroups(await bridgeTransfers(bucket, 'direction'));
+    case 'bridge-transfers-by-bridge':
+      return sortGroups(await bridgeTransfers(bucket, 'bridge'));
+    case 'bridge-tvl-by-asset': {
+      const { series } = await bridgeTvlByAsset(bucket);
+      // MultiSeriesGroup has no slot for BridgeAssetSeries.decimals — the points
+      // are already scaled to real magnitude, so a fixed display precision on
+      // the frontend covers every asset without needing per-series precision.
+      return sortGroups(series.map(({ key, label, points }) => ({ key, label, points })));
+    }
+    default:
+      throw new Error(`bridgeMultiSeries: unknown chart ${name}`);
+  }
+}
+
+// Whole-history fetcher for the five single-shape bridge charts. Registered as
+// `wholeSeries` so both the '1d' and '1M' rungs of their ladder are served —
+// unlike the generic 'daily-only' tiled path, which returns [] for anything
+// that isn't SQL-backed (see fetchTile).
+export async function bridgeSingleSeries(name: string, res: Res): Promise<RangePoint[]> {
+  const bucket = bridgeBucketFor(res);
+  switch (name) {
+    case 'bridge-transfers':       return (await bridgeTransfers(bucket, 'none'))[0]?.points ?? [];
+    case 'bridge-transfers-total': return bridgeTransfersTotal(bucket);
+    case 'bridge-fees':            return (await bridgeFees(bucket, 'none'))[0]?.points ?? [];
+    case 'bridge-fees-total':      return bridgeFeesTotal(bucket);
+    case 'bridge-tvl':             return bridgeTvlSeries(bucket);
+    default: throw new Error(`bridgeSingleSeries: unknown chart ${name}`);
+  }
+}
 
 export interface RangeMetaEntry {
   kind: Kind;
@@ -395,6 +447,10 @@ export interface RangeMetaEntry {
   monthSeries?: (name: string) => Promise<RangePoint[]>;
   // Whole-history fetcher for 'multi' kind charts — bypasses tiling like monthSeries.
   multiSeries?: (name: string, res: Res, fromSec: number, toSec: number) => Promise<MultiSeriesGroup[]>;
+  // Whole-history fetcher covering every rung of `ladder` at once (not just
+  // '1M' like monthSeries) — for charts with no SQL tile builder at all, so
+  // `fetchTile`'s [] fallback is never reached for any requested res.
+  wholeSeries?: (name: string, res: Res) => Promise<RangePoint[]>;
 }
 
 export const RANGE_META: Record<string, RangeMetaEntry> = {
@@ -421,6 +477,18 @@ export const RANGE_META: Record<string, RangeMetaEntry> = {
   // daily-only: no finer tier
   'beam-vol': { kind: 'daily-only', ladder: DAILY }, 'dex-vol': { kind: 'daily-only', ladder: DAILY },
   blackhole: { kind: 'daily-only', ladder: DAILY },
+  // Bridge multi-series: split per direction/bridge/asset, computed whole like
+  // monthSeries rather than tiled — the source tables are small.
+  'bridge-transfers-by-direction': { kind: 'multi', ladder: BRIDGE_LADDER, multiSeries: bridgeMultiSeries },
+  'bridge-transfers-by-bridge': { kind: 'multi', ladder: BRIDGE_LADDER, multiSeries: bridgeMultiSeries },
+  'bridge-tvl-by-asset': { kind: 'multi', ladder: BRIDGE_LADDER, multiSeries: bridgeMultiSeries },
+  // Bridge single-series: no SQL tile builder exists for bridge_messages /
+  // reconstructed TVL, so both the 'day' and 'month' rungs are served whole.
+  'bridge-transfers': { kind: 'daily-only', ladder: BRIDGE_LADDER, wholeSeries: bridgeSingleSeries },
+  'bridge-transfers-total': { kind: 'daily-only', ladder: BRIDGE_LADDER, wholeSeries: bridgeSingleSeries },
+  'bridge-fees': { kind: 'daily-only', ladder: BRIDGE_LADDER, wholeSeries: bridgeSingleSeries },
+  'bridge-fees-total': { kind: 'daily-only', ladder: BRIDGE_LADDER, wholeSeries: bridgeSingleSeries },
+  'bridge-tvl': { kind: 'daily-only', ladder: BRIDGE_LADDER, wholeSeries: bridgeSingleSeries },
 };
 
 const rangeCache = new RangeCache();
@@ -464,6 +532,8 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
   if (meta.kind === 'multi') {
     if (!meta.multiSeries) throw new Error(`chart ${name}: kind 'multi' requires a multiSeries fetcher`);
     const key = `${name}:multi:${res}:${fromSec}:${toSec}`;
+    const cached = rangeCache.get(key);
+    if (cached) return { body: cached.body as RangeBody, etag: cached.etag, immutable: false };
     const body = await rangeCache.inflight(key, async (): Promise<RangeBody> => {
       const groups = await meta.multiSeries!(name, res, fromSec, toSec);
       const series: MultiSeriesGroup[] = groups.map((g) => ({
@@ -473,6 +543,25 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
       }));
       return { kind: 'multi', series };
     });
+    const entry = rangeCache.set(key, body, false);
+    return { body, etag: entry.etag, immutable: false };
+  }
+
+  // A chart with no SQL tile builder (bridge singles) serves both rungs of its
+  // ladder whole rather than falling into fetchTile's [] fallback. Checked
+  // before '1M' so a plain '1d' request is covered too, not just the month tier.
+  if (meta.wholeSeries) {
+    const key = `${name}:whole:${res}`;
+    const cached = rangeCache.get(key);
+    const all = cached
+      ? (cached.body as RangePoint[])
+      : await rangeCache.inflight(key, async () => {
+        const pts = await meta.wholeSeries!(name, res);
+        rangeCache.set(key, pts, false);
+        return pts;
+      });
+    const series = all.filter((p) => p.ts >= fromSec && p.ts < toSec);
+    const body: RangeBody = { kind: 'single', series };
     return { body, etag: etagOf(body), immutable: false };
   }
 
@@ -483,7 +572,14 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
   // ladder resolution instead (ladder is the single source of truth here).
   if (res === '1M' && meta.ladder.includes('1M') && meta.monthSeries) {
     const monthKey = `${name}:1M:full`;
-    const all = await rangeCache.inflight(monthKey, () => meta.monthSeries!(name));
+    const cachedMonth = rangeCache.get(monthKey);
+    const all = cachedMonth
+      ? (cachedMonth.body as RangePoint[])
+      : await rangeCache.inflight(monthKey, async () => {
+        const pts = await meta.monthSeries!(name);
+        rangeCache.set(monthKey, pts, false);
+        return pts;
+      });
     const series = all.filter((p) => p.ts >= fromSec && p.ts < toSec);
     const body: RangeBody = { kind: 'single', series };
     return { body, etag: etagOf(body), immutable: false };

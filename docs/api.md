@@ -679,15 +679,30 @@ All optional. With none, the endpoint returns the full daily history — the ori
 
 | Name | Type | Default | Notes |
 |---|---|---|---|
-| `res` | `1m` \| `1h` \| `1d` | `1d` | Resolution. `1m` applies only in range mode (below); in default mode any unrecognized value — including `1m` — serves `1d`. |
+| `res` | `1m` \| `1h` \| `1d` \| `1M` | `1d` | Resolution. `1m` and `1M` apply only in range mode (below); in default mode any unrecognized value — including `1m` and `1M` — serves `1d`. `1M` buckets by whole calendar month and is only offered by series whose ladder includes it (currently the `bridge-*` series). |
 | `from` | unix seconds | — | Start of a zoom window. Must be sent together with `to`. |
 | `to` | unix seconds | — | End of a zoom window. Must be greater than `from`. |
 
-**Default mode** — no `from`/`to`. Returns the full-history series at daily (`res=1d`) or hourly (`res=1h`) resolution. Hourly exists for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, and `pools-closed`; requesting `res=1h` on those silently serves `1d`. Both resolutions come from the in-process cache described above, so `Cache-Control` is the per-series `max-age` in the table below.
+**Default mode** — no `from`/`to`. Returns the full-history series at daily (`res=1d`) or hourly (`res=1h`) resolution. Hourly exists for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, `pools-closed`, and the `bridge-*` series; requesting `res=1h` on those silently serves `1d`. Both resolutions come from the in-process cache described above, so `Cache-Control` is the per-series `max-age` in the table below. The response is the flat shape shown above (single-series) for every series in default mode, `blackhole` excepted (see its row below).
 
-**Range ("zoom") mode** — `from` **and** `to` both present. Returns only the points inside `[from, to)`, served from a separate tile-quantized, bounded cache, at `res=1m|1h|1d` (default `1d`). Supported for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, and `pools-closed`, which are daily-only and return an empty `series` here. Bad bounds (`to ≤ from`, or non-numeric) yield `400 {"error":"bad from/to"}`. `Cache-Control: public, max-age=86400` once the whole window has settled (`to` older than the ~80-minute / 80-block confirmation horizon), otherwise `max-age=60`.
+**Range ("zoom") mode** — `from` **and** `to` both present. Returns only the points inside `[from, to)`, served from a separate tile-quantized, bounded cache, at `res=1m|1h|1d|1M` (default `1d`). Supported for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, and `pools-closed`, which are daily-only and return an empty `series` here. Bad bounds (`to ≤ from`, or non-numeric) yield `400 {"error":"bad from/to"}`. `Cache-Control: public, max-age=86400` once the whole window has settled (`to` older than the ~80-minute / 80-block confirmation horizon), otherwise `max-age=60`.
 
-Both modes return the same `{ "series": [ … ] }` shape and honor `ETag` / `If-None-Match` (304 when unchanged).
+In range mode the body carries an explicit `kind` discriminant instead of always being the flat shape — the shape is a fixed property of the series name, never of the query params, so a client never has to sniff the body to know which one it got:
+
+```json
+{ "kind": "single", "series": [ { "ts": 1700000000, "value": 1234567.89 } ] }
+```
+
+```json
+{
+  "kind": "multi",
+  "series": [
+    { "key": "beam2eth", "label": "Beam → Ethereum", "points": [ { "ts": 1700000000, "value": 12 } ] }
+  ]
+}
+```
+
+`kind: "multi"` is used by the three `bridge-*-by-*` series (split per direction / bridge / asset); every other series is `kind: "single"`. Default mode never carries `kind` — it always returns the flat shape from the top of this section, except `blackhole`, whose default-mode body is documented in its row below.
 
 Available series (the full set is defined in `backend/src/api/routes/charts.ts`):
 
@@ -722,6 +737,14 @@ Available series (the full set is defined in `backend/src/api/routes/charts.ts`)
 | `contract-calls-daily` | count/day | 600 s | Explorer `/hdrs` |
 | `contract-calls-total` | cumulative count | 600 s | Explorer `/hdrs` |
 | `blackhole` | — | 1800 s | Multi-series: `series` is not a flat `SeriesPoint[]` but an array of per-asset cumulative-lock series (one line per asset locked in the BlackHole contract). |
+| `bridge-transfers` | count/day | 300 s | `bridge_messages`: transfer count per bucket, all bridges and directions combined |
+| `bridge-transfers-by-direction` | count/day | 300 s | `bridge_messages`: transfer count per bucket, split by direction (`kind: "multi"` in range mode) |
+| `bridge-transfers-by-bridge` | count/day | 300 s | `bridge_messages`: transfer count per bucket, split by bridge (`kind: "multi"` in range mode) |
+| `bridge-transfers-total` | cumulative count | 300 s | `bridge_messages`: running total of transfers |
+| `bridge-fees` | USD/day | 300 s | `bridge_messages`: relayer fees per bucket, priced at the bucket's cross-rate, all bridges and directions combined |
+| `bridge-fees-total` | cumulative USD | 300 s | `bridge_messages`: running total of relayer fees |
+| `bridge-tvl` | USD | 300 s | Reconstructed bridge collateral value locked, priced at each bucket's cross-rate |
+| `bridge-tvl-by-asset` | native units | 300 s | Reconstructed bridge collateral locked, split per asset (`kind: "multi"` in range mode); values are already scaled to display magnitude, not raw on-chain amounts |
 
 In default mode, `Cache-Control` is the per-series `max-age` listed above; range mode is scoped under **Query params** above.
 
