@@ -609,14 +609,11 @@ const BEAM_VOL_SQL = `
 // The series starts where `oracle_snapshots` does (Aug 2022), not at genesis:
 // there is no price before that to multiply by.
 //
-// There is deliberately no `bridge-tvl` series to match. Bridge collateral has
-// no history to chart: `bridge_escrow` is one row per bridge rewritten in place
-// (migration 045 calls it "a 'current value' gauge, not a time series"), and
-// unlike supply it cannot be derived - the Ethereum-side balance is not a
-// function of Beam height. Reconstructing it from `bridge_messages` flow would
-// also need a per-asset historical price, and 045 records that a claimed
-// message's amount survives only in the Ethereum log, not on the Beam side. A
-// chart would mean a new snapshot table starting from today.
+// The `bridge-tvl` series is derived the same way, for the same reason:
+// `bridge_escrow` is one row per bridge rewritten in place (migration 045 calls
+// it "a 'current value' gauge, not a time series"), so its history is
+// reconstructed from `bridge_messages` flow plus Pipe Funds deltas, anchored to
+// the current snapshot. See services/bridgeTvl.ts.
 // ---------------------------------------------------------------------------
 interface HeightPriceRow {
   ts: string;
