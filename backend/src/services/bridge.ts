@@ -37,6 +37,35 @@ import { etherscanEnabled, getLogsPaged, scanSettlements } from './etherscan.js'
 
 const EXPECTED_WASM_SHA256 = 'a53ae07a8a13aca6736bc3b6a5daf608fa4c4c7b25edf2b4a18fd80269c75f83';
 
+/**
+ * Shader method numbers for the three Pipe calls we key on. Two families are in
+ * play and they do not agree, so the numbers belong to the bridge, not to the
+ * module.
+ */
+export interface PipeMethods {
+  /** Beam -> Ethereum send: locks or burns on the Beam side. */
+  pushLocal: number;
+  /** Relayer delivers an Ethereum message to Beam; pays itself the relayer fee. */
+  pushRemote: number;
+  /** Recipient claims a delivered message; releases the amount. */
+  receiveFunds: number;
+}
+
+/**
+ * The b-asset Pipes (bETH, bUSDT, bWBTC, bDAI) — pipe_contract.cpp, called
+ * directly. Their arguments survive into the explorer, and each call group
+ * nests the paired mint or burn on the asset's token contract.
+ */
+const B_ASSET_METHODS: PipeMethods = { pushLocal: 3, pushRemote: 5, receiveFunds: 4 };
+
+/**
+ * The BEAM-custody Pipes — a different shader, reached through an upgradable2
+ * wrapper. Same three operations, different numbering, and the explorer reports
+ * each primary row as "Passthrough" with the arguments stripped, so these
+ * numbers appear only on the nested row.
+ */
+const BEAM_CUSTODY_METHODS: PipeMethods = { pushLocal: 4, pushRemote: 5, receiveFunds: 6 };
+
 export interface BridgeDef {
   /** Stable key used in the DB and the public API. */
   key: string;
@@ -70,6 +99,8 @@ export interface BridgeDef {
    * rather than escrows. Getting this backwards silently reports an unbacked peg.
    */
   custody: 'eth' | 'beam';
+  /** Which method numbering this Pipe's shader uses. */
+  methods: PipeMethods;
   /**
    * `view_params` misreads this Pipe's Params record — it locks aid 0 directly
    * instead of pairing with a token_contract, so the layout differs and the
@@ -96,6 +127,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethDecimals: 8,
     ethDeployBlock: 18190064,
     custody: 'beam',
+    methods: BEAM_CUSTODY_METHODS,
     noViewParams: true,
   },
   {
@@ -114,6 +146,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethDecimals: 8,
     ethDeployBlock: 322082726,
     custody: 'beam',
+    methods: BEAM_CUSTODY_METHODS,
     noViewParams: true,
   },
   {
@@ -128,6 +161,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethDecimals: 18,
     ethDeployBlock: 16590872,
     custody: 'eth',
+    methods: B_ASSET_METHODS,
   },
   {
     key: 'busdt',
@@ -141,6 +175,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethDecimals: 6,
     ethDeployBlock: 16590881,
     custody: 'eth',
+    methods: B_ASSET_METHODS,
   },
   {
     key: 'bwbtc',
@@ -154,6 +189,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethDecimals: 8,
     ethDeployBlock: 16590894,
     custody: 'eth',
+    methods: B_ASSET_METHODS,
   },
   {
     key: 'bdai',
@@ -167,6 +203,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     ethDecimals: 18,
     ethDeployBlock: 16590911,
     custody: 'eth',
+    methods: B_ASSET_METHODS,
   },
 ];
 
@@ -508,11 +545,6 @@ interface PipeCall {
   args: string;
 }
 
-// pipe_contract.cpp, shader SID 38f8c1d4…. Both take the message id as their
-// leading little-endian uint64.
-const METHOD_PUSH_REMOTE = 5; // relayer delivers an Ethereum message to Beam
-const METHOD_RECEIVE_FUNDS = 4; // recipient claims it — msgId is the whole arg
-
 async function pipeCalls(cid: string): Promise<PipeCall[]> {
   const res = await getContract({ id: cid });
   const table = (res as unknown as Record<string, unknown>)['Calls history'];
@@ -582,21 +614,26 @@ async function resolveOutgoingHeights(b: BridgeDef, calls: PipeCall[]): Promise<
  *
  * Both come from calls into the Pipe keyed by message id, so a message that was
  * relayed twice (the first attempt reverting) takes the earliest block that
- * carried it. Messages on the upgradable2-wrapped Pipes get nothing: the
- * explorer reports their calls as "Passthrough" with the arguments stripped, so
- * there is no message id to key on.
+ * carried it.
+ *
+ * Only the b-asset Pipes yield anything. The BEAM-custody Pipes sit behind an
+ * upgradable2 wrapper, so the explorer decodes every primary row as
+ * "Passthrough" with no method and no arguments; the real method number sits on
+ * the nested row, which carries no message id either. Their heights stay null
+ * until the parser exposes the wrapped call.
  */
 async function resolveIncomingHeights(b: BridgeDef, calls: PipeCall[]): Promise<number> {
   const delivered = new Map<number, number>();
   const claimed = new Map<number, number>();
   for (const c of calls) {
     if (typeof c.method !== 'number') continue;
-    const target = c.method === METHOD_PUSH_REMOTE ? delivered
-      : c.method === METHOD_RECEIVE_FUNDS ? claimed : null;
+    const target = c.method === b.methods.pushRemote ? delivered
+      : c.method === b.methods.receiveFunds ? claimed : null;
     if (target === null) continue;
     // ReceiveFunds carries nothing but the id; anything longer is a different
-    // shape and not ours to read.
-    if (c.method === METHOD_RECEIVE_FUNDS && c.args.length !== 16) continue;
+    // shape and not ours to read. PushRemote leads with the id and follows it
+    // with the receiver, amount and relayer fee.
+    if (c.method === b.methods.receiveFunds && c.args.length !== 16) continue;
     const msgId = leadingMsgId(c.args);
     if (msgId === null) continue;
     const prev = target.get(msgId);
