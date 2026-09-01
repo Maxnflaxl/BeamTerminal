@@ -84,7 +84,9 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
     if (kind === 'lp') {
       // ctl_after: LP token supply at the first snapshot taken at/after the
       // event's height — i.e. the pool size *after* this deposit/withdraw.
-      // liquidity_pct expresses the event as a (signed) share of that pool.
+      // liquidity_pct expresses the event as a (signed) share of the pool it
+      // moved: the supply after a deposit, before a withdraw. Dividing a
+      // near-total withdraw by the dust it leaves behind yields nonsense.
       const ctlAfterCol = `(SELECT s.ctl_supply::text FROM pool_state_snapshots s
                               WHERE s.pool_id = t.pool_id AND s.height >= t.height
                               ORDER BY s.height LIMIT 1) AS ctl_after`;
@@ -114,8 +116,10 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
         );
       const trades = rows.map((r) => {
         const ctlAfter = r.ctl_after ? Number(r.ctl_after) : null;
-        const share = ctlAfter && ctlAfter > 0
-          ? (Number(r.amount_ctl) / ctlAfter) * 100
+        const amtCtl = Number(r.amount_ctl);
+        const base = r.kind === 'Withdraw' ? (ctlAfter ?? 0) + amtCtl : ctlAfter;
+        const share = base && base > 0
+          ? Math.min((amtCtl / base) * 100, 100)
           : null;
         const liquidityPct = share === null
           ? null

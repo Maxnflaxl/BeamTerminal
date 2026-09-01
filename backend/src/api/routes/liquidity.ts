@@ -91,6 +91,9 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
             SELECT bucket, pool_id, reserve1, reserve2
               FROM liquidity_1h
              WHERE pool_id = ANY($1)
+               -- Snapshots carrying a zeroed timestamp bucket to the epoch and
+               -- would stretch the series back to 1970.
+               AND bucket > to_timestamp(0)
                ${bounds.join('\n               ')}`;
       sql = interval === '1h'
         ? `

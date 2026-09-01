@@ -73,6 +73,11 @@ export async function resolvePoolId(key: PoolKey): Promise<bigint | null> {
  * indexer) can also use the data for derived stats without re-fetching.
  */
 export async function snapshotPoolStates(headHeight: number, headTs: Date): Promise<PoolStateRow[]> {
+  // A missing head timestamp used to land as the epoch, and epoch-stamped
+  // snapshots drag every derived series back to 1970. Fail the tick instead.
+  if (!(headTs.getTime() > 0)) {
+    throw new Error(`refusing to snapshot pool state at invalid head ts ${headTs.getTime()}`);
+  }
   const resp = await getContract({ id: config.DEX_CID, state: true, nMaxTxs: 0 });
   const pools = parsePoolsTable(resp);
   if (pools.length === 0) {
