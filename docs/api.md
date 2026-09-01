@@ -783,6 +783,7 @@ and BEAM/WBEAM on both Ethereum mainnet and Arbitrum One.
       "unclaimed_amount": 41.5,
       "escrow": { "locked": 3701.4022, "decimals": 6, "observed_at": "2026-08-08T23:40:00.000Z" },
       "minted": 3688.28,
+      "over_collateral": 0,
       "collateral_ratio": 0.9964,
       "settlement_source": "etherscan"
     }
@@ -806,6 +807,15 @@ Status vocabularies differ by direction, because the underlying contract states 
 
 `unclaimed` is **not** an error: only the recipient can claim, so a message can sit
 there indefinitely. Don't count it as a bridge failure.
+
+`over_collateral` counts open `beam2eth` messages whose amount exceeds the
+collateral the bridge holds. Such a message cannot settle — there is nothing to
+release against it — so a non-zero count means either wrapped arithmetic or a
+deliberate attempt. It is worth surfacing because the Beam-side relay applies no
+amount check of its own: unlike the Ethereum-side relay, which rejects an
+overflowing `amount + relayerFee` outright, it forwards whatever the Pipe
+recorded provided the fee clears its minimum. `null` means the escrow snapshot is
+missing and nothing could be compared; `0` means checked and clear.
 
 `collateral_ratio` is minted supply ÷ locked collateral. ≤1.0 means every wrapped
 unit is backed; small deviations are in-flight messages and relayer fees, and a
@@ -916,12 +926,18 @@ Ethereum address for `beam2eth` and a 33-byte Beam pubkey for `eth2beam`, hex, n
 `null` for ordinary ones. Two shapes occur, and neither should be rendered as a
 number — both read as an enormous genuine transfer:
 
-- `"absurd"` — uint256-scale junk pushed into the Pipe (bDAI 43–48, bUSDT
-  128/136, bWBTC 22). The relayer never delivers these.
-- `"underflow"` — a Beam-side amount that wrapped. Beam amounts are uint64, and
-  the Pipe subtracts the relayer fee without checking that it fits, so a message
-  whose fee exceeds its amount stores the wrapped difference: a value just under
-  2^64, which scales to a plausible-looking ~1.8e11. Nothing of value crossed.
+- `"overflow"` — `amount + relayerFee` wrapped past uint256 in the Ethereum
+  Pipe, which computes that sum with unchecked arithmetic (solidity ^0.7.2). The
+  wrap drops the total the sender actually pays to almost nothing while the
+  emitted amount stays enormous, so these are attempts on the bridge, not
+  transfers; the relayer tests the same predicate and refuses them (bDAI 43–48,
+  bUSDT 128/136, bWBTC 22). The stored figures are reported unchanged — there is
+  no meaningful number to show.
+- `"underflow"` — a Beam-side amount that wrapped. Beam amounts are uint64 and
+  the fee is subtracted from the transferred amount without a check, so a fee
+  larger than the amount stores the wrapped difference. Here `amount` is
+  reported **unwrapped**, as a negative number: how far the fee overshot. Nothing
+  of value crossed.
 
 The message is still listed either way — "the bridge accepted this" is exactly
 what the endpoint exists to show. `Cache-Control: public, max-age=30`.

@@ -246,18 +246,19 @@ async function pipeCall<T>(args: string): Promise<T> {
   return output;
 }
 
-// The shader reports "no such message" as a JSON `error` field rather than an
-// RPC error, and invokeContract() turns that into a throw. Absence is an
-// expected answer for the boundary probes below, so it maps to null — but only
-// for that one message; any other failure still propagates.
-async function pipeCallAllowAbsent<T>(args: string): Promise<T | null> {
-  try {
-    return await pipeCall<T>(args);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/shader error:.*absent/i.test(msg)) return null;
-    throw err;
-  }
+/**
+ * Exact digits of a numeric field, read from the shader's response text before
+ * JSON.parse sees it.
+ *
+ * The shader emits amounts as bare JSON numbers, and a Beam Amount is a uint64:
+ * anything past 2^53 groths loses digits the moment it becomes a double. That
+ * is 90M BEAM for an ordinary transfer, but a message whose fee underflowed
+ * carries ~1.8e19 groths, where the nearest double is thousands of groths away
+ * — enough to turn an exact -50 BEAM overshoot into -49.99999616.
+ */
+function rawIntField(raw: string, field: string): string | null {
+  const m = new RegExp(`"${field}"\\s*:\\s*"?(\\d+)"?`).exec(raw);
+  return m?.[1] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,7 +286,31 @@ export async function getLocalMsgCount(cid: string): Promise<number> {
 }
 
 export async function getLocalMsg(cid: string, msgId: number): Promise<LocalMsgOut | null> {
-  return pipeCallAllowAbsent<LocalMsgOut>(`role=manager,action=local_msg,cid=${cid},msgId=${msgId}`);
+  const contract = await loadWasm();
+  const args = `role=manager,action=local_msg,cid=${cid},msgId=${msgId}`;
+  let res;
+  try {
+    res = await invokeContract<LocalMsgOut>({ args, contract });
+  } catch (err) {
+    // The shader reports "no such message" as a JSON `error` field rather than
+    // an RPC error, and invokeContract() turns that into a throw. Absence is an
+    // expected answer for the boundary probes above, so it maps to null — but
+    // only for that one message; any other failure still propagates.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/shader error:.*absent/i.test(msg)) return null;
+    throw err;
+  }
+  const out = res.output;
+  if (!out || typeof out !== 'object') return out;
+  // Prefer the untouched digits; fall back to the parsed value if the field
+  // isn't a plain integer in the response.
+  const amount = rawIntField(res.rawOutput, 'amount') ?? out.amount;
+  const relayerFee = rawIntField(res.rawOutput, 'relayerFee') ?? out.relayerFee;
+  return {
+    ...out,
+    ...(amount === undefined ? {} : { amount }),
+    ...(relayerFee === undefined ? {} : { relayerFee }),
+  };
 }
 
 /** Raw contract status: 0 not delivered, 1 complete, 2 delivered-unclaimed. */

@@ -1,6 +1,6 @@
 import { q } from '../db.js';
 import { logger } from '../logger.js';
-import { scale, isAbsurdAmount } from '../bridgeAmounts.js';
+import { scale, classifyAmounts } from '../bridgeAmounts.js';
 import { BRIDGES, type BridgeDef } from './bridge.js';
 import { pipeFundsDeltas } from './bridgePipeFunds.js';
 import { getBlockTsMap } from './blockTimestamps.js';
@@ -157,8 +157,8 @@ async function ethCustodyDeltas(
     const dec = row.direction === 'beam2eth' ? def.decimals : def.ethDecimals;
     const amount = scale(row.amount, dec);
     const fee = scale(row.relayer_fee, dec);
-    // Junk pushed into the Pipe at around 2^256, not a transfer.
-    if (isAbsurdAmount(amount, fee)) continue;
+    // Wrapped arithmetic in one of the Pipes, not a transfer.
+    if (classifyAmounts(row.direction, row.amount, row.relayer_fee) !== null) continue;
     const value = (amount ?? 0) + (fee ?? 0);
 
     const target = out.get(def.key)!;

@@ -1,5 +1,5 @@
 import { q } from '../../db.js';
-import { scale, isAbsurdAmount } from '../../bridgeAmounts.js';
+import { scale, classifyAmounts } from '../../bridgeAmounts.js';
 import { BRIDGES, type BridgeDef } from '../../services/bridge.js';
 import { type Bucket, loadRatePricer } from '../../services/bridgeTvl.js';
 
@@ -77,8 +77,9 @@ function toTotals(rows: Array<{ ts: number; value: number }>): SeriesPoint[] {
 }
 
 // ---------------------------------------------------------------------------
-// Transfers: every message with a source timestamp counts, spam included —
-// those transfers really were sent. ABSURD only filters value figures.
+// Transfers: every message with a source timestamp counts, the wrapped ones
+// included — they really were pushed into the bridge. Only value figures are
+// filtered.
 // ---------------------------------------------------------------------------
 
 interface CountRow {
@@ -120,12 +121,13 @@ interface FeeRow {
   ts: string;
   direction: string;
   bridge: string;
+  amount: string | null;
   relayer_fee: string | null;
 }
 
 const FEE_SQL = `
   SELECT EXTRACT(epoch FROM date_trunc($1, src_ts AT TIME ZONE 'UTC'))::bigint AS ts,
-         direction, bridge, relayer_fee::text AS relayer_fee
+         direction, bridge, amount::text AS amount, relayer_fee::text AS relayer_fee
     FROM bridge_messages
    WHERE src_ts IS NOT NULL AND relayer_fee IS NOT NULL
    ORDER BY ts
@@ -147,8 +149,9 @@ async function feeUsdRows(
     const dec = row.direction === 'beam2eth' ? def.decimals : def.ethDecimals;
     const fee = scale(row.relayer_fee, dec);
     if (fee === null) continue;
-    // Junk pushed into the Pipe at around 2^256, not a real relayer fee.
-    if (isAbsurdAmount(fee)) continue;
+    // Wrapped arithmetic, not a fee anyone paid. The amount comes along because
+    // an overflow is a property of the pair, not of either figure alone.
+    if (classifyAmounts(row.direction, row.amount, row.relayer_fee) !== null) continue;
 
     const rate = pricer.priceAt(def.aid, ts);
     if (rate === null) continue;

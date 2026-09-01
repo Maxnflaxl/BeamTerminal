@@ -1,7 +1,7 @@
 import { q } from '../../db.js';
 import { getBlock } from '../../explorer.js';
 import { BRIDGES } from '../../services/bridge.js';
-import { scale, isAbsurdAmount, isWrappedUint64 } from '../../bridgeAmounts.js';
+import { scale, classifyAmounts, unwrapUint64, type MalformedReason } from '../../bridgeAmounts.js';
 import { loadUsdTable } from './usd.js';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,15 @@ export interface BridgeHealthRow {
    * no pool prices that asset.
    */
   locked_usd: number | null;
+  /**
+   * Open Beam -> Ethereum messages whose amount exceeds the collateral this
+   * bridge actually holds. Settling one is impossible, so a non-zero count is
+   * either wrapped arithmetic or a deliberate attempt — and the Beam-side relay
+   * has no amount check of its own, which makes this the only place it shows.
+   * Null when the escrow snapshot is missing, since there is nothing to compare
+   * against; 0 means checked and clear.
+   */
+  over_collateral: number | null;
   /** minted / locked. Null when either side is unknown. ~1.0 means fully backed. */
   collateral_ratio: number | null;
   settlement_source: 'etherscan' | 'unavailable';
@@ -46,7 +55,7 @@ interface StatusAggRow {
 }
 
 export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealthRow[]> {
-  const [agg, escrow, minted, unclaimed, usd] = await Promise.all([
+  const [agg, escrow, minted, unclaimed, openOut, usd] = await Promise.all([
     q<StatusAggRow>(
       `SELECT bridge, direction, status, count(*)::text AS n,
               min(src_ts)::text AS oldest, max(src_ts)::text AS newest
@@ -73,6 +82,15 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
          FROM bridge_messages
         WHERE direction = 'eth2beam' AND status = 'unclaimed'
         GROUP BY 1`,
+    ),
+    // Every outgoing message still awaiting settlement. Only a handful are ever
+    // open at once, so the comparison against escrow happens in JS rather than
+    // pushing each bridge's own threshold into SQL.
+    q<{ bridge: string; amount: string | null; relayer_fee: string | null }>(
+      `SELECT bridge, amount::text, relayer_fee::text
+         FROM bridge_messages
+        WHERE direction = 'beam2eth' AND status IN ('pending', 'unknown')
+          AND amount IS NOT NULL`,
     ),
     // Never let a pricing failure take down the whole endpoint — the bridge
     // health numbers are useful with or without a USD column.
@@ -123,6 +141,16 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
     // (it's an Ethereum ERC20 supply). For the rest it's the Beam asset's own
     // emission. Using assets.emission for a custody:'beam' bridge would report
     // BEAM's entire emission as if it were bridged.
+    // An underflowed amount is compared as the huge figure the relay would
+    // actually be handed, not as the negative value we report to readers: it is
+    // the raw number that would reach processRemoteMessage.
+    const overCollateral = lockedVal === null ? null : openOut.rows
+      .filter((r) => r.bridge === b.key)
+      .filter((r) => {
+        const amt = scale(r.amount, b.decimals);
+        return amt !== null && amt > lockedVal;
+      }).length;
+
     const mintedVal = (() => {
       if (esc?.minted !== null && esc?.minted !== undefined) {
         return scale(esc.minted, esc.minted_decimals ?? b.ethDecimals);
@@ -158,6 +186,7 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
         const px = usd?.perAid.get(b.aid);
         return px === undefined ? null : lockedVal * px;
       })(),
+      over_collateral: overCollateral,
       collateral_ratio:
         lockedVal !== null && lockedVal > 0 && mintedVal !== null ? mintedVal / lockedVal : null,
       settlement_source: etherscanOn ? 'etherscan' : 'unavailable',
@@ -192,13 +221,15 @@ export interface BridgeMessageRow {
   claimed_ts: string | null;
   /**
    * Why the stored figures are not a real transfer, or null when they are.
-   *   'absurd'    uint256-scale junk pushed into the Pipe.
+   *   'overflow'  `amount + relayerFee` wrapped past uint256 in the Ethereum
+   *               Pipe — an attempt on the bridge, which the relayer rejects.
    *   'underflow' a Beam-side uint64 that wrapped because the relayer fee
    *               exceeded the amount it was subtracted from.
-   * Either one reads as an enormous real transfer when printed as a number, so
-   * consumers should show the message without its value.
+   * For 'underflow' the reported `amount` is the unwrapped signed value, which
+   * is the figure that actually explains the message; for 'overflow' there is
+   * no meaningful number and the stored one is reported as-is.
    */
-  malformed: 'absurd' | 'underflow' | null;
+  malformed: MalformedReason | null;
 }
 
 interface MessageRowRaw {
@@ -232,12 +263,13 @@ function toRow(r: MessageRowRaw): BridgeMessageRow {
   // messages carry Beam-side units, incoming ones Ethereum-side units.
   const dec = r.direction === 'beam2eth' ? def?.decimals ?? 8 : def?.ethDecimals ?? 8;
   const num = (v: string | null): number | null => (v === null ? null : Number(v));
-  const amount = scale(r.amount, dec);
+  const malformed = classifyAmounts(r.direction, r.amount, r.relayer_fee);
+  // An underflowed amount is reported as what it means — a fee that overshot
+  // the amount by this much — rather than as the wrapped remainder.
+  const amountRaw = malformed === 'underflow' && r.amount !== null
+    ? unwrapUint64(r.amount) : r.amount;
+  const amount = scale(amountRaw, dec);
   const fee = scale(r.relayer_fee, dec);
-  // Only outgoing messages carry Beam-side uint64s; incoming ones are uint256
-  // and legitimately exceed 2^63 on an 18-decimal asset.
-  const wrapped = r.direction === 'beam2eth'
-    && (isWrappedUint64(r.amount) || isWrappedUint64(r.relayer_fee));
   return {
     bridge: r.bridge,
     direction: r.direction,
@@ -258,9 +290,7 @@ function toRow(r: MessageRowRaw): BridgeMessageRow {
     delivered_ts: r.delivered_ts,
     claimed_height: num(r.claimed_height),
     claimed_ts: r.claimed_ts,
-    // Underflow first: a wrapped amount is also large, and naming it as junk
-    // would send a reader looking for spam that isn't there.
-    malformed: wrapped ? 'underflow' : isAbsurdAmount(amount, fee) ? 'absurd' : null,
+    malformed,
   };
 }
 
@@ -359,7 +389,7 @@ function explain(
   ageDays: number | null,
   amount: number | null,
   fee: number | null,
-  malformed: 'absurd' | 'underflow' | null,
+  malformed: MalformedReason | null,
   beam?: { delivered: number | null; claimed: number | null },
 ): string {
   const blocks = (() => {
@@ -371,15 +401,16 @@ function explain(
     return '';
   })();
   if (malformed === 'underflow') {
-    return 'The amount on this message underflowed. The Pipe subtracted the relayer fee from a '
-      + 'smaller transferred amount, and the unsigned result wrapped around to just under 2^64 — '
-      + 'so the figure stored is the wrapped remainder, not a balance. Nothing of value crossed '
-      + 'and no relayer will settle it.';
+    return 'The amount on this message underflowed: the relayer fee was subtracted from a '
+      + 'smaller transferred amount and the unsigned result wrapped around past 2^64. The '
+      + 'amount shown is what that works out to — how far the fee overshot. Nothing of value '
+      + 'crossed, and no relayer will settle it.';
   }
-  if (malformed === 'absurd' && status === 'not_delivered') {
-    return 'This message carries a nonsensical value (around 2^256, the maximum a uint256 can '
-      + 'hold) rather than a real amount. It is junk pushed into the bridge contract, not a '
-      + 'transfer, and the relayer will not process it.';
+  if (malformed === 'overflow') {
+    return 'This is an attempt on the bridge rather than a transfer. The Ethereum Pipe adds the '
+      + 'amount and the relayer fee without an overflow check, so a large enough pair wraps the '
+      + 'total back down to almost nothing — letting the sender claim an enormous amount while '
+      + 'paying a trivial one. The relayer tests for exactly this and will not deliver it.';
   }
   if (direction === 'eth2beam') {
     switch (status) {
