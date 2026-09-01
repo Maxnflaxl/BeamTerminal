@@ -258,6 +258,12 @@ const RefCell = styled.div`
 
 const Mono = styled.span`
   font-family: ${theme.font.mono};
+
+  /* An underflowed amount is a real figure — the fee's overshoot — but not a
+     transfer, so it reads as a number in a warning colour rather than a pill. */
+  &[data-tone='warn'] {
+    color: ${theme.color.warn};
+  }
 `;
 
 const Pager = styled.div`
@@ -287,20 +293,21 @@ function fmtAmount(n: number | null, maxFrac = 6): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: maxFrac });
 }
 
-// A malformed message has no value worth printing: 'absurd' is uint256-scale
-// junk pushed into the Pipe, 'underflow' a Beam-side uint64 that wrapped when
-// the relayer fee exceeded the amount. Both scale to enormous numbers that read
-// as a real transfer of a fortune, so the figure is replaced rather than shown.
-function malformedNote(kind: 'absurd' | 'underflow'): string {
+// Underflowed amounts arrive unwrapped (negative): the fee overshot the amount by
+// that much, which is the whole story and worth printing. Overflowed ones carry no
+// meaningful number — the point of the attempt was the wrap, not the figure — so
+// they get a label instead.
+function malformedNote(kind: 'overflow' | 'underflow'): string {
   const lines =
     kind === 'underflow'
       ? [
-          'Amount underflowed: the relayer fee exceeded the amount it was subtracted from,',
-          'so the stored value wrapped around to just under 2^64. Nothing of value crossed.',
+          'The relayer fee exceeded the amount it was subtracted from, and the unsigned result',
+          'wrapped past 2^64. Shown is how far the fee overshot. Nothing of value crossed.',
         ]
       : [
-          'Not a transfer: junk pushed into the bridge contract at around 2^256,',
-          'which the relayer will not process.',
+          'An attempt on the bridge, not a transfer: the Ethereum Pipe adds amount and relayer fee',
+          'without an overflow check, so a large enough pair wraps the total down to almost nothing.',
+          'The relayer refuses these.',
         ];
   return lines.join(' ');
 }
@@ -465,6 +472,19 @@ const BridgeSummaryCard: React.FC<{
       </SubValue>
 
       <Chips>
+        {/* Listed first: a message the bridge cannot possibly cover is the one
+            thing on this card that needs looking at today. */}
+        {(row.over_collateral ?? 0) > 0 && (
+          <Pill
+            data-tone="danger"
+            title={
+              'Open outgoing messages asking for more than this bridge holds. They cannot settle, ' +
+              'and the Beam-side relay has no amount check of its own.'
+            }
+          >
+            {row.over_collateral} over collateral
+          </Pill>
+        )}
         {row.incoming.unclaimed > 0 && <Pill data-tone="info">{row.incoming.unclaimed} awaiting claim</Pill>}
         {row.incoming.not_delivered > 0 && <Pill data-tone="warn">{row.incoming.not_delivered} not delivered</Pill>}
         {row.outgoing.failed > 0 && <Pill data-tone="danger">{row.outgoing.failed} failed</Pill>}
@@ -660,11 +680,11 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <PegStatLabel>Direction</PegStatLabel>
               <PegStatValue>{m.direction === 'beam2eth' ? 'Beam → Ethereum' : 'Ethereum → Beam'}</PegStatValue>
               <PegStatLabel>Amount</PegStatLabel>
-              <PegStatValue>{m.malformed ? <Pill data-tone="danger">invalid</Pill> : fmtAmount(m.amount)}</PegStatValue>
-              <PegStatLabel>Relayer fee</PegStatLabel>
               <PegStatValue>
-                {m.malformed ? <Pill data-tone="danger">invalid</Pill> : fmtAmount(m.relayer_fee)}
+                {m.malformed === 'overflow' ? <Pill data-tone="danger">overflow</Pill> : fmtAmount(m.amount)}
               </PegStatValue>
+              <PegStatLabel>Relayer fee</PegStatLabel>
+              <PegStatValue>{fmtAmount(m.relayer_fee)}</PegStatValue>
               <PegStatLabel>Message</PegStatLabel>
               <PegStatValue>#{m.msg_id}</PegStatValue>
               <PegStatLabel>Age</PegStatLabel>
@@ -1026,10 +1046,14 @@ const BridgeTracker: React.FC = () => {
                     <Pill data-tone={statusTone(m.status)}>{statusLabel(m.status)}</Pill>
                   </td>
                   <td style={{ textAlign: 'right' }} title={m.malformed ? malformedNote(m.malformed) : undefined}>
-                    {m.malformed ? <Pill data-tone="danger">invalid</Pill> : <Mono>{fmtAmount(m.amount)}</Mono>}
+                    {m.malformed === 'overflow' ? (
+                      <Pill data-tone="danger">overflow</Pill>
+                    ) : (
+                      <Mono data-tone={m.malformed ? 'warn' : undefined}>{fmtAmount(m.amount)}</Mono>
+                    )}
                   </td>
                   <td style={{ textAlign: 'right' }} title={m.malformed ? malformedNote(m.malformed) : undefined}>
-                    {m.malformed ? <Pill data-tone="danger">invalid</Pill> : <Mono>{fmtAmount(m.relayer_fee)}</Mono>}
+                    <Mono>{fmtAmount(m.relayer_fee)}</Mono>
                   </td>
                   <td>
                     <Mono>{shortHex(m.receiver)}</Mono>

@@ -771,6 +771,9 @@ export interface ApiBridgeHealthRow {
   locked_usd: number | null;
   escrow: { locked: number | null; decimals: number; observed_at: string | null } | null;
   minted: number | null;
+  /** Open Beam → Ethereum messages whose amount exceeds the collateral held.
+   *  Null when there is no escrow snapshot to compare against. */
+  over_collateral?: number | null;
   collateral_ratio: number | null;
   settlement_source: 'etherscan' | 'unavailable';
 }
@@ -810,12 +813,13 @@ export interface ApiBridgeMessage {
   /** Incoming transfers only: the Beam block the recipient claimed it in. */
   claimed_height: number | null;
   claimed_ts: string | null;
-  /** Why the figures are not a real transfer, or null when they are. 'absurd'
-   *  is uint256-scale junk pushed into the Pipe; 'underflow' is a Beam-side
-   *  uint64 that wrapped because the relayer fee exceeded the amount. Both
-   *  scale to enormous plausible-looking numbers, so neither may be rendered
-   *  as a value. Optional so an older API still typechecks. */
-  malformed?: 'absurd' | 'underflow' | null;
+  /** Why the figures are not a real transfer, or null when they are.
+   *  'overflow' is `amount + relayerFee` wrapping past uint256 in the Ethereum
+   *  Pipe — an attempt on the bridge, which the relayer rejects. 'underflow' is
+   *  a Beam-side uint64 that wrapped because the fee exceeded the amount, and
+   *  for it `amount` arrives unwrapped (negative): how far the fee overshot.
+   *  Optional so an older API still typechecks. */
+  malformed?: 'overflow' | 'underflow' | null;
 }
 
 export interface ApiBridgeMessages {
