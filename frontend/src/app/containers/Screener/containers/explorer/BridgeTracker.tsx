@@ -287,6 +287,24 @@ function fmtAmount(n: number | null, maxFrac = 6): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: maxFrac });
 }
 
+// A malformed message has no value worth printing: 'absurd' is uint256-scale
+// junk pushed into the Pipe, 'underflow' a Beam-side uint64 that wrapped when
+// the relayer fee exceeded the amount. Both scale to enormous numbers that read
+// as a real transfer of a fortune, so the figure is replaced rather than shown.
+function malformedNote(kind: 'absurd' | 'underflow'): string {
+  const lines =
+    kind === 'underflow'
+      ? [
+          'Amount underflowed: the relayer fee exceeded the amount it was subtracted from,',
+          'so the stored value wrapped around to just under 2^64. Nothing of value crossed.',
+        ]
+      : [
+          'Not a transfer: junk pushed into the bridge contract at around 2^256,',
+          'which the relayer will not process.',
+        ];
+  return lines.join(' ');
+}
+
 function fmtUsd(n: number | null): string {
   if (n === null || !Number.isFinite(n)) return '—';
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
@@ -642,9 +660,11 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <PegStatLabel>Direction</PegStatLabel>
               <PegStatValue>{m.direction === 'beam2eth' ? 'Beam → Ethereum' : 'Ethereum → Beam'}</PegStatValue>
               <PegStatLabel>Amount</PegStatLabel>
-              <PegStatValue>{fmtAmount(m.amount)}</PegStatValue>
+              <PegStatValue>{m.malformed ? <Pill data-tone="danger">invalid</Pill> : fmtAmount(m.amount)}</PegStatValue>
               <PegStatLabel>Relayer fee</PegStatLabel>
-              <PegStatValue>{fmtAmount(m.relayer_fee)}</PegStatValue>
+              <PegStatValue>
+                {m.malformed ? <Pill data-tone="danger">invalid</Pill> : fmtAmount(m.relayer_fee)}
+              </PegStatValue>
               <PegStatLabel>Message</PegStatLabel>
               <PegStatValue>#{m.msg_id}</PegStatValue>
               <PegStatLabel>Age</PegStatLabel>
@@ -1005,11 +1025,11 @@ const BridgeTracker: React.FC = () => {
                   <td>
                     <Pill data-tone={statusTone(m.status)}>{statusLabel(m.status)}</Pill>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <Mono>{fmtAmount(m.amount)}</Mono>
+                  <td style={{ textAlign: 'right' }} title={m.malformed ? malformedNote(m.malformed) : undefined}>
+                    {m.malformed ? <Pill data-tone="danger">invalid</Pill> : <Mono>{fmtAmount(m.amount)}</Mono>}
                   </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <Mono>{fmtAmount(m.relayer_fee)}</Mono>
+                  <td style={{ textAlign: 'right' }} title={m.malformed ? malformedNote(m.malformed) : undefined}>
+                    {m.malformed ? <Pill data-tone="danger">invalid</Pill> : <Mono>{fmtAmount(m.relayer_fee)}</Mono>}
                   </td>
                   <td>
                     <Mono>{shortHex(m.receiver)}</Mono>

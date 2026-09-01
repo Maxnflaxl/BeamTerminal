@@ -810,6 +810,12 @@ export interface ApiBridgeMessage {
   /** Incoming transfers only: the Beam block the recipient claimed it in. */
   claimed_height: number | null;
   claimed_ts: string | null;
+  /** Why the figures are not a real transfer, or null when they are. 'absurd'
+   *  is uint256-scale junk pushed into the Pipe; 'underflow' is a Beam-side
+   *  uint64 that wrapped because the relayer fee exceeded the amount. Both
+   *  scale to enormous plausible-looking numbers, so neither may be rendered
+   *  as a value. Optional so an older API still typechecks. */
+  malformed?: 'absurd' | 'underflow' | null;
 }
 
 export interface ApiBridgeMessages {
