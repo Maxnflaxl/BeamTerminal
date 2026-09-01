@@ -1,7 +1,7 @@
 import { q } from '../../db.js';
 import { getBlock } from '../../explorer.js';
 import { BRIDGES } from '../../services/bridge.js';
-import { scale, isAbsurdAmount } from '../../bridgeAmounts.js';
+import { scale, isAbsurdAmount, isWrappedUint64 } from '../../bridgeAmounts.js';
 import { loadUsdTable } from './usd.js';
 
 // ---------------------------------------------------------------------------
@@ -190,6 +190,15 @@ export interface BridgeMessageRow {
   /** eth2beam only: Beam block the recipient claimed it in. */
   claimed_height: number | null;
   claimed_ts: string | null;
+  /**
+   * Why the stored figures are not a real transfer, or null when they are.
+   *   'absurd'    uint256-scale junk pushed into the Pipe.
+   *   'underflow' a Beam-side uint64 that wrapped because the relayer fee
+   *               exceeded the amount it was subtracted from.
+   * Either one reads as an enormous real transfer when printed as a number, so
+   * consumers should show the message without its value.
+   */
+  malformed: 'absurd' | 'underflow' | null;
 }
 
 interface MessageRowRaw {
@@ -223,13 +232,19 @@ function toRow(r: MessageRowRaw): BridgeMessageRow {
   // messages carry Beam-side units, incoming ones Ethereum-side units.
   const dec = r.direction === 'beam2eth' ? def?.decimals ?? 8 : def?.ethDecimals ?? 8;
   const num = (v: string | null): number | null => (v === null ? null : Number(v));
+  const amount = scale(r.amount, dec);
+  const fee = scale(r.relayer_fee, dec);
+  // Only outgoing messages carry Beam-side uint64s; incoming ones are uint256
+  // and legitimately exceed 2^63 on an 18-decimal asset.
+  const wrapped = r.direction === 'beam2eth'
+    && (isWrappedUint64(r.amount) || isWrappedUint64(r.relayer_fee));
   return {
     bridge: r.bridge,
     direction: r.direction,
     msg_id: Number(r.msg_id),
     status: r.status,
-    amount: scale(r.amount, dec),
-    relayer_fee: scale(r.relayer_fee, dec),
+    amount,
+    relayer_fee: fee,
     receiver: r.receiver,
     src_height: num(r.src_height),
     src_call_height: num(r.src_call_height),
@@ -243,6 +258,9 @@ function toRow(r: MessageRowRaw): BridgeMessageRow {
     delivered_ts: r.delivered_ts,
     claimed_height: num(r.claimed_height),
     claimed_ts: r.claimed_ts,
+    // Underflow first: a wrapped amount is also large, and naming it as junk
+    // would send a reader looking for spam that isn't there.
+    malformed: wrapped ? 'underflow' : isAbsurdAmount(amount, fee) ? 'absurd' : null,
   };
 }
 
@@ -341,6 +359,7 @@ function explain(
   ageDays: number | null,
   amount: number | null,
   fee: number | null,
+  malformed: 'absurd' | 'underflow' | null,
   beam?: { delivered: number | null; claimed: number | null },
 ): string {
   const blocks = (() => {
@@ -351,8 +370,13 @@ function explain(
     if (beam.delivered !== null) return ` Delivered in Beam block ${beam.delivered}.`;
     return '';
   })();
-  const malformed = isAbsurdAmount(amount, fee);
-  if (malformed && status === 'not_delivered') {
+  if (malformed === 'underflow') {
+    return 'The amount on this message underflowed. The Pipe subtracted the relayer fee from a '
+      + 'smaller transferred amount, and the unsigned result wrapped around to just under 2^64 — '
+      + 'so the figure stored is the wrapped remainder, not a balance. Nothing of value crossed '
+      + 'and no relayer will settle it.';
+  }
+  if (malformed === 'absurd' && status === 'not_delivered') {
     return 'This message carries a nonsensical value (around 2^256, the maximum a uint256 can '
       + 'hold) rather than a real amount. It is junk pushed into the bridge contract, not a '
       + 'transfer, and the relayer will not process it.';
@@ -401,7 +425,7 @@ function toMatch(r: BridgeMessageRow, role: 'origin' | 'settlement'): BridgeLook
     ...r,
     label,
     role,
-    explanation: explain(r.status, r.direction, ageDays, r.amount, r.relayer_fee, {
+    explanation: explain(r.status, r.direction, ageDays, r.amount, r.relayer_fee, r.malformed, {
       delivered: r.delivered_height,
       claimed: r.claimed_height,
     }),

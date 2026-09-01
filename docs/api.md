@@ -885,7 +885,8 @@ across bridges with different decimals.
       "src_ts": "2026-08-07T01:03:30.000Z", "src_tx": null,
       "settle_tx": null, "settle_block": null, "settle_ts": null,
       "delivered_height": null, "delivered_ts": null,
-      "claimed_height": null, "claimed_ts": null
+      "claimed_height": null, "claimed_ts": null,
+      "malformed": null
     }
   ],
   "total": 1283, "limit": 50, "offset": 0
@@ -909,7 +910,21 @@ and there is no message id to key on.
 Beam-side decimals for `beam2eth`, Ethereum-side for `eth2beam`. These differ —
 bUSDT is 8 decimals on Beam against USDT's 6 on Ethereum. `receiver` is a 20-byte
 Ethereum address for `beam2eth` and a 33-byte Beam pubkey for `eth2beam`, hex, no
-`0x`. `Cache-Control: public, max-age=30`.
+`0x`.
+
+`malformed` names the reason a message's figures are not a real transfer, and is
+`null` for ordinary ones. Two shapes occur, and neither should be rendered as a
+number — both read as an enormous genuine transfer:
+
+- `"absurd"` — uint256-scale junk pushed into the Pipe (bDAI 43–48, bUSDT
+  128/136, bWBTC 22). The relayer never delivers these.
+- `"underflow"` — a Beam-side amount that wrapped. Beam amounts are uint64, and
+  the Pipe subtracts the relayer fee without checking that it fits, so a message
+  whose fee exceeds its amount stores the wrapped difference: a value just under
+  2^64, which scales to a plausible-looking ~1.8e11. Nothing of value crossed.
+
+The message is still listed either way — "the bridge accepted this" is exactly
+what the endpoint exists to show. `Cache-Control: public, max-age=30`.
 
 ## `GET /api/search`
 

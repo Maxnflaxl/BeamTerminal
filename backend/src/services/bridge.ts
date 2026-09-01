@@ -462,6 +462,22 @@ async function ingestOutgoing(b: BridgeDef): Promise<number> {
 const PROBE_TAIL = 32; // consecutive status-0 ids that end the scan
 const PROBE_CEILING = 4096; // hard stop; current max across bridges is ~220
 
+/**
+ * Highest incoming msgId the Ethereum log ingest has recorded, or -1 before it
+ * has recorded any. Ids at or below it exist on the far side whatever the Beam
+ * contract says about them.
+ */
+async function highestIncomingFromLogs(b: BridgeDef): Promise<number> {
+  const { rows } = await q<{ hi: string | null }>(
+    `SELECT max(msg_id)::text AS hi
+       FROM bridge_messages
+      WHERE bridge = $1 AND direction = 'eth2beam' AND src_tx IS NOT NULL`,
+    [b.key],
+  );
+  const hi = rows[0]?.hi;
+  return hi === null || hi === undefined ? -1 : Number(hi);
+}
+
 async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: number }> {
   const found: Array<{ msgId: number; status: string }> = [];
   let consecutiveAbsent = 0;
@@ -486,8 +502,17 @@ async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: n
     found.push({ msgId, status });
   }
 
-  // Drop the trailing not_delivered run — those ids don't exist on either side.
-  while (found.length > 0 && found[found.length - 1]?.status === 'not_delivered') {
+  // Drop the trailing not_delivered run, but only above the highest id the
+  // Ethereum side has actually seen. A message that exists in the logs and
+  // reads status 0 is genuinely undelivered, and that is the whole point of the
+  // page; trimming it unconditionally left the newest message stuck on the
+  // 'unknown' placeholder that upsertIncoming inserts, because the update below
+  // refuses to overwrite a known state with 'unknown' and never got the chance
+  // to write the real one.
+  const knownHi = await highestIncomingFromLogs(b);
+  while (found.length > 0) {
+    const last = found[found.length - 1]!;
+    if (last.status !== 'not_delivered' || last.msgId <= knownHi) break;
     found.pop();
   }
   if (found.length === 0) return { scanned: msgId, open: 0 };
