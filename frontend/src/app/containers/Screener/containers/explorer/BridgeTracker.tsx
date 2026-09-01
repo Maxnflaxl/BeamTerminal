@@ -472,22 +472,23 @@ const BridgeSummaryCard: React.FC<{
       </SubValue>
 
       <Chips>
-        {/* Listed first: a message the bridge cannot possibly cover is the one
-            thing on this card that needs looking at today. */}
-        {(row.over_collateral ?? 0) > 0 && (
-          <Pill
-            data-tone="danger"
-            title={
-              'Open outgoing messages asking for more than this bridge holds. They cannot settle, ' +
-              'and the Beam-side relay has no amount check of its own.'
-            }
-          >
-            {row.over_collateral} over collateral
-          </Pill>
-        )}
         {row.incoming.unclaimed > 0 && <Pill data-tone="info">{row.incoming.unclaimed} awaiting claim</Pill>}
         {row.incoming.not_delivered > 0 && <Pill data-tone="warn">{row.incoming.not_delivered} not delivered</Pill>}
         {row.outgoing.failed > 0 && <Pill data-tone="danger">{row.outgoing.failed} failed</Pill>}
+        {/* Deliberately not 'danger': the backing is fine, one message is broken.
+            Red here reads as "this bridge is short of collateral", which is the
+            opposite of what the count means. */}
+        {(row.over_collateral ?? 0) > 0 && (
+          <Pill
+            data-tone="warn"
+            title={
+              'Outgoing messages whose amount is larger than everything this bridge holds, so they ' +
+              'can never settle. The collateral itself is unaffected — see the backing bar above.'
+            }
+          >
+            {row.over_collateral} unsettleable
+          </Pill>
+        )}
         {settlementAvailable && row.outgoing.pending > 0 && (
           <Pill data-tone="purple">
             {row.outgoing.pending} {statusLabel('pending')}
