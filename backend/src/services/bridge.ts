@@ -627,6 +627,48 @@ function leadingMsgId(args: string): number | null {
   return Number.isSafeInteger(id) ? id : null;
 }
 
+// Largest integer a double holds exactly. Rows above it were stored before
+// getLocalMsg read the response text, so their trailing digits are rounded.
+const DOUBLE_EXACT_MAX = 9007199254740992n; // 2^53
+
+/**
+ * Re-read outgoing messages whose stored figures are too large to have survived
+ * a double, and rewrite them with the exact digits.
+ *
+ * The ingest cursor only moves forward, so a row stored imprecisely would keep
+ * its rounded value forever. Self-healing rather than a one-off migration
+ * because the same rounding would come back with any future message this large
+ * — and it is bounded: ordinary transfers stay far below 2^53 groths (90M
+ * BEAM), so in practice this matches only messages whose fee underflowed.
+ */
+async function repairImpreciseOutgoing(b: BridgeDef): Promise<number> {
+  const { rows } = await q<{ msg_id: string }>(
+    `SELECT msg_id::text
+       FROM bridge_messages
+      WHERE bridge = $1 AND direction = 'beam2eth'
+        AND (amount > $2::numeric OR relayer_fee > $2::numeric)`,
+    [b.key, DOUBLE_EXACT_MAX.toString()],
+  );
+  let repaired = 0;
+  for (const r of rows) {
+    // eslint-disable-next-line no-await-in-loop
+    const msg = await getLocalMsg(b.cid, Number(r.msg_id));
+    if (!msg) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const { rowCount } = await q(
+      `UPDATE bridge_messages
+          SET amount = $3::numeric, relayer_fee = $4::numeric, updated_at = now()
+        WHERE bridge = $1 AND direction = 'beam2eth' AND msg_id = $2
+          AND (amount IS DISTINCT FROM $3::numeric
+            OR relayer_fee IS DISTINCT FROM $4::numeric)`,
+      [b.key, Number(r.msg_id), String(msg.amount ?? 0), String(msg.relayerFee ?? 0)],
+    );
+    repaired += rowCount ?? 0;
+  }
+  if (repaired > 0) logger.info({ bridge: b.key, repaired }, 'bridge: rewrote imprecise outgoing amounts');
+  return repaired;
+}
+
 async function resolveOutgoingHeights(b: BridgeDef, calls: PipeCall[]): Promise<number> {
   const { rows } = await q<{ msg_id: string; src_height: string }>(
     `SELECT msg_id::text, src_height::text
@@ -1015,6 +1057,8 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
       const { found, caughtUp } = await ingestIncomingLogs(b);
       // eslint-disable-next-line no-await-in-loop
       const ingested = await ingestOutgoing(b);
+      // eslint-disable-next-line no-await-in-loop
+      await repairImpreciseOutgoing(b);
       // eslint-disable-next-line no-await-in-loop
       const resolvedHeights = await resolveBeamHeights(b);
       // eslint-disable-next-line no-await-in-loop
