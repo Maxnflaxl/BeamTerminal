@@ -237,11 +237,22 @@ async function lockedHistory(bucket: Bucket): Promise<LockedHistory> {
   const beamDefs = BRIDGES.filter((b) => b.custody === 'beam' && cutoff.has(b.key));
   const [ethDeltas, beamDeltas] = await Promise.all([
     ethCustodyDeltas(bucket, cutoff),
-    Promise.all(beamDefs.map((d) => beamCustodyDeltas(d, bucket, cutoff.get(d.key)!))),
+    // One Pipe's reconstruction failing costs that bridge its series, not the
+    // whole chart: the anchor check below already omits a bridge it cannot
+    // verify, and a read that threw is the same situation stated louder.
+    Promise.all(beamDefs.map((d) => beamCustodyDeltas(d, bucket, cutoff.get(d.key)!).catch((err) => {
+      logger.error({ bridge: d.key, err }, 'bridgeTvl: Beam-side reconstruction failed; bridge omitted');
+      return null;
+    }))),
   ]);
 
   const deltasBy = new Map(ethDeltas);
-  beamDefs.forEach((d, i) => deltasBy.set(d.key, beamDeltas[i]!));
+  const failed = new Set<string>();
+  beamDefs.forEach((d, i) => {
+    const deltas = beamDeltas[i];
+    if (deltas) deltasBy.set(d.key, deltas);
+    else failed.add(d.key);
+  });
 
   // Sparse spine: native balances are step functions that only move when the
   // bridge is used, so a bucket with no activity carries no new information.
@@ -251,6 +262,9 @@ async function lockedHistory(bucket: Bucket): Promise<LockedHistory> {
 
   const byBridge: LockedHistory['byBridge'] = [];
   for (const def of BRIDGES) {
+    // Already reported by the catch above; falling through would re-report it
+    // as an anchor mismatch and point at the wrong thing.
+    if (failed.has(def.key)) continue;
     const esc = escrowBy.get(def.key);
     if (!esc) {
       // Without a measured anchor the whole series would be an unverifiable

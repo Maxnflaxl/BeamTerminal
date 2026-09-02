@@ -1,5 +1,5 @@
 import { logger } from '../logger.js';
-import { getContract } from '../explorer.js';
+import { getContractFullHistory } from '../explorer.js';
 
 // The BEAM/WBEAM Pipes are upgradable2-wrapped, so the explorer decodes their
 // calls as `Passthrough` with no arguments — but the Funds column still carries
@@ -13,6 +13,9 @@ import { getContract } from '../explorer.js';
 //     raw entry before summing loses a groth whenever that entry's own amount
 //     is odd. Deduping by value instead of halving collapses genuinely
 //     identical adjacent calls (two real transfers of the same amount).
+//   - the call list is paged at 2000 entries, so the history is fetched through
+//     getContractFullHistory. Page boundaries fall between heights, never
+//     inside one, which is what keeps the per-height halving valid across them.
 //   - amount cells are rendered by AmountBig::Print (explorer/server.cpp,
 //     core/block_crypt.cpp Text::Expand), which only ever emits a
 //     thousands-grouped fixed-point string ("60,011,001.00000000"); it never
@@ -57,9 +60,17 @@ function collect(node: unknown, height: number, out: Array<{ height: number; del
 }
 
 export async function pipeFundsDeltas(cid: string): Promise<Array<{ height: number; delta: bigint }>> {
-  const contract = await getContract({ id: cid, exp_am: true });
-  const table = (contract as unknown as Record<string, unknown>)['Calls history'];
-  const rows = (table as { value?: unknown[] } | undefined)?.value ?? [];
+  // Whole history, not one page: the sum is a running balance anchored to the
+  // measured escrow, so a page's worth of missing deltas offsets every point.
+  const contract = await getContractFullHistory({ id: cid, exp_am: true });
+  const table = contract['Calls history'];
+  if (table?.more) {
+    // The walk gave up before the history ended. Refusing here names the cause;
+    // returning the partial sum would surface as an unexplained residual in
+    // bridgeTvl, which drops the bridge anyway.
+    throw new Error(`bridgePipeFunds: call history for ${cid} is still truncated at height ${table.more.hMax}`);
+  }
+  const rows: unknown[] = [...(table?.value ?? [])];
   const raw: Array<{ height: number; delta: bigint }> = [];
   for (const row of rows.slice(1)) {
     const group = row as Cell;

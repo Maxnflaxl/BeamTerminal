@@ -7,7 +7,7 @@ import { q } from '../db.js';
 import { logger } from '../logger.js';
 import { invokeContract } from '../walletApi.js';
 import { getBlockTsMap } from './blockTimestamps.js';
-import { getContract, type ContractResponse } from '../explorer.js';
+import { getContractFullHistory, type ContractResponse } from '../explorer.js';
 import {
   LOG_WINDOW,
   NEW_LOCAL_MESSAGE_TOPIC,
@@ -1107,10 +1107,12 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
       const ingested = await ingestOutgoing(b);
       // eslint-disable-next-line no-await-in-loop
       await repairImpreciseOutgoing(b);
-      // One explorer fetch of the Pipe serves both the call-history resolvers
-      // and the locked-funds read.
+      // One explorer read of the Pipe serves both the call-history resolvers
+      // and the locked-funds read. Paged: the resolvers map heights anywhere in
+      // history, and the explorer caps a single response at 2000 calls — the
+      // BEAM/WBEAM Pipe is past that, so a single fetch loses its oldest calls.
       // eslint-disable-next-line no-await-in-loop
-      const contract = await getContract({ id: b.cid });
+      const contract = await getContractFullHistory({ id: b.cid });
       // eslint-disable-next-line no-await-in-loop
       const resolvedHeights = await resolveBeamHeights(b, contract);
       // eslint-disable-next-line no-await-in-loop

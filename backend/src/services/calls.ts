@@ -137,8 +137,7 @@ export async function indexCalls(
  */
 function pageTruncated(resp: ContractResponse): boolean {
   const table = resp['Calls history'];
-  const more = (table as { more?: { hMax?: number } } | undefined)?.more
-    ?? (resp as { more?: { hMax?: number } }).more;
+  const more = table?.more ?? (resp as { more?: { hMax?: number } }).more;
   if (more?.hMax != null) return true;
   const rawRows = (table?.value.length ?? 1) - 1;
   return rawRows >= MAX_CALLS_PER_PAGE;

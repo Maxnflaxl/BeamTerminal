@@ -1,7 +1,7 @@
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { q } from '../db.js';
-import { getContract, type ContractResponse } from '../explorer.js';
+import { getContractFullHistory, type ContractResponse } from '../explorer.js';
 
 /**
  * "Black Hole" chart series — cumulative per-asset balance locked in the
@@ -167,29 +167,13 @@ function lockedFunds(res: ContractResponse): Map<number, number> {
   return map;
 }
 
-// Walk the (small, deposit-only) Calls history. A single fetch covers the whole
-// history today; the loop follows `more.hMax` defensively in case the explorer
-// ever paginates it. The first response also carries the head-state Locked Funds.
+// Walk the (small, deposit-only) Calls history. getContractFullHistory follows
+// the explorer's paging cursor, so this stays correct if the contract ever
+// outgrows the 2000-entry page. The response also carries the head-state
+// Locked Funds the totals are reconciled against.
 async function fetchHistory(cid: string): Promise<{ rows: unknown[]; head: ContractResponse }> {
-  const all: unknown[] = [];
-  let head: ContractResponse | null = null;
-  let hMax: number | undefined;
-  for (let page = 0; page < 50; page += 1) {
-    const res = await getContract(
-      hMax === undefined
-        ? { id: cid, exp_am: true, nMaxTxs: 100_000 }
-        : { id: cid, exp_am: true, nMaxTxs: 100_000, hMax },
-    );
-    if (!head) head = res;
-    const table = res['Calls history'];
-    if (table?.value) all.push(...table.value.slice(1));
-    const more = (table as { more?: { hMax?: number } } | undefined)?.more
-      ?? (res as { more?: { hMax?: number } }).more;
-    const next = more?.hMax;
-    if (next == null || next === hMax) break;
-    hMax = next;
-  }
-  return { rows: all, head: head ?? ({} as ContractResponse) };
+  const head = await getContractFullHistory({ id: cid, exp_am: true, nMaxTxs: 100_000 });
+  return { rows: [...(head['Calls history']?.value.slice(1) ?? [])], head };
 }
 
 export async function fetchBlackholeSeries(): Promise<BlackholeBody> {

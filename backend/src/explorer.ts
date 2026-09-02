@@ -48,6 +48,10 @@ export interface Table {
    *  Subsequent entries are data rows (arrays of mixed-typed cells) or
    *  `{type:"group", value:Row[]}` wrappers grouping a primary call + nested calls. */
   value: ReadonlyArray<Row | GroupRow>;
+  /** Continuation cursor the explorer attaches when it cut the table short:
+   *  the highest height *not* covered by this page. Absent when the page
+   *  reached the end of the range. */
+  more?: { hMax: number };
 }
 
 export type Row = ReadonlyArray<Cell>;
@@ -159,6 +163,79 @@ export async function getContract(query: ContractQuery): Promise<ContractRespons
   if (query.nMaxTxs !== undefined) params.set('nMaxTxs', String(query.nMaxTxs));
   if (query.exp_am) params.set('exp_am', '1');
   return fetchJson<ContractResponse>(`/contract?${params.toString()}`);
+}
+
+/**
+ * The explorer clamps `nMaxTxs` to 2000 entries per response
+ * (`get_ContractState`, adapter.cpp), so any contract with a longer history
+ * comes back cut off — silently, apart from the `more.hMax` cursor it attaches
+ * to the table. A caller that needs the *whole* history (a running balance, a
+ * height resolver that maps arbitrarily old messages) gets a wrong answer from
+ * a single fetch, and nothing in the payload it parses says so.
+ */
+function callsMore(resp: ContractResponse): { hMax: number } | undefined {
+  // The marker sits on the table; older explorer builds put it at the top
+  // level, and the two cost the same to check.
+  return resp['Calls history']?.more ?? (resp as { more?: { hMax: number } }).more;
+}
+
+/**
+ * Page budget for a whole-history walk. Each page is the explorer's own
+ * 2000-entry ceiling, so this covers 200k calls — orders of magnitude past any
+ * contract we read whole, while still bounding a runaway cursor.
+ */
+const MAX_CALL_PAGES = 100;
+
+/**
+ * `getContract`, following the `more.hMax` cursor until the call history is
+ * complete. Returns one response whose `Calls history` holds every page's rows
+ * in the explorer's own order (newest height first); every other section is the
+ * first page's, i.e. the head state.
+ *
+ * The returned table keeps a `more` marker only when the walk gave up — the
+ * page budget ran out, or the cursor stopped retreating — so callers that
+ * cannot tolerate a partial history can still detect one.
+ */
+export async function getContractFullHistory(query: ContractQuery): Promise<ContractResponse> {
+  const head = await getContract(query);
+  const table = head['Calls history'];
+  if (!table?.value) return head;
+
+  const header = table.value[0];
+  const rows: Array<Row | GroupRow> = [...table.value.slice(1)];
+  let cursor = callsMore(head)?.hMax;
+  let pages = 1;
+  let truncated = false;
+
+  while (cursor !== undefined) {
+    // The cursor is the next height to look *at or below*; once it drops under
+    // the caller's floor there is nothing left in range to ask for.
+    if (query.hMin !== undefined && cursor < query.hMin) break;
+    if (pages >= MAX_CALL_PAGES) {
+      logger.error({ cid: query.id, pages, cursor }, 'explorer: call history exceeded the page budget');
+      truncated = true;
+      break;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const page = await getContract({ ...query, hMax: cursor });
+    pages += 1;
+    for (const row of page['Calls history']?.value.slice(1) ?? []) rows.push(row);
+
+    const next = callsMore(page)?.hMax;
+    if (next === undefined) break;
+    if (next >= cursor) {
+      // A cursor that doesn't retreat would re-read the same page forever, and
+      // the rows it returned are already in `rows`.
+      logger.error({ cid: query.id, cursor, next }, 'explorer: call history cursor did not advance');
+      truncated = true;
+      break;
+    }
+    cursor = next;
+  }
+
+  const merged: Table = { type: 'table', value: [...(header ? [header] : []), ...rows] };
+  if (truncated) merged.more = { hMax: cursor! };
+  return { ...head, 'Calls history': merged };
 }
 
 /**
