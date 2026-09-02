@@ -25,6 +25,9 @@ export function scale(raw: string | null, decimals: number): number | null {
 export type MalformedReason = 'overflow' | 'underflow';
 
 const UINT64_SIGN_BIT = 2n ** 63n;
+
+/** The same threshold as a decimal literal, for SQL that has to agree with it. */
+export const UINT64_SIGN_BIT_SQL = UINT64_SIGN_BIT.toString();
 const UINT64 = 2n ** 64n;
 const UINT256_MAX = 2n ** 256n - 1n;
 
@@ -34,27 +37,18 @@ function toBig(raw: string | null): bigint | null {
 }
 
 /**
- * Classify a message's stored amount and relayer fee.
+ * Why a message's figures are not a real transfer. Keyed on direction because
+ * each side wraps differently:
  *
- * Each direction wraps in its own way, so the test is keyed on direction rather
- * than on the size of the numbers:
+ *   eth2beam  'overflow'   The Ethereum Pipe adds amount + relayerFee unchecked
+ *                          (solidity ^0.7.2), so an overflowing pair wraps the
+ *                          total down to almost nothing — an attempt, not a
+ *                          transfer. The relayer rejects on this same test.
+ *   beam2eth  'underflow'  A Beam Amount is uint64 and the fee is subtracted
+ *                          without a check, storing the wrapped difference.
  *
- *   eth2beam  'overflow'  The Ethereum Pipe (solidity ^0.7.2) computes
- *             `total = amount + relayerFee` with unchecked arithmetic. A pair
- *             that overflows wraps `total` down to a trivial sum, so the caller
- *             emits an enormous amount while paying almost nothing. These are
- *             attempts on the bridge, not transfers, and the relayer rejects
- *             them on exactly this predicate.
- *
- *   beam2eth  'underflow' A Beam Amount is a uint64, and the fee is subtracted
- *             from the transferred amount without checking that it fits. A fee
- *             larger than the amount stores the wrapped difference — a value
- *             just under 2^64, which scales to a plausible-looking ~1.8e11.
- *
- * The two tests are not interchangeable. Ethereum-side amounts are uint256 and
- * pass 2^63 legitimately on any 18-decimal asset (100 DAI is 1e20 raw), so the
- * uint64 test would condemn ordinary transfers; Beam-side amounts cannot reach
- * uint256 scale at all.
+ * Never swap them: Ethereum amounts are uint256 and pass 2^63 legitimately on
+ * any 18-decimal asset (100 DAI is 1e20 raw).
  */
 export function classifyAmounts(
   direction: string,
@@ -64,8 +58,8 @@ export function classifyAmounts(
   const amount = toBig(amountRaw);
   const fee = toBig(feeRaw);
   if (direction === 'beam2eth') {
-    // Beam's entire supply is ~2.6e16 groths, four orders of magnitude below
-    // 2^63, so the top bit alone identifies the wrap.
+    // Beam's whole supply is ~2.6e16 groths, so nothing legitimate approaches
+    // 2^63 and the top bit alone identifies the wrap.
     const wrapped = (amount !== null && amount >= UINT64_SIGN_BIT)
       || (fee !== null && fee >= UINT64_SIGN_BIT);
     return wrapped ? 'underflow' : null;
@@ -75,11 +69,9 @@ export function classifyAmounts(
 }
 
 /**
- * The signed value an underflowed uint64 was meant to hold: a fee of 50 BEAM
- * taken from an amount of zero is stored as 2^64 - 50e8 and reads back as
- * -50e8. Printing that instead of the stored figure is the difference between
- * "the fee exceeded the amount by 50" and an apparent 184-billion-BEAM
- * transfer.
+ * The signed value an underflowed uint64 meant to hold. Printing -50 rather than
+ * the stored 2^64 - 50e8 is the difference between "the fee overshot by 50" and
+ * an apparent 184-billion-BEAM transfer.
  */
 export function unwrapUint64(raw: string): string {
   return (BigInt(raw) - UINT64).toString();

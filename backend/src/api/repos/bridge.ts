@@ -1,7 +1,9 @@
 import { q } from '../../db.js';
 import { getBlock } from '../../explorer.js';
 import { BRIDGES } from '../../services/bridge.js';
-import { scale, classifyAmounts, unwrapUint64, type MalformedReason } from '../../bridgeAmounts.js';
+import {
+  scale, classifyAmounts, unwrapUint64, UINT64_SIGN_BIT_SQL, type MalformedReason,
+} from '../../bridgeAmounts.js';
 import { loadUsdTable } from './usd.js';
 
 // ---------------------------------------------------------------------------
@@ -21,7 +23,14 @@ export interface BridgeHealthRow {
   /** Ticker of the Beam-side asset (BEAM, bETH, …). Null if the catalog has no
    *  row for it yet — callers should fall back to the numeric aid. */
   asset_symbol: string | null;
-  outgoing: { pending: number; relayed: number; failed: number; unknown: number; total: number };
+  outgoing: {
+    pending: number; relayed: number; failed: number; unknown: number;
+    /** Amount underflowed: larger than the bridge holds, so it can never settle. */
+    unsettleable: number;
+    /** A later message on this bridge already settled, so the relayer moved past it. */
+    skipped: number;
+    total: number;
+  };
   incoming: { not_delivered: number; unclaimed: number; complete: number; unknown: number; total: number };
   oldest_open_ts: string | null;
   last_message_ts: string | null;
@@ -36,11 +45,9 @@ export interface BridgeHealthRow {
    */
   locked_usd: number | null;
   /**
-   * Open Beam -> Ethereum messages whose amount exceeds the collateral this
-   * bridge actually holds. Settling one is impossible, so a non-zero count is
-   * either wrapped arithmetic or a deliberate attempt — and the Beam-side relay
-   * has no amount check of its own, which makes this the only place it shows.
-   * Null when the escrow snapshot is missing, since there is nothing to compare
+   * Open Beam -> Ethereum messages asking for more than the bridge holds. The
+   * Beam-side relay has no amount check of its own, so this is the only place
+   * such a message shows. Null when there is no escrow snapshot to compare
    * against; 0 means checked and clear.
    */
   over_collateral: number | null;
@@ -57,9 +64,11 @@ interface StatusAggRow {
 export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealthRow[]> {
   const [agg, escrow, minted, unclaimed, openOut, usd] = await Promise.all([
     q<StatusAggRow>(
-      `SELECT bridge, direction, status, count(*)::text AS n,
+      `SELECT bridge_messages.bridge, bridge_messages.direction,
+              ${DERIVED_STATUS} AS status, count(*)::text AS n,
               min(src_ts)::text AS oldest, max(src_ts)::text AS newest
-         FROM bridge_messages GROUP BY 1, 2, 3`,
+         FROM bridge_messages ${RELAYED_HI_JOIN}
+        GROUP BY 1, 2, 3`,
     ),
     q<{
       bridge: string; locked: string; decimals: number; observed_at: string;
@@ -111,9 +120,12 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
       relayed: pick('beam2eth', 'relayed'),
       failed: pick('beam2eth', 'failed'),
       unknown: pick('beam2eth', 'unknown'),
+      unsettleable: pick('beam2eth', 'unsettleable'),
+      skipped: pick('beam2eth', 'skipped'),
       total: 0,
     };
-    outgoing.total = outgoing.pending + outgoing.relayed + outgoing.failed + outgoing.unknown;
+    outgoing.total = outgoing.pending + outgoing.relayed + outgoing.failed
+      + outgoing.unknown + outgoing.unsettleable + outgoing.skipped;
 
     const incoming = {
       not_delivered: pick('eth2beam', 'not_delivered'),
@@ -124,8 +136,11 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
     };
     incoming.total = incoming.not_delivered + incoming.unclaimed + incoming.complete + incoming.unknown;
 
+    // The derived statuses are terminal too, so they must not drag
+    // oldest_open_ts back to the day they were created.
+    const settledStatuses = new Set(['complete', 'relayed', 'unsettleable', 'skipped']);
     const openTimes = mine
-      .filter((r) => r.status !== 'complete' && r.status !== 'relayed')
+      .filter((r) => !settledStatuses.has(r.status))
       .map((r) => r.oldest)
       .filter((t): t is string => Boolean(t))
       .sort();
@@ -141,9 +156,8 @@ export async function getBridgeHealth(etherscanOn: boolean): Promise<BridgeHealt
     // (it's an Ethereum ERC20 supply). For the rest it's the Beam asset's own
     // emission. Using assets.emission for a custody:'beam' bridge would report
     // BEAM's entire emission as if it were bridged.
-    // An underflowed amount is compared as the huge figure the relay would
-    // actually be handed, not as the negative value we report to readers: it is
-    // the raw number that would reach processRemoteMessage.
+    // Compared as the raw figure that would reach processRemoteMessage, not the
+    // negative value we report to readers.
     const overCollateral = lockedVal === null ? null : openOut.rows
       .filter((r) => r.bridge === b.key)
       .filter((r) => {
@@ -243,10 +257,38 @@ interface MessageRowRaw {
   claimed_height: string | null; claimed_ts: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Derived outgoing status
+//
+// A Beam -> Ethereum message stays 'pending' until a settlement is observed,
+// which reads as "on its way". The relayer gives up after three attempts, so
+// for some messages that never becomes true — see the two cases below.
+//
+// In SQL rather than toRow() so filtering, sorting, counting and display can't
+// disagree: derived in TypeScript, `?status=skipped` would return one set and
+// the table would show another.
+// ---------------------------------------------------------------------------
+
+const RELAYED_HI_JOIN = `
+  LEFT JOIN (
+    SELECT bridge, max(msg_id) AS relayed_hi
+      FROM bridge_messages
+     WHERE direction = 'beam2eth' AND status = 'relayed'
+     GROUP BY bridge
+  ) hi ON hi.bridge = bridge_messages.bridge`;
+
+const DERIVED_STATUS = `
+  CASE WHEN bridge_messages.direction = 'beam2eth' AND bridge_messages.status = 'pending'
+            AND bridge_messages.amount >= ${UINT64_SIGN_BIT_SQL} THEN 'unsettleable'
+       WHEN bridge_messages.direction = 'beam2eth' AND bridge_messages.status = 'pending'
+            AND bridge_messages.msg_id < hi.relayed_hi THEN 'skipped'
+       ELSE bridge_messages.status
+  END`;
+
 // block_metrics covers every height, so the Beam-side blocks get their wall
 // time from a join rather than a stored copy that a reorg could strand.
 const MESSAGE_COLUMNS = `
-  bridge, direction, msg_id::text, status, amount::text, relayer_fee::text,
+  bridge, direction, msg_id::text, ${DERIVED_STATUS} AS status, amount::text, relayer_fee::text,
   receiver, src_height::text, src_call_height::text, src_block::text,
   src_ts::text, src_tx, settle_tx, settle_block::text, settle_ts::text,
   delivered_height::text, claimed_height::text,
@@ -311,7 +353,7 @@ const SORT_COLUMNS: Record<string, string> = {
   fee: 'bridge_messages.relayer_fee',
   msg_id: 'bridge_messages.msg_id',
   bridge: 'bridge_messages.bridge',
-  status: 'bridge_messages.status',
+  status: DERIVED_STATUS,
   direction: 'bridge_messages.direction',
 };
 
@@ -328,11 +370,11 @@ export async function listBridgeMessages(opts: {
   const params: Array<string | number> = [];
   if (opts.bridge) { params.push(opts.bridge); where.push(`bridge = $${params.length}`); }
   if (opts.direction) { params.push(opts.direction); where.push(`direction = $${params.length}`); }
-  if (opts.status) { params.push(opts.status); where.push(`status = $${params.length}`); }
+  if (opts.status) { params.push(opts.status); where.push(`${DERIVED_STATUS} = $${params.length}`); }
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
   const totalRes = await q<{ n: string }>(
-    `SELECT count(*)::text AS n FROM bridge_messages ${clause}`,
+    `SELECT count(*)::text AS n FROM bridge_messages ${RELAYED_HI_JOIN} ${clause}`,
     params,
   );
 
@@ -345,7 +387,7 @@ export async function listBridgeMessages(opts: {
   params.push(opts.limit, opts.offset);
   const rows = await q<MessageRowRaw>(
     `SELECT ${MESSAGE_COLUMNS}
-       FROM bridge_messages ${clause}
+       FROM bridge_messages ${RELAYED_HI_JOIN} ${clause}
       ORDER BY ${orderBy}
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
@@ -436,6 +478,13 @@ function explain(
   switch (status) {
     case 'relayed':
       return 'Settled on Ethereum. Nothing outstanding.';
+    case 'unsettleable':
+      return 'This cannot be settled. Its amount is larger than everything the bridge holds, so '
+        + 'there is nothing to release against it on the Ethereum side, and no relayer will try.';
+    case 'skipped':
+      return 'The relayer has moved past this one — later messages on this bridge have already '
+        + 'settled, so it is not waiting in a queue. The relayer gives up after three attempts, '
+        + 'so it will not be picked up again on its own.';
     case 'failed':
       return 'The settling Ethereum transaction reverted. The relayer normally retries; if this '
         + 'persists, the message needs manual attention.';
@@ -466,7 +515,7 @@ function toMatch(r: BridgeMessageRow, role: 'origin' | 'settlement'): BridgeLook
 async function rowsWhere(clause: string, params: Array<string | number>): Promise<BridgeMessageRow[]> {
   const { rows } = await q<MessageRowRaw>(
     `SELECT ${MESSAGE_COLUMNS}
-       FROM bridge_messages
+       FROM bridge_messages ${RELAYED_HI_JOIN}
       WHERE ${clause}
       ORDER BY bridge_messages.src_ts DESC NULLS LAST
       LIMIT 25`,
