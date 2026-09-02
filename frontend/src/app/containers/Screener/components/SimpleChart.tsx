@@ -253,10 +253,12 @@ export const SimpleChart: React.FC<Props> = ({
   }, [series, scale, interactive]);
 
   // Buttons-as-presets: a timeframe click sets the visible window imperatively.
-  // Initialised to the incoming nonce (not null) so mounting with a preset
-  // already set doesn't re-trigger a redundant setVisibleRange; only a later
-  // nonce bump (a fresh click) applies one.
-  const presetNonceRef = useRef<number | null>(presetWindow?.nonce ?? null);
+  // Starts unset so a preset that already exists at mount is applied too: an
+  // expanded chart can mount *after* its window was computed — a deep link
+  // opening straight into a timeframe, where the range and the series arrive on
+  // different ticks — and skipping that first apply leaves the full-history
+  // `fitContent` view on screen under a timeframe button that reads 3M.
+  const presetNonceRef = useRef<number | null>(null);
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !interactive || !presetWindow) return;

@@ -149,6 +149,15 @@ interface ViewState {
   /** Client-side filter term for the Assets table's Owner column (used to
    *  deep-link "show every asset owned by this wallet/contract"). */
   q?: string;
+  /** Which chart section on this view is open ('hdrs' — the block-headers
+   *  plot). The height range it covers already rides in `hMin` / `hMax` /
+   *  `nMax` / `dh`. */
+  chart?: string;
+  /** '1' while that chart is opened in the expanded modal. */
+  expand?: string;
+  /** Comma-separated column codes plotted as series in that chart. Without it
+   *  a link to an expanded chart opens on "No series selected". */
+  plot?: string;
 }
 
 // View state is mirrored into the URL query string (e.g.
@@ -181,6 +190,9 @@ const VIEW_PARAM_KEYS = [
   'dh',
   'adj',
   'q',
+  'chart',
+  'expand',
+  'plot',
 ] as const;
 
 function parseView(sp: URLSearchParams): ViewState {
@@ -872,8 +884,16 @@ const Pager = styled.div`
 // Generic JSON renderer (mirrors Obj2Html from the original)
 // ---------------------------------------------------------------------------
 
+/** How a navigation is recorded. `inPlace` rewrites the current history entry
+ *  and leaves the scroll position alone — for a change that refines the view
+ *  the reader is already looking at (closing an expanded chart), rather than
+ *  taking them somewhere new. */
+export interface GoOptions {
+  inPlace?: boolean;
+}
+
 interface RenderCtx {
-  go: (next: Partial<ViewState>) => void;
+  go: (next: Partial<ViewState>, opts?: GoOptions) => void;
   network: string;
   viewType: ViewType;
 }
@@ -2549,6 +2569,8 @@ function HdrsChart({
   onSetColor,
   embedded,
   pointsApi,
+  expanded: expandedProp,
+  onExpandedChange,
 }: {
   rows: HdrsRow[];
   plotted: string[];
@@ -2563,6 +2585,10 @@ function HdrsChart({
   /** Shared comparison-point state. The embedded (modal) instance receives the
    *  outer instance's hook so points + mode are shared between inline and modal. */
   pointsApi?: UseComparePoints<number>;
+  /** Controlled expand state. Passed by a caller that keeps it in the URL, so
+   *  the expanded chart is linkable; omitted, the chart owns the state itself. */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }): JSX.Element {
   // Rows in ascending height = ascending row index along the x-axis.
   const ordered = useMemo(() => [...rows].sort((a, b) => a.height - b.height), [rows]);
@@ -2690,8 +2716,16 @@ function HdrsChart({
   const ownPoints = useComparePoints<number>({ cap: 4 });
   const pts = pointsApi ?? ownPoints;
 
-  const [expanded, setExpanded] = useState(false);
-  const closeModal = useCallback(() => setExpanded(false), []);
+  const [ownExpanded, setOwnExpanded] = useState(false);
+  const expanded = expandedProp ?? ownExpanded;
+  const setExpanded = useCallback(
+    (next: boolean) => {
+      if (onExpandedChange) onExpandedChange(next);
+      else setOwnExpanded(next);
+    },
+    [onExpandedChange],
+  );
+  const closeModal = useCallback(() => setExpanded(false), [setExpanded]);
 
   // Nearest sample row index for a clientX (shared by hover + add).
   const nearestIndex = useCallback(
@@ -3757,15 +3791,41 @@ function HdrsView({ data, view, ctx }: { data: any; view: ViewState; ctx: Render
   // `plotted` = set of column codes drawn as series; `colorOverrides` holds
   // per-column color picks from Reset/Recolor (default falls back to
   // columnHeaders[code].color).
-  const [plotted, setPlotted] = useState<string[]>([]);
+  // Which series are drawn lives in the URL so an expanded chart can be linked
+  // as it is being read. Codes no longer displayed (a `cols` change) drop out
+  // here rather than through a corrective effect.
+  const plotted = useMemo(
+    () => (view.plot ?? '')
+      .split(',')
+      .filter((c) => c !== '' && CHARTABLE_COLS.includes(c) && activeCols.includes(c)),
+    [view.plot, activeCols],
+  );
   const [colorOverrides, setColorOverrides] = useState<Record<string, string>>({});
 
   // Chart is collapsed by default behind a "+ Chart" / "− Chart" toggle
-  // (faithful to the reference's `graphCollapsible` <details>). We track the
-  // open state so the summary can show a +/− marker and so the chart only
-  // MOUNTS while open — which sidesteps the Chrome-83 hidden-SVG measurement
-  // bug the reference works around in `toggleGraph`.
-  const [chartOpen, setChartOpen] = useState(false);
+  // (faithful to the reference's `graphCollapsible` <details>). The open state
+  // and the expanded modal both live in the URL: `?chart=hdrs` opens the
+  // section, `&expand=1` opens it expanded, so either is a link someone can
+  // send. It also has to be the URL rather than component state — this view
+  // remounts whenever the query string changes, and local state would collapse
+  // the section the moment the modal closed.
+  //
+  // The chart still only MOUNTS while open, which sidesteps the Chrome-83
+  // hidden-SVG measurement bug the reference works around in `toggleGraph`.
+  const chartOpen = view.chart === 'hdrs';
+  const setChartOpen = useCallback(
+    (open: boolean) => ctx.go(
+      { chart: open ? 'hdrs' : undefined, expand: undefined },
+      { inPlace: true },
+    ),
+    [ctx],
+  );
+  const setChartExpanded = useCallback(
+    (expanded: boolean) => (expanded
+      ? ctx.go({ chart: 'hdrs', expand: '1' })
+      : ctx.go({ expand: undefined }, { inPlace: true })),
+    [ctx],
+  );
 
   // Keep the local draft synced with the URL view (e.g. when navigating
   // older/newer or following a special-block link that sets cols).
@@ -3776,15 +3836,17 @@ function HdrsView({ data, view, ctx }: { data: any; view: ViewState; ctx: Render
     setDhDraft(view.dh || '1');
   }, [view.cols, view.nMax, view.hMax, view.dh]);
 
-  // Drop any plotted code that's no longer a visible column when `cols` changes.
-  useEffect(() => {
-    setPlotted((cur) => cur.filter((c) => activeCols.includes(c)));
-  }, [activeCols]);
-
-  const togglePlot = useCallback((code: string): void => {
-    if (code === 'h' || !CHARTABLE_COLS.includes(code)) return;
-    setPlotted((cur) => (cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code]));
-  }, []);
+  // Ticking a series refines the view being read rather than navigating, so it
+  // rewrites the current entry — the checkboxes sit in the table below the
+  // chart, and a push would both fill the history and scroll away from them.
+  const togglePlot = useCallback(
+    (code: string): void => {
+      if (code === 'h' || !CHARTABLE_COLS.includes(code)) return;
+      const next = plotted.includes(code) ? plotted.filter((c) => c !== code) : [...plotted, code];
+      ctx.go({ plot: next.length > 0 ? next.join(',') : undefined }, { inPlace: true });
+    },
+    [plotted, ctx],
+  );
 
   // Reset = drop all overrides, restoring each column's default color from
   // columnHeaders (palette icon → resetGraphColors).
@@ -4046,7 +4108,17 @@ function HdrsView({ data, view, ctx }: { data: any; view: ViewState; ctx: Render
           })}
         </ColumnGrid>
       </Collapsible>
-      <ChartCollapsible open={chartOpen} onToggle={(e) => setChartOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      {/* <details> fires `toggle` when React sets `open` on it too, so a link
+          that arrives with the section already open would echo back a URL
+          rewrite — dropping `expand` before the modal ever renders. Only a
+          state the URL doesn't already describe is a real user toggle. */}
+      <ChartCollapsible
+        open={chartOpen}
+        onToggle={(e) => {
+          const { open } = (e.currentTarget as HTMLDetailsElement);
+          if (open !== chartOpen) setChartOpen(open);
+        }}
+      >
         <summary>
           <span aria-hidden style={{ marginRight: 6, fontWeight: 700 }}>
             {chartOpen ? '−' : '+'}
@@ -4063,6 +4135,8 @@ function HdrsView({ data, view, ctx }: { data: any; view: ViewState; ctx: Render
             colors={colorOverrides}
             onReset={resetColors}
             onSetColor={setColor}
+            expanded={view.expand === '1'}
+            onExpandedChange={setChartExpanded}
           />
         )}
       </ChartCollapsible>
@@ -4256,9 +4330,9 @@ export const BeamExplorer: React.FC = () => {
   const view = useMemo(() => parseView(searchParams), [searchParams]);
 
   const setView = useCallback(
-    (next: ViewState): void => {
-      setSearchParams(serializeView(next));
-      if (typeof window !== 'undefined') {
+    (next: ViewState, opts?: GoOptions): void => {
+      setSearchParams(serializeView(next), { replace: opts?.inPlace === true });
+      if (opts?.inPlace !== true && typeof window !== 'undefined') {
         window.scrollTo({ top: 0, behavior: 'auto' });
       }
     },
@@ -4266,7 +4340,7 @@ export const BeamExplorer: React.FC = () => {
   );
 
   const go = useCallback(
-    (patch: Partial<ViewState>): void => {
+    (patch: Partial<ViewState>, opts?: GoOptions): void => {
       const next: ViewState = { ...view, ...patch };
       if (patch.type && patch.type !== view.type) {
         if (patch.type !== 'block') {
@@ -4278,7 +4352,7 @@ export const BeamExplorer: React.FC = () => {
         }
         if (patch.type !== 'assets') next.q = undefined; // owner filter only applies to the assets list
       }
-      setView(next);
+      setView(next, opts);
     },
     [view, setView],
   );

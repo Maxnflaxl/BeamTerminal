@@ -25,6 +25,14 @@ import { KeyedLinesChart, buildKeyedColors, type SeriesFill } from '../component
 import { downloadBlob, downloadSvgAsPng } from '../components/chart-compare/download';
 import { fmtHashrate } from './explorer/shared';
 import { LADDERS, MAX_POINTS, TILE_BUCKETS, type ZoomRes } from '../lib/zoomResolution';
+import {
+  CHART_LINK_PARAMS,
+  chartLinkSignature,
+  parseChartLink,
+  withChartLink,
+  withoutChartLink,
+  type ChartLink,
+} from './chartDeepLink';
 import { compact, fmtNativeUnits, fromGroths } from '../components/format';
 
 // chartKey → the range-mode fetcher (`?res&from&to`) the zoom hook calls once
@@ -1161,6 +1169,13 @@ const KeyedLinesCell: React.FC<{
 
 // How a bridge chart is broken down: one aggregate line, one line per transfer
 // direction, or one line per bridge.
+// Black Hole balances span ~8 orders of magnitude (0.01 → ~1e9) across assets,
+// so that chart opens on a log Y axis; everything else defaults to linear. A
+// deep link records the axis only when it differs from this, so the common link
+// carries no `log` at all.
+const LOG_DEFAULTS: Record<string, boolean> = { blackhole: true };
+const logDefaultFor = (key: string): boolean => LOG_DEFAULTS[key] ?? false;
+
 type BridgeSplit = 'none' | 'direction' | 'bridge';
 const SPLIT_MODES: ReadonlyArray<{ value: BridgeSplit; label: string; title: string }> = [
   { value: 'none', label: 'Total', title: 'One line for all bridges' },
@@ -1402,38 +1417,39 @@ export const NetworkCharts: React.FC = () => {
   );
 
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  // Interval resets to 'auto' (and the reported visible span clears) when the
-  // timeframe changes or a different chart is expanded.
-  useEffect(() => {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Open a chart. The interval starts at 'auto' and the reported visible span
+  // clears, so nothing is carried over from whichever chart was open before;
+  // the URL follows from the publish effect below.
+  const openChart = useCallback((key: string) => {
+    setExpandedKey(key);
     setChartInterval('auto');
     setViewSpan(null);
-  }, [expandedKey, timeframe]);
-  const [searchParams, setSearchParams] = useSearchParams();
-  // Deep-link from the global search bar: /explorer/charts?chart=<key> opens
-  // that chart's extended (expanded) view. An unknown key is a harmless no-op
-  // (the modal only renders when the key matches a chart).
-  useEffect(() => {
-    const chart = searchParams.get('chart');
-    if (chart) setExpandedKey(chart);
-  }, [searchParams]);
+  }, []);
 
-  // Closing the expanded chart also drops ?chart= from the URL, so the state
-  // matches the address bar and re-searching the same chart reopens it.
+  // Closing drops the whole chart-link param set, so the address bar matches
+  // the state and re-opening the same chart is a fresh navigation.
   const closeExpanded = useCallback(() => {
     setExpandedKey(null);
-    if (searchParams.has('chart')) {
-      const next = new URLSearchParams(searchParams);
-      next.delete('chart');
-      setSearchParams(next, { replace: true });
+    setViewSpan(null);
+    if (CHART_LINK_PARAMS.some((p) => searchParams.has(p))) {
+      setSearchParams(withoutChartLink(searchParams), { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // A coarser timeframe can invalidate the chosen bucket (1m over a year is
+  // past the point cap), so the interval goes back to 'auto' with it.
+  const changeTimeframe = useCallback((tf: Timeframe) => {
+    setTimeframe(tf);
+    setChartInterval('auto');
+    setViewSpan(null);
+  }, []);
 
   // The Confidential Assets icon strip opens decluttered — the AMM Liquidity
   // Tokens are hidden until the user toggles them on.
   const [hideAmml, setHideAmml] = useState(true);
-  // Black Hole balances span ~8 orders of magnitude (0.01 → ~1e9) across
-  // assets, so it opens on a log Y axis; everything else defaults to linear.
-  const [logPerKey, setLogPerKey] = useState<Record<string, boolean>>({ blackhole: true });
+  const [logPerKey, setLogPerKey] = useState<Record<string, boolean>>(LOG_DEFAULTS);
   const toggleLog = (k: string): void => setLogPerKey((m) => ({ ...m, [k]: !m[k] }));
   // How a splittable chart is broken down, per chart key — same shape and reset
   // semantics as logPerKey. Absent = 'none' (the single aggregate series).
@@ -1754,6 +1770,69 @@ export const NetworkCharts: React.FC = () => {
   const charts = allCharts.filter((c) => c.category === category);
   const expanded = expandedKey ? allCharts.find((c) => c.key === expandedKey) ?? null : null;
 
+  // ── Deep linking ──────────────────────────────────────────────────────────
+  // The address bar carries the expanded chart and the view it is being read
+  // in, so a link reproduces what its sender was looking at.
+  //
+  // Both sides can move — a click expands a chart, Back or a pasted link moves
+  // the URL — so the sync keeps the signature the two last agreed on. Whichever
+  // side no longer matches it is the one that moved, and the other follows.
+  // Without that, a Back to the bare grid URL would look identical to a
+  // freshly expanded chart and get overwritten right back.
+  const currentLink: ChartLink | null = expandedKey
+    ? {
+      key: expandedKey,
+      timeframe,
+      interval: chartInterval,
+      log: logPerKey[expandedKey] ?? logDefaultFor(expandedKey),
+      split: splitPerKey[expandedKey] ?? 'none',
+    }
+    : null;
+  const urlLink = parseChartLink(searchParams, logDefaultFor(searchParams.get('chart') ?? ''));
+  const urlSig = chartLinkSignature(urlLink);
+  const stateSig = chartLinkSignature(currentLink);
+  const syncedSig = useRef('');
+
+  useEffect(() => {
+    if (urlSig === stateSig) {
+      syncedSig.current = urlSig;
+      return;
+    }
+    if (urlSig !== syncedSig.current) {
+      // The URL moved: a link was opened, or Back/Forward crossed an entry.
+      // A URL with no chart closes the expanded one — that is Back working.
+      syncedSig.current = urlSig;
+      if (urlLink === null) {
+        setExpandedKey(null);
+        setViewSpan(null);
+        return;
+      }
+      setExpandedKey(urlLink.key);
+      // Only the visible tab's datasets fetch, so a link to a chart on another
+      // tab has to switch tabs or the modal opens over series that never load.
+      const spec = allCharts.find((c) => c.key === urlLink.key);
+      if (spec) setCategory(spec.category);
+      setTimeframe(urlLink.timeframe);
+      setChartInterval(urlLink.interval);
+      setViewSpan(null);
+      setLogPerKey((m) => ({ ...m, [urlLink.key]: urlLink.log }));
+      setSplitPerKey((m) => ({ ...m, [urlLink.key]: urlLink.split }));
+      return;
+    }
+    // The component moved: publish it. Opening a different chart is a
+    // navigation (so Back closes it); retuning the one on screen is not, or
+    // every timeframe click would land in the history.
+    syncedSig.current = stateSig;
+    if (currentLink === null) return; // closeExpanded already cleaned the URL
+    const logDefault = logDefaultFor(currentLink.key);
+    setSearchParams(withChartLink(searchParams, currentLink, logDefault), {
+      replace: urlLink !== null && urlLink.key === currentLink.key,
+    });
+    // Signatures are the dependency that matters; the rest are read as of the
+    // render that produced them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSig, stateSig]);
+
   const download = (format: 'csv' | 'svg' | 'png'): void => {
     if (!expanded) return;
     // Split mode is part of the file's identity: Direction and Bridge are
@@ -1825,7 +1904,7 @@ export const NetworkCharts: React.FC = () => {
         </CategoryBar>
         <TimeframeGroup>
           {TIMEFRAMES.map((tf) => (
-            <TfButton key={tf} active={timeframe === tf} onClick={() => setTimeframe(tf)}>
+            <TfButton key={tf} active={timeframe === tf} onClick={() => changeTimeframe(tf)}>
               {tf}
             </TfButton>
           ))}
@@ -1856,7 +1935,7 @@ export const NetworkCharts: React.FC = () => {
                 timeframe={timeframe}
                 logScale={!!logPerKey[c.key]}
                 formatter={c.formatter}
-                onExpand={() => setExpandedKey(c.key)}
+                onExpand={() => openChart(c.key)}
                 onToggleLog={() => toggleLog(c.key)}
                 headerExtra={splitControl}
                 fill={c.fill ?? 'hold'}
@@ -1871,7 +1950,7 @@ export const NetworkCharts: React.FC = () => {
               timeframe={timeframe}
               logScale={!!logPerKey[c.key]}
               formatter={c.formatter}
-              onExpand={() => setExpandedKey(c.key)}
+              onExpand={() => openChart(c.key)}
               onToggleLog={() => toggleLog(c.key)}
             />
           ) : (
@@ -1885,7 +1964,7 @@ export const NetworkCharts: React.FC = () => {
               formatter={c.formatter}
               logScale={!!logPerKey[c.key]}
               emptyLabel={c.emptyLabel}
-              onExpand={() => setExpandedKey(c.key)}
+              onExpand={() => openChart(c.key)}
               onToggleLog={() => toggleLog(c.key)}
               headerExtra={splitControl}
             />
