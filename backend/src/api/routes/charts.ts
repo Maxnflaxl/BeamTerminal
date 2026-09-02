@@ -833,7 +833,11 @@ const CHART_DEFS: ReadonlyArray<ChartDef> = [
   { name: 'contract-calls-daily',fetch: netFetcher('daily_contract_calls'), hourlyFetch: netFetcherHourly('daily_contract_calls'), maxAgeSec: 600 },
   { name: 'contract-calls-total',fetch: netFetcher('total_contract_calls'), hourlyFetch: netFetcherHourly('total_contract_calls'), maxAgeSec: 600 },
   // Multi-series: one cumulative line per asset locked in the BlackHole contract.
-  { name: 'blackhole',           fetchBody: fetchBlackholeSeries,           maxAgeSec: 1800 },
+  // Every line's last point is the asset's live locked balance, so a half-hour
+  // cache leaves a fresh burn invisible for up to that long. The fetch is one
+  // explorer contract page for a contract with a few dozen calls, so refreshing
+  // on the 5-minute cycle costs next to nothing.
+  { name: 'blackhole',           fetchBody: fetchBlackholeSeries,           maxAgeSec: 300, refreshMs: 300_000 },
   // Bridge transfer, fee and TVL series — 300s matches the bridge sync cadence.
   // Default-mode fetchers route through the same bridgeSingleSeries/bridgeMultiSeries
   // used by serveRange's range mode so the two paths can't drift apart.
