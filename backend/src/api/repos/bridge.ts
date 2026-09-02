@@ -288,10 +288,13 @@ const DERIVED_STATUS = `
 // block_metrics covers every height, so the Beam-side blocks get their wall
 // time from a join rather than a stored copy that a reorg could strand.
 const MESSAGE_COLUMNS = `
-  bridge, direction, msg_id::text, ${DERIVED_STATUS} AS status, amount::text, relayer_fee::text,
-  receiver, src_height::text, src_call_height::text, src_block::text,
-  src_ts::text, src_tx, settle_tx, settle_block::text, settle_ts::text,
-  delivered_height::text, claimed_height::text,
+  bridge_messages.bridge, bridge_messages.direction, bridge_messages.msg_id::text,
+  ${DERIVED_STATUS} AS status, bridge_messages.amount::text, bridge_messages.relayer_fee::text,
+  bridge_messages.receiver, bridge_messages.src_height::text,
+  bridge_messages.src_call_height::text, bridge_messages.src_block::text,
+  bridge_messages.src_ts::text, bridge_messages.src_tx, bridge_messages.settle_tx,
+  bridge_messages.settle_block::text, bridge_messages.settle_ts::text,
+  bridge_messages.delivered_height::text, bridge_messages.claimed_height::text,
   (SELECT bm.block_ts::text FROM block_metrics bm
     WHERE bm.height = bridge_messages.delivered_height
     ORDER BY bm.block_ts DESC LIMIT 1) AS delivered_ts,
@@ -368,8 +371,8 @@ export async function listBridgeMessages(opts: {
 }): Promise<{ rows: BridgeMessageRow[]; total: number }> {
   const where: string[] = [];
   const params: Array<string | number> = [];
-  if (opts.bridge) { params.push(opts.bridge); where.push(`bridge = $${params.length}`); }
-  if (opts.direction) { params.push(opts.direction); where.push(`direction = $${params.length}`); }
+  if (opts.bridge) { params.push(opts.bridge); where.push(`bridge_messages.bridge = $${params.length}`); }
+  if (opts.direction) { params.push(opts.direction); where.push(`bridge_messages.direction = $${params.length}`); }
   if (opts.status) { params.push(opts.status); where.push(`${DERIVED_STATUS} = $${params.length}`); }
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
