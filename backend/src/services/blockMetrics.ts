@@ -26,7 +26,17 @@ function parseChainwork(raw: unknown): bigint {
 
 export async function sampleAtHeight(height: number): Promise<BlockMetricsSample | null> {
   const b = await getBlock({ height });
-  if (!b.found || b.timestamp === undefined) return null;
+  if (!b.found) return null;
+  // A block the explorer reports without a usable timestamp (a node still
+  // settling answers `timestamp: 0` for real heights) counts as unavailable,
+  // not as a block at the epoch, so the caller stalls and retries it. A stored
+  // 1970 row is much worse than a retry: block_ts is the hypertable's partition
+  // key and every per-day chart buckets on it, so one such row plants a 1970
+  // point on the axis of every chart reading this table.
+  if (typeof b.timestamp !== 'number' || !Number.isFinite(b.timestamp) || b.timestamp <= 0) {
+    logger.warn({ height, timestamp: b.timestamp }, 'block_metrics: block has no usable timestamp');
+    return null;
+  }
   return {
     height,
     block_ts: new Date(b.timestamp * 1000),

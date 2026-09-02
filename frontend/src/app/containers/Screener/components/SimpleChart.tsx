@@ -73,8 +73,16 @@ interface Props {
 // lightweight-charts asserts on non-ascending or duplicate timestamps. Per-block
 // explorer data (dh=1) can carry two points in the same second, so sort by time
 // and collapse duplicates (keeping the last value) before handing it to setData.
+//
+// Points at or before the epoch are dropped rather than plotted. No series here
+// legitimately starts in 1970, and a single such point stretches the time axis
+// across five decades of emptiness — squeezing the real data into the last few
+// pixels — so one bad row upstream would otherwise take every chart carrying it
+// with it.
 function toLineData(series: ReadonlyArray<ApiChartPoint>, scale: number): LineData[] {
-  const mapped = series.map((p) => ({ time: p.ts as UTCTimestamp, value: p.value * scale }));
+  const mapped = series
+    .filter((p) => Number.isFinite(p.ts) && p.ts > 0)
+    .map((p) => ({ time: p.ts as UTCTimestamp, value: p.value * scale }));
   mapped.sort((a, b) => (a.time as number) - (b.time as number));
   const out: LineData[] = [];
   for (const pt of mapped) {
