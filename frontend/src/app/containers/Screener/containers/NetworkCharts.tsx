@@ -304,15 +304,30 @@ function useKeyedSeries<T>(fetcher: () => Promise<T>, key: string, enabled: bool
   return state;
 }
 
+/** The grid and the expanded modal pick their timeframes independently, so a
+ *  tiered chart resolves one tier per surface. Both read the same two fetches —
+ *  the hourly tier loads as soon as either surface asks for it and stays loaded,
+ *  so switching back and forth costs nothing. */
+interface TieredSeries {
+  /** Tier matching the grid toolbar's timeframe. */
+  grid: FetchState<ApiChartSeries>;
+  /** Tier matching the expanded modal's timeframe. */
+  modal: FetchState<ApiChartSeries>;
+}
+
 function useTiered(
   dailyFetcher: () => Promise<ApiChartSeries>,
   hourlyFetcher: () => Promise<ApiChartSeries>,
-  res: ChartRes,
+  gridRes: ChartRes,
+  modalRes: ChartRes,
   enabled = true,
-): FetchState<ApiChartSeries> {
+): TieredSeries {
   const daily = useOneShot<ApiChartSeries>(dailyFetcher, enabled);
-  const hourly = useOneShot<ApiChartSeries>(hourlyFetcher, enabled && res === '1h');
-  return res === '1h' ? hourly : daily;
+  const hourly = useOneShot<ApiChartSeries>(hourlyFetcher, enabled && (gridRes === '1h' || modalRes === '1h'));
+  return {
+    grid: gridRes === '1h' ? hourly : daily,
+    modal: modalRes === '1h' ? hourly : daily,
+  };
 }
 
 // Prepend a synthetic 0 one day before the first datum so a cumulative-count
@@ -1188,6 +1203,10 @@ interface ChartSpec {
   title: string;
   /** Single-series payload — present for every chart except `blackhole`. */
   state?: FetchState<ApiChartSeries>;
+  /** Tiered charts only: the payload for the modal's own timeframe. Charts that
+   *  zoom (a LADDERS entry with more than one rung) refetch by range and never
+   *  read it; the daily-only ones filter it in place of `state`. */
+  expandedState?: FetchState<ApiChartSeries>;
   /** Multi-series payload — the `blackhole` chart only. */
   multiState?: FetchState<ApiBlackholeBody>;
   /** String-keyed multi-series payload — the split bridge charts. */
@@ -1206,8 +1225,14 @@ interface ChartSpec {
 }
 
 export const NetworkCharts: React.FC = () => {
+  // The grid toolbar and the expanded modal each own a timeframe: retuning the
+  // chart you opened must not silently retune the twenty behind it. Expanding
+  // seeds the modal from the grid, so the chart opens on the window it was
+  // showing in the card.
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
-  const res = TIMEFRAME_RES[timeframe];
+  const [modalTimeframe, setModalTimeframe] = useState<Timeframe>('ALL');
+  const gridRes = TIMEFRAME_RES[timeframe];
+  const modalRes = TIMEFRAME_RES[modalTimeframe];
   // Interval (candle bucket) for the EXPANDED chart only. 'auto' = finest bucket
   // that fits the current VISIBLE window. Reset to 'auto' whenever the timeframe
   // or which chart is expanded changes (see effect below).
@@ -1228,49 +1253,57 @@ export const NetworkCharts: React.FC = () => {
   const hashrate = useTiered(
     () => api.charts.hashrate(),
     () => api.charts.hashrate({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const difficulty = useTiered(
     () => api.charts.difficulty(),
     () => api.charts.difficulty({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const blockTime = useTiered(
     () => api.charts.blockTime(),
     () => api.charts.blockTime({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const coinbase = useTiered(
     () => api.charts.coinbase(),
     () => api.charts.coinbase({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const tvl = useTiered(
     () => api.charts.tvl(),
     () => api.charts.tvl({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onDefi,
   );
   const price = useTiered(
     () => api.charts.price(),
     () => api.charts.price({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onDefi,
   );
   const marketCap = useTiered(
     () => api.charts.marketCap(),
     () => api.charts.marketCap({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onDefi,
   );
   const dexVolume = useTiered(
     () => api.charts.dexVolume(),
     () => api.charts.dexVolume({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onDefi,
   );
   const beamVol = useOneShot<ApiChartSeries>(() => api.charts.beamVol(), onDefi);
@@ -1306,97 +1339,113 @@ export const NetworkCharts: React.FC = () => {
   const assets = useTiered(
     () => api.charts.assets(),
     () => api.charts.assets({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const transactionsDaily = useTiered(
     () => api.charts.transactionsDaily(),
     () => api.charts.transactionsDaily({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const transactionsTotal = useTiered(
     () => api.charts.transactionsTotal(),
     () => api.charts.transactionsTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const txosTotal = useTiered(
     () => api.charts.txosTotal(),
     () => api.charts.txosTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const utxosTotal = useTiered(
     () => api.charts.utxosTotal(),
     () => api.charts.utxosTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const shieldedInsDaily = useTiered(
     () => api.charts.shieldedInsDaily(),
     () => api.charts.shieldedInsDaily({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onLelantus,
   );
   const shieldedInsTotal = useTiered(
     () => api.charts.shieldedInsTotal(),
     () => api.charts.shieldedInsTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onLelantus,
   );
   const shieldedOutsDaily = useTiered(
     () => api.charts.shieldedOutsDaily(),
     () => api.charts.shieldedOutsDaily({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onLelantus,
   );
   const shieldedOutsTotal = useTiered(
     () => api.charts.shieldedOutsTotal(),
     () => api.charts.shieldedOutsTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onLelantus,
   );
   const contractsTotal = useTiered(
     () => api.charts.contractsTotal(),
     () => api.charts.contractsTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const sizeTotal = useTiered(
     () => api.charts.sizeTotal(),
     () => api.charts.sizeTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const archiveTotal = useTiered(
     () => api.charts.archiveTotal(),
     () => api.charts.archiveTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const feesDaily = useTiered(
     () => api.charts.feesDaily(),
     () => api.charts.feesDaily({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const feesTotal = useTiered(
     () => api.charts.feesTotal(),
     () => api.charts.feesTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const contractCallsDaily = useTiered(
     () => api.charts.contractCallsDaily(),
     () => api.charts.contractCallsDaily({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const contractCallsTotal = useTiered(
     () => api.charts.contractCallsTotal(),
     () => api.charts.contractCallsTotal({ res: '1h' }),
-    res,
+    gridRes,
+    modalRes,
     onBlockchain,
   );
   const blackhole = useOneShot<ApiBlackholeBody>(() => api.charts.blackhole(), onDefi);
@@ -1422,11 +1471,15 @@ export const NetworkCharts: React.FC = () => {
   // Open a chart. The interval starts at 'auto' and the reported visible span
   // clears, so nothing is carried over from whichever chart was open before;
   // the URL follows from the publish effect below.
-  const openChart = useCallback((key: string) => {
-    setExpandedKey(key);
-    setChartInterval('auto');
-    setViewSpan(null);
-  }, []);
+  const openChart = useCallback(
+    (key: string) => {
+      setExpandedKey(key);
+      setModalTimeframe(timeframe);
+      setChartInterval('auto');
+      setViewSpan(null);
+    },
+    [timeframe],
+  );
 
   // Closing drops the whole chart-link param set, so the address bar matches
   // the state and re-opening the same chart is a fresh navigation.
@@ -1440,8 +1493,8 @@ export const NetworkCharts: React.FC = () => {
 
   // A coarser timeframe can invalidate the chosen bucket (1m over a year is
   // past the point cap), so the interval goes back to 'auto' with it.
-  const changeTimeframe = useCallback((tf: Timeframe) => {
-    setTimeframe(tf);
+  const changeModalTimeframe = useCallback((tf: Timeframe) => {
+    setModalTimeframe(tf);
     setChartInterval('auto');
     setViewSpan(null);
   }, []);
@@ -1463,7 +1516,7 @@ export const NetworkCharts: React.FC = () => {
   // makes a value left over from the previously expanded chart inert instead.
   const [keyedSpan, setKeyedSpan] = useState<{ key: string; spanSec: number } | null>(null);
   const keyedSpanFor = (key: string): number =>
-    keyedSpan && keyedSpan.key === key ? keyedSpan.spanSec : timeframeSpanSec(timeframe);
+    keyedSpan && keyedSpan.key === key ? keyedSpan.spanSec : timeframeSpanSec(modalTimeframe);
 
   // Bucket to request for a string-keyed multi chart. The server's multi
   // fetcher ignores from/to and always returns whole history, so the bucket is
@@ -1506,43 +1559,49 @@ export const NetworkCharts: React.FC = () => {
     {
       key: 'transactionsDaily',
       title: 'Transactions / day',
-      state: transactionsDaily,
+      state: transactionsDaily.grid,
+      expandedState: transactionsDaily.modal,
       formatter: fmtInt,
       category: 'blockchain',
-      overlay: { state: coinbase, label: 'Coinbase' },
+      overlay: { state: coinbase.modal, label: 'Coinbase' },
     },
     {
       key: 'transactionsTotal',
       title: 'Transactions (total)',
-      state: transactionsTotal,
+      state: transactionsTotal.grid,
+      expandedState: transactionsTotal.modal,
       formatter: fmtInt,
       category: 'blockchain',
     },
     {
       key: 'feesDaily',
       title: 'Fees / day',
-      state: feesDaily,
+      state: feesDaily.grid,
+      expandedState: feesDaily.modal,
       formatter: fmtBeam,
       category: 'blockchain',
     },
     {
       key: 'feesTotal',
       title: 'Fees (total)',
-      state: feesTotal,
+      state: feesTotal.grid,
+      expandedState: feesTotal.modal,
       formatter: fmtBeam,
       category: 'blockchain',
     },
     {
       key: 'callsDaily',
       title: 'Contract calls / day',
-      state: contractCallsDaily,
+      state: contractCallsDaily.grid,
+      expandedState: contractCallsDaily.modal,
       formatter: fmtInt,
       category: 'blockchain',
     },
     {
       key: 'callsTotal',
       title: 'Contract calls (total)',
-      state: contractCallsTotal,
+      state: contractCallsTotal.grid,
+      expandedState: contractCallsTotal.modal,
       formatter: fmtInt,
       category: 'blockchain',
     },
@@ -1550,63 +1609,72 @@ export const NetworkCharts: React.FC = () => {
     {
       key: 'hashrate',
       title: 'Hashrate (Beamhash III)',
-      state: hashrate,
+      state: hashrate.grid,
+      expandedState: hashrate.modal,
       formatter: fmtHashrate,
       category: 'blockchain',
     },
     {
       key: 'difficulty',
       title: 'Difficulty',
-      state: difficulty,
+      state: difficulty.grid,
+      expandedState: difficulty.modal,
       formatter: fmtDifficulty,
       category: 'blockchain',
     },
     {
       key: 'blockTime',
       title: 'Avg block time',
-      state: blockTime,
+      state: blockTime.grid,
+      expandedState: blockTime.modal,
       formatter: fmtBlockTime,
       category: 'blockchain',
     },
     {
       key: 'txosTotal',
       title: 'TXOs (total)',
-      state: txosTotal,
+      state: txosTotal.grid,
+      expandedState: txosTotal.modal,
       formatter: fmtInt,
       category: 'blockchain',
     },
     {
       key: 'utxosTotal',
       title: 'UTXOs',
-      state: utxosTotal,
+      state: utxosTotal.grid,
+      expandedState: utxosTotal.modal,
       formatter: fmtInt,
       category: 'blockchain',
     },
     {
       key: 'contractsTotal',
       title: 'Contracts active',
-      state: contractsTotal,
+      state: contractsTotal.grid,
+      expandedState: contractsTotal.modal,
       formatter: fmtInt,
       category: 'blockchain',
     },
     {
       key: 'sizeTotal',
       title: 'Total blockchain size',
-      state: sizeTotal,
+      state: sizeTotal.grid,
+      expandedState: sizeTotal.modal,
       formatter: fmtBytes,
       category: 'blockchain',
     },
     {
       key: 'archiveTotal',
       title: 'Total archive size',
-      state: archiveTotal,
+      state: archiveTotal.grid,
+      expandedState: archiveTotal.modal,
       formatter: fmtBytes,
       category: 'blockchain',
     },
     {
       key: 'assets',
       title: 'Confidential Assets',
-      state: assets,
+      state: assets.grid,
+      expandedState: assets.modal,
       formatter: fmtInt,
       category: 'blockchain',
     },
@@ -1614,28 +1682,32 @@ export const NetworkCharts: React.FC = () => {
     {
       key: 'shieldedIns',
       title: 'Shielded inputs / day',
-      state: shieldedInsDaily,
+      state: shieldedInsDaily.grid,
+      expandedState: shieldedInsDaily.modal,
       formatter: fmtInt,
       category: 'lelantus',
     },
     {
       key: 'shieldedInsTotal',
       title: 'Shielded inputs (total)',
-      state: shieldedInsTotal,
+      state: shieldedInsTotal.grid,
+      expandedState: shieldedInsTotal.modal,
       formatter: fmtInt,
       category: 'lelantus',
     },
     {
       key: 'shieldedOuts',
       title: 'Shielded outputs / day',
-      state: shieldedOutsDaily,
+      state: shieldedOutsDaily.grid,
+      expandedState: shieldedOutsDaily.modal,
       formatter: fmtInt,
       category: 'lelantus',
     },
     {
       key: 'shieldedOutsTotal',
       title: 'Shielded outputs (total)',
-      state: shieldedOutsTotal,
+      state: shieldedOutsTotal.grid,
+      expandedState: shieldedOutsTotal.modal,
       formatter: fmtInt,
       category: 'lelantus',
     },
@@ -1643,7 +1715,8 @@ export const NetworkCharts: React.FC = () => {
     {
       key: 'dexVolume',
       title: 'DEX volume / day',
-      state: dexVolume,
+      state: dexVolume.grid,
+      expandedState: dexVolume.modal,
       formatter: fmtUsd,
       category: 'defi',
     },
@@ -1658,21 +1731,24 @@ export const NetworkCharts: React.FC = () => {
     {
       key: 'price',
       title: 'BEAM/USD (oracle median)',
-      state: price,
+      state: price.grid,
+      expandedState: price.modal,
       formatter: fmtUsd,
       category: 'defi',
     },
     {
       key: 'marketCap',
       title: 'BEAM market cap',
-      state: marketCap,
+      state: marketCap.grid,
+      expandedState: marketCap.modal,
       formatter: fmtUsd,
       category: 'defi',
     },
     {
       key: 'tvl',
       title: 'DEX TVL',
-      state: tvl,
+      state: tvl.grid,
+      expandedState: tvl.modal,
       formatter: fmtUsd,
       category: 'defi',
     },
@@ -1782,7 +1858,7 @@ export const NetworkCharts: React.FC = () => {
   const currentLink: ChartLink | null = expandedKey
     ? {
         key: expandedKey,
-        timeframe,
+        timeframe: modalTimeframe,
         interval: chartInterval,
         log: logPerKey[expandedKey] ?? logDefaultFor(expandedKey),
         split: splitPerKey[expandedKey] ?? 'none',
@@ -1812,7 +1888,7 @@ export const NetworkCharts: React.FC = () => {
       // tab has to switch tabs or the modal opens over series that never load.
       const spec = allCharts.find((c) => c.key === urlLink.key);
       if (spec) setCategory(spec.category);
-      setTimeframe(urlLink.timeframe);
+      setModalTimeframe(urlLink.timeframe);
       setChartInterval(urlLink.interval);
       setViewSpan(null);
       setLogPerKey((m) => ({ ...m, [urlLink.key]: urlLink.log }));
@@ -1839,7 +1915,7 @@ export const NetworkCharts: React.FC = () => {
     // different downloads of the same chart, and a shared name would have the
     // second overwrite the first in the browser's downloads folder.
     const split = splitPerKey[expanded.key] ?? 'none';
-    const base = `${expanded.key}${expanded.splittable && split !== 'none' ? `-${split}` : ''}-${timeframe}`;
+    const base = `${expanded.key}${expanded.splittable && split !== 'none' ? `-${split}` : ''}-${modalTimeframe}`;
     // Multi-series export: long-format CSV, multi-line SVG/PNG.
     if (expanded.multiState || expanded.keyedState) {
       const fill = expanded.fill ?? 'hold';
@@ -1851,13 +1927,13 @@ export const NetworkCharts: React.FC = () => {
       let idColumn: string;
       if (expanded.multiState) {
         if (!expanded.multiState.data) return;
-        const filtered = filterMultiByTimeframe(expanded.multiState.data.series, timeframe, fill);
+        const filtered = filterMultiByTimeframe(expanded.multiState.data.series, modalTimeframe, fill);
         lines = blackholeLines(filtered);
         styles = blackholeStyles(filtered);
         idColumn = 'aid';
       } else {
         if (!expanded.keyedState?.data) return;
-        const filtered = filterMultiByTimeframe(expanded.keyedState.data.series, timeframe, fill);
+        const filtered = filterMultiByTimeframe(expanded.keyedState.data.series, modalTimeframe, fill);
         lines = keyedLines(filtered);
         styles = { colors: buildKeyedColors(filtered), dashes: new Map() };
         idColumn = 'series_key';
@@ -1879,8 +1955,9 @@ export const NetworkCharts: React.FC = () => {
       else downloadSvgAsPng(svg, `${base}.png`);
       return;
     }
-    if (!expanded.state?.data) return;
-    const filtered = filterByTimeframe(expanded.state.data.series, timeframe);
+    const single = expanded.expandedState ?? expanded.state;
+    if (!single?.data) return;
+    const filtered = filterByTimeframe(single.data.series, modalTimeframe);
     if (format === 'csv') {
       downloadBlob(toCsv(filtered, expanded.title), `${base}.csv`, 'text/csv;charset=utf-8');
       return;
@@ -1904,7 +1981,7 @@ export const NetworkCharts: React.FC = () => {
         </CategoryBar>
         <TimeframeGroup>
           {TIMEFRAMES.map((tf) => (
-            <TfButton key={tf} active={timeframe === tf} onClick={() => changeTimeframe(tf)}>
+            <TfButton key={tf} active={timeframe === tf} onClick={() => setTimeframe(tf)}>
               {tf}
             </TfButton>
           ))}
@@ -2030,7 +2107,7 @@ export const NetworkCharts: React.FC = () => {
                     </TfButton>
                     {INTERVAL_ORDER.map((iv) => {
                       const ok = validIntervals(
-                        expanded.keyedState ? keyedSpanFor(expanded.key) : viewSpan ?? timeframeSpanSec(timeframe),
+                        expanded.keyedState ? keyedSpanFor(expanded.key) : viewSpan ?? timeframeSpanSec(modalTimeframe),
                         LADDERS[expanded.key]!,
                       ).includes(iv);
                       return (
@@ -2049,7 +2126,7 @@ export const NetworkCharts: React.FC = () => {
                 )}
               <TimeframeGroup>
                 {TIMEFRAMES.map((tf) => (
-                  <TfButton key={tf} active={timeframe === tf} onClick={() => setTimeframe(tf)}>
+                  <TfButton key={tf} active={modalTimeframe === tf} onClick={() => changeModalTimeframe(tf)}>
                     {tf}
                   </TfButton>
                 ))}
@@ -2060,7 +2137,7 @@ export const NetworkCharts: React.FC = () => {
                 <ExpandedKeyedLines
                   key={expanded.key}
                   state={expanded.keyedState}
-                  timeframe={timeframe}
+                  timeframe={modalTimeframe}
                   logScale={!!logPerKey[expanded.key]}
                   formatter={expanded.formatter}
                   onViewSpan={(spanSec) => setKeyedSpan({ key: expanded.key, spanSec })}
@@ -2069,7 +2146,7 @@ export const NetworkCharts: React.FC = () => {
               ) : expanded.multiState ? (
                 <ExpandedBlackhole
                   state={expanded.multiState}
-                  timeframe={timeframe}
+                  timeframe={modalTimeframe}
                   logScale={!!logPerKey[expanded.key]}
                   formatter={expanded.formatter}
                 />
@@ -2077,9 +2154,9 @@ export const NetworkCharts: React.FC = () => {
                 <ExpandedChart
                   key={expanded.key}
                   chartKey={expanded.key}
-                  state={expanded.state!}
+                  state={expanded.expandedState ?? expanded.state!}
                   title={expanded.title}
-                  timeframe={timeframe}
+                  timeframe={modalTimeframe}
                   interval={chartInterval}
                   onViewSpan={setViewSpan}
                   scale={expanded.scale}
