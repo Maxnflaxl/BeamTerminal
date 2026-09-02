@@ -1781,12 +1781,12 @@ export const NetworkCharts: React.FC = () => {
   // freshly expanded chart and get overwritten right back.
   const currentLink: ChartLink | null = expandedKey
     ? {
-      key: expandedKey,
-      timeframe,
-      interval: chartInterval,
-      log: logPerKey[expandedKey] ?? logDefaultFor(expandedKey),
-      split: splitPerKey[expandedKey] ?? 'none',
-    }
+        key: expandedKey,
+        timeframe,
+        interval: chartInterval,
+        log: logPerKey[expandedKey] ?? logDefaultFor(expandedKey),
+        split: splitPerKey[expandedKey] ?? 'none',
+      }
     : null;
   const urlLink = parseChartLink(searchParams, logDefaultFor(searchParams.get('chart') ?? ''));
   const urlSig = chartLinkSignature(urlLink);

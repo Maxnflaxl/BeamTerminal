@@ -3795,9 +3795,7 @@ function HdrsView({ data, view, ctx }: { data: any; view: ViewState; ctx: Render
   // as it is being read. Codes no longer displayed (a `cols` change) drop out
   // here rather than through a corrective effect.
   const plotted = useMemo(
-    () => (view.plot ?? '')
-      .split(',')
-      .filter((c) => c !== '' && CHARTABLE_COLS.includes(c) && activeCols.includes(c)),
+    () => (view.plot ?? '').split(',').filter((c) => c !== '' && CHARTABLE_COLS.includes(c) && activeCols.includes(c)),
     [view.plot, activeCols],
   );
   const [colorOverrides, setColorOverrides] = useState<Record<string, string>>({});
@@ -3814,16 +3812,12 @@ function HdrsView({ data, view, ctx }: { data: any; view: ViewState; ctx: Render
   // hidden-SVG measurement bug the reference works around in `toggleGraph`.
   const chartOpen = view.chart === 'hdrs';
   const setChartOpen = useCallback(
-    (open: boolean) => ctx.go(
-      { chart: open ? 'hdrs' : undefined, expand: undefined },
-      { inPlace: true },
-    ),
+    (open: boolean) => ctx.go({ chart: open ? 'hdrs' : undefined, expand: undefined }, { inPlace: true }),
     [ctx],
   );
   const setChartExpanded = useCallback(
-    (expanded: boolean) => (expanded
-      ? ctx.go({ chart: 'hdrs', expand: '1' })
-      : ctx.go({ expand: undefined }, { inPlace: true })),
+    (expanded: boolean) =>
+      expanded ? ctx.go({ chart: 'hdrs', expand: '1' }) : ctx.go({ expand: undefined }, { inPlace: true }),
     [ctx],
   );
 
@@ -4115,7 +4109,7 @@ function HdrsView({ data, view, ctx }: { data: any; view: ViewState; ctx: Render
       <ChartCollapsible
         open={chartOpen}
         onToggle={(e) => {
-          const { open } = (e.currentTarget as HTMLDetailsElement);
+          const { open } = e.currentTarget as HTMLDetailsElement;
           if (open !== chartOpen) setChartOpen(open);
         }}
       >
