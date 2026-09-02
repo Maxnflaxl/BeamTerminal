@@ -360,13 +360,14 @@ function statusTone(status: string): Tone {
       return 'success';
     case 'unclaimed':
       return 'info';
+    // Warn, not purple: purple is the pending/in-flight tone, and these three
+    // are exactly the states that will never become in-flight.
     case 'not_delivered':
     case 'skipped':
+    case 'unsettleable':
       return 'warn';
     case 'failed':
       return 'danger';
-    // 'unsettleable' falls through to the default: terminal, but nothing was
-    // lost and the bridge is fine, so it should not read as an alarm.
     default:
       return 'purple';
   }
@@ -494,9 +495,9 @@ const BridgeSummaryCard: React.FC<{
             {row.outgoing.skipped} {statusLabel('skipped')}
           </Pill>
         )}
-        {/* Not 'danger': red reads as "this bridge is short of collateral", the
-            opposite of what the count means. */}
-        {(row.over_collateral ?? 0) > 0 && (
+        {/* Same count and wording as the table's status, so the card and the
+            rows below it can't tell different stories. */}
+        {row.outgoing.unsettleable > 0 && (
           <Pill
             data-tone="warn"
             title={
@@ -504,7 +505,7 @@ const BridgeSummaryCard: React.FC<{
               'can never settle. The collateral itself is unaffected — see the backing bar above.'
             }
           >
-            {row.over_collateral} unsettleable
+            {row.outgoing.unsettleable} {statusLabel('unsettleable')}
           </Pill>
         )}
         {settlementAvailable && row.outgoing.pending > 0 && (
