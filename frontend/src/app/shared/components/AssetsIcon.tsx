@@ -1,5 +1,6 @@
 import React from 'react';
 import { useSelector } from 'react-redux';
+import { createSelector } from 'reselect';
 
 import { BeamIcon as BeamIconSvg, IconNPHAsset } from '@app/shared/icons';
 
@@ -168,6 +169,17 @@ const ICON_BY_ASSET_ID: Partial<Record<number, React.FC>> = {
   [NPH_ID]: IconNPHAsset,
 };
 
+// aid → on-chain asset, rebuilt only when the Redux list identity changes, so
+// the 100+ icons on a list page each do a Map lookup instead of a linear scan.
+const selectAssetsById = createSelector(selectAssetsList(), (assets: IAsset[] | null | undefined) => {
+  const m = new Map<number, IAsset>();
+  for (const a of assets ?? []) {
+    const id = a.asset_id ?? a.aid;
+    if (id !== undefined) m.set(id, a);
+  }
+  return m;
+});
+
 function paletteColor(asset_id: number): string {
   return PALLETE_ASSETS[asset_id] ?? PALLETE_ASSETS[asset_id % PALLETE_ASSETS.length];
 }
@@ -189,21 +201,15 @@ export function resolveAssetColor(
 // Reads the Redux assets list once, so it's safe to call inside a render loop
 // (where a per-item `useAssetColor` hook would violate the rules of hooks).
 export function useAssetColorResolver(): (asset_id: number, color?: string | null) => string {
-  const assets = useSelector(selectAssetsList()) as IAsset[];
+  const byId = useSelector(selectAssetsById);
   return React.useCallback(
-    (asset_id: number, color?: string | null): string =>
-      resolveAssetColor(
-        asset_id,
-        color,
-        assets?.find((a) => (a.asset_id ?? a.aid) === asset_id),
-      ),
-    [assets],
+    (asset_id: number, color?: string | null): string => resolveAssetColor(asset_id, color, byId.get(asset_id)),
+    [byId],
   );
 }
 
 const AssetIcon: React.FC<AssetIconProps> = ({ asset_id = 0, className, size = 22, color, logoUrl }) => {
-  const assets = useSelector(selectAssetsList()) as IAsset[];
-  const asset = assets?.find((a) => (a.asset_id ?? a.aid) === asset_id);
+  const asset = useSelector(selectAssetsById).get(asset_id);
   const resolvedColor = resolveAssetColor(asset_id, color, asset);
 
   // Track which logo URL failed so a fresh URL re-attempts the image rather

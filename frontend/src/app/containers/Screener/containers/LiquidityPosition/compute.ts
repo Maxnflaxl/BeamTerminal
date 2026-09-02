@@ -8,6 +8,8 @@
 // decimals then come out correct. The pool-share ratio (LP held / LP supply)
 // is decimals-invariant, so it stays a raw-groth ratio.
 
+import { fromGroths } from '../../components/format';
+
 export type Unit = 1 | 2;
 
 export interface PositionInput {
@@ -50,13 +52,11 @@ export interface Metrics {
   durationMs: number;
 }
 
-const toHuman = (groths: string, decimals: number): number => Number(groths) / 10 ** decimals;
-
 export function computeMetrics(p: PositionInput): Metrics {
-  const a1i = toHuman(p.amount1, p.decimals1);
-  const a2i = toHuman(p.amount2, p.decimals2);
-  const a1p = toHuman(p.reserve1, p.decimals1);
-  const a2p = toHuman(p.reserve2, p.decimals2);
+  const a1i = fromGroths(p.amount1, p.decimals1);
+  const a2i = fromGroths(p.amount2, p.decimals2);
+  const a1p = fromGroths(p.reserve1, p.decimals1);
+  const a2p = fromGroths(p.reserve2, p.decimals2);
   // Decimals cancel in the LP-token ratio, so raw groths are fine (and avoid a
   // dependency on the LP token's own decimals).
   const share = Number(p.amountCtl) / Number(p.ctlSupply);

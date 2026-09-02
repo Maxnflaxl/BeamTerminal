@@ -65,49 +65,7 @@ export async function listPairs(opts: ListOpts): Promise<PairRowRaw[]> {
   const direction = opts.order === 'asc' ? 'ASC NULLS LAST' : 'DESC NULLS LAST';
 
   const params: Array<unknown> = [opts.limit, opts.offset];
-  const where: string[] = ['p.destroyed_at_height IS NULL'];
-  if (!opts.include_imposters) {
-    where.push('NOT a1.is_imposter');
-    where.push('NOT a2.is_imposter');
-  }
-  if (opts.kind !== undefined) {
-    params.push(opts.kind);
-    where.push(`p.kind = $${params.length}`);
-  }
-  if (opts.poolIds !== undefined) {
-    params.push(opts.poolIds);
-    where.push(`p.pool_id = ANY($${params.length})`);
-  }
-  if (opts.search) {
-    // Split on "/" so users can narrow by pair, e.g. "BEAM/BeamX". Single
-    // tokens still match either side (symbol substring OR exact AID).
-    const parts = opts.search.split('/').map((s) => s.trim()).filter(Boolean);
-    if (parts.length === 1) {
-      const raw = parts[0]!;
-      params.push(`%${raw}%`, raw);
-      const li = params.length - 1;
-      const ei = params.length;
-      where.push(
-        `(a1.short_name ILIKE $${li} OR a2.short_name ILIKE $${li}
-          OR p.aid1::text = $${ei} OR p.aid2::text = $${ei})`,
-      );
-    } else {
-      const leftRaw = parts[0]!;
-      const rightRaw = parts[1]!;
-      params.push(`%${leftRaw}%`, leftRaw, `%${rightRaw}%`, rightRaw);
-      const ll = params.length - 3;
-      const le = params.length - 2;
-      const rl = params.length - 1;
-      const re = params.length;
-      where.push(`(
-        ((a1.short_name ILIKE $${ll} OR p.aid1::text = $${le})
-         AND (a2.short_name ILIKE $${rl} OR p.aid2::text = $${re}))
-        OR
-        ((a2.short_name ILIKE $${ll} OR p.aid2::text = $${le})
-         AND (a1.short_name ILIKE $${rl} OR p.aid1::text = $${re}))
-      )`);
-    }
-  }
+  const where = buildFilters(opts, params);
 
   const sql = `
     SELECT
@@ -186,6 +144,77 @@ export async function listPairs(opts: ListOpts): Promise<PairRowRaw[]> {
 
   const { rows } = await q<PairRowRaw>(sql, params as ReadonlyArray<string | number | bigint | boolean | Date | Buffer | null>);
   return rows;
+}
+
+export type FilterOpts = Pick<ListOpts, 'search' | 'kind' | 'include_imposters' | 'poolIds'>;
+
+/**
+ * Number of pools matching the same filters {@link listPairs} applies, so a
+ * paged listing can report how many rows exist beyond the page it returned.
+ */
+export async function countPairs(opts: FilterOpts): Promise<number> {
+  const params: Array<unknown> = [];
+  const where = buildFilters(opts, params);
+  const { rows } = await q<{ n: string }>(
+    `SELECT count(*)::text AS n
+       FROM pools p
+       JOIN assets a1 ON a1.aid = p.aid1
+       JOIN assets a2 ON a2.aid = p.aid2
+      WHERE ${where.join(' AND ')}`,
+    params as ReadonlyArray<string | number | bigint | boolean | Date | Buffer | null>,
+  );
+  return rows[0] ? Number(rows[0].n) : 0;
+}
+
+/** WHERE clauses shared by the listing and its count. Appends bound values to
+ *  `params` (which may already hold leading positional args) and references
+ *  them by their resulting `$n` index. Assumes the query joins `pools p`,
+ *  `assets a1` (aid1) and `assets a2` (aid2). */
+function buildFilters(opts: FilterOpts, params: Array<unknown>): string[] {
+  const where: string[] = ['p.destroyed_at_height IS NULL'];
+  if (!opts.include_imposters) {
+    where.push('NOT a1.is_imposter');
+    where.push('NOT a2.is_imposter');
+  }
+  if (opts.kind !== undefined) {
+    params.push(opts.kind);
+    where.push(`p.kind = $${params.length}`);
+  }
+  if (opts.poolIds !== undefined) {
+    params.push(opts.poolIds);
+    where.push(`p.pool_id = ANY($${params.length})`);
+  }
+  if (opts.search) {
+    // Split on "/" so users can narrow by pair, e.g. "BEAM/BeamX". Single
+    // tokens still match either side (symbol substring OR exact AID).
+    const parts = opts.search.split('/').map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 1) {
+      const raw = parts[0]!;
+      params.push(`%${raw}%`, raw);
+      const li = params.length - 1;
+      const ei = params.length;
+      where.push(
+        `(a1.short_name ILIKE $${li} OR a2.short_name ILIKE $${li}
+          OR p.aid1::text = $${ei} OR p.aid2::text = $${ei})`,
+      );
+    } else {
+      const leftRaw = parts[0]!;
+      const rightRaw = parts[1]!;
+      params.push(`%${leftRaw}%`, leftRaw, `%${rightRaw}%`, rightRaw);
+      const ll = params.length - 3;
+      const le = params.length - 2;
+      const rl = params.length - 1;
+      const re = params.length;
+      where.push(`(
+        ((a1.short_name ILIKE $${ll} OR p.aid1::text = $${le})
+         AND (a2.short_name ILIKE $${rl} OR p.aid2::text = $${re}))
+        OR
+        ((a2.short_name ILIKE $${ll} OR p.aid2::text = $${le})
+         AND (a1.short_name ILIKE $${rl} OR p.aid1::text = $${re}))
+      )`);
+    }
+  }
+  return where;
 }
 
 /** A resolved pair reference: every tier's pool plus the reference (deepest)

@@ -26,6 +26,18 @@ function memorySet(height: number, ts: Date): void {
   }
 }
 
+/**
+ * Drops every in-memory entry above `height`. Called by the reorg rewind
+ * alongside its `DELETE FROM block_timestamps WHERE height > $1`, so a
+ * timestamp cached from the orphaned branch can't outlive the DB row and be
+ * stamped onto re-ingested rows.
+ */
+export function invalidateBlockTsAbove(height: number): void {
+  for (const h of memory.keys()) {
+    if (h > height) memory.delete(h);
+  }
+}
+
 async function dbGet(height: number): Promise<Date | null> {
   const { rows } = await q<{ ts: Date }>(
     'SELECT ts FROM block_timestamps WHERE height = $1',
@@ -34,22 +46,40 @@ async function dbGet(height: number): Promise<Date | null> {
   return rows[0]?.ts ?? null;
 }
 
-async function dbPut(height: number, ts: Date): Promise<void> {
+/**
+ * Inserts the row, or — when it already exists without a hash (written before
+ * hashes were recorded) — fills the hash in. An existing hash is never
+ * overwritten: a row that survives a reorg rewind is on the active chain by
+ * construction, and the rewind deletes every row past the ancestor.
+ */
+async function dbPut(height: number, ts: Date, hashHex?: string): Promise<void> {
+  const hash = hashHex ? Buffer.from(hashHex, 'hex') : null;
   await q(
-    `INSERT INTO block_timestamps (height, ts) VALUES ($1, $2)
-     ON CONFLICT (height) DO NOTHING`,
-    [height, ts],
+    `INSERT INTO block_timestamps (height, ts, hash) VALUES ($1, $2, $3)
+     ON CONFLICT (height) DO UPDATE SET hash = EXCLUDED.hash
+       WHERE block_timestamps.hash IS NULL AND EXCLUDED.hash IS NOT NULL`,
+    [height, ts, hash],
   );
 }
 
+/** The block hash we recorded for `height`, or null when the row is missing
+ *  or predates hash recording. */
+export async function getStoredBlockHash(height: number): Promise<Buffer | null> {
+  const { rows } = await q<{ hash: Buffer | null }>(
+    'SELECT hash FROM block_timestamps WHERE height = $1',
+    [height],
+  );
+  return rows[0]?.hash ?? null;
+}
+
 /**
- * Seeds both caches with a timestamp obtained elsewhere (e.g. the head
- * block's ts from `/status`), so later lookups for that height skip the
- * explorer round-trip.
+ * Seeds both caches with a timestamp (and, when known, the block hash)
+ * obtained elsewhere (e.g. the head block from `/status`), so later lookups
+ * for that height skip the explorer round-trip.
  */
-export async function primeBlockTs(height: number, ts: Date): Promise<void> {
+export async function primeBlockTs(height: number, ts: Date, hashHex?: string): Promise<void> {
   memorySet(height, ts);
-  await dbPut(height, ts).catch((err) =>
+  await dbPut(height, ts, hashHex).catch((err) =>
     logger.warn({ err: err instanceof Error ? err.message : err, height }, 'block_ts cache write failed'),
   );
 }
@@ -58,7 +88,8 @@ export async function primeBlockTs(height: number, ts: Date): Promise<void> {
  * Returns the wall-clock timestamp of the given block height.
  *
  * Lookup order: in-memory cache → DB cache → explorer `/block?height=N`.
- * On explorer fallback, the value is back-filled into both caches.
+ * On explorer fallback, the value (with the block's hash) is back-filled into
+ * both caches.
  */
 export async function getBlockTs(height: number): Promise<Date> {
   const cached = memoryGet(height);
@@ -76,7 +107,7 @@ export async function getBlockTs(height: number): Promise<Date> {
   }
   const ts = new Date(block.timestamp * 1000);
   memorySet(height, ts);
-  await dbPut(height, ts).catch((err) =>
+  await dbPut(height, ts, block.hash).catch((err) =>
     // Cache write failure is non-fatal; we still have the value in memory.
     logger.warn({ err: err instanceof Error ? err.message : err, height }, 'block_ts cache write failed'),
   );

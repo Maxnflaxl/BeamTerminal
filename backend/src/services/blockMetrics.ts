@@ -53,18 +53,31 @@ export async function maxIndexedHeight(): Promise<number | null> {
   return h === null || h === undefined ? null : Number(h);
 }
 
+export interface IngestRangeResult {
+  /** Samples written this pass. */
+  inserted: number;
+  /** Highest height written with no gap below it since `fromHeight`;
+   *  `fromHeight - 1` when the very first height failed. */
+  lastHeight: number;
+}
+
 /**
- * Walk a height range and persist a sample for each block. Bounded concurrency
- * to avoid hammering the explorer. Idempotent — already-stored heights are
- * skipped on conflict.
+ * Walk a height range and persist a sample for each block, in height order,
+ * with no gaps. Fetches run with bounded concurrency to avoid hammering the
+ * explorer, but the upserts stop at the first height that fails or comes back
+ * `found: false` — nothing above it is written. The caller resumes from
+ * `MAX(height)`, so a hole written past a failure would never be revisited;
+ * stopping keeps the table contiguous and makes the next pass retry the
+ * failed height. Idempotent — already-stored heights are skipped on conflict.
  */
 export async function ingestRange(
   fromHeight: number,
   toHeight: number,
   opts: { concurrency?: number; onProgress?: (h: number) => void } = {},
-): Promise<number> {
+): Promise<IngestRangeResult> {
   const concurrency = Math.max(1, opts.concurrency ?? 4);
   let inserted = 0;
+  let lastHeight = fromHeight - 1;
 
   for (let base = fromHeight; base <= toHeight; base += concurrency) {
     const batch: number[] = [];
@@ -75,13 +88,22 @@ export async function ingestRange(
       return null;
     })));
 
-    for (const s of samples) {
-      if (s) {
-        await upsertSample(s);
-        inserted++;
+    // `samples` is in `batch` (ascending height) order; write until the
+    // first gap.
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i];
+      if (!s) {
+        logger.warn(
+          { height: batch[i], from: fromHeight, to: toHeight, last_height: lastHeight },
+          'block_metrics ingest stalled at unavailable height; retrying from it next pass',
+        );
+        return { inserted, lastHeight };
       }
+      await upsertSample(s);
+      inserted++;
+      lastHeight = s.height;
     }
-    opts.onProgress?.(base + batch.length - 1);
+    opts.onProgress?.(lastHeight);
   }
-  return inserted;
+  return { inserted, lastHeight };
 }

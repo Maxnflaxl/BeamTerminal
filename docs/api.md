@@ -154,9 +154,11 @@ Response shape (one entry shown — see `frontend/src/app/containers/Screener/ap
 }
 ```
 
+`total` is the full match count for the given filters (`search`/`kind`/`include_imposters`), independent of `limit`/`offset`, when the sort runs in SQL. On the app-side sort path (see below) it is the size of the loaded super-set after grouping, so it never exceeds 500.
+
 ### Sort routing
 
-`tvl_usd` and `volume_24h_usd` are computed app-side from the USD-per-AID rates (which come from the multi-hop helper, not SQL). When sorted by either, the handler pulls a default-ordered window of up to 500 rows, sorts in JS, and slices to `[offset, offset+limit]`. Other sort keys go straight to SQL.
+`tvl_usd` and `volume_24h_usd` are computed app-side from the USD-per-AID rates (which come from the multi-hop helper, not SQL). When sorted by either, the handler pulls a default-ordered window of up to 500 rows, sorts in JS, and slices to `[offset, offset+limit]`. `total` on that path counts the loaded super-set, so it never exceeds 500. Other sort keys go straight to SQL.
 
 This matters because a tiny pool with huge raw-groth reserves but only ~\$37 of USD value would otherwise rank above genuinely deep pools.
 
@@ -283,11 +285,12 @@ Query params:
 | `kind` | `Trade \| lp` | `Trade` | `lp` returns Deposit + Withdraw events. |
 | `limit` | int, 1..200 | 50 | |
 | `before` | int (unix seconds) | `now` | Cursor mode — "load more" pagination. |
+| `before_id` | int > 0 | — | Pairs with `before`: id of the last row of the previous page (`trade_id` for `kind=Trade`, `event_id` for `kind=lp`). When both are given the page resumes exactly after that row (`(block_ts, id) < (before, before_id)`), so rows that share a block timestamp are never skipped. Ignored without `before`. |
 | `offset` | int ≥ 0 | — | Numbered pagination. When present, overrides `before`. |
 | `count` | bool | false | Also return `total` (pool's full row count) for "Showing X to Y of N". |
 | `include_unconfirmed` | bool | true | UI shows unconfirmed with a marker; CG endpoints always exclude. |
 
-In offset mode the response echoes `offset` and `limit`, and (when `count=true`) `total`; `before` is `null`.
+In offset mode the response echoes `offset` and `limit`, and (when `count=true`) `total`; `before` and `before_id` are `null`.
 
 Trade response:
 
@@ -309,7 +312,8 @@ Trade response:
       "confirmations": 80              // truncated to 80 once confirmed
     }
   ],
-  "before": 1747400940                 // oldest timestamp in the page (next page cursor)
+  "before": 1747400940,                // oldest timestamp in the page (next page cursor)
+  "before_id": 48213                   // id of the oldest row in the page — pass back with `before`
 }
 ```
 
@@ -330,7 +334,8 @@ LP-event response (`kind=lp`):
       "confirmed": true
     }
   ],
-  "before": 1747400940
+  "before": 1747400940,
+  "before_id": 9137
 }
 ```
 
@@ -348,6 +353,7 @@ Query params:
 |---|---|---|---|
 | `limit` | int, 1..200 | 50 | |
 | `before` | int (unix seconds) | `now` | Cursor — "load older". |
+| `before_id` | int > 0 | — | Pairs with `before`: `trade_id` of the last row seen. Together they form a keyset cursor (`(block_ts, trade_id) < (before, before_id)`) that does not skip same-block trades. Ignored without `before`. |
 | `include_unconfirmed` | bool | true | |
 | `include_imposters` | bool | false | If true, includes pools where either side has `is_imposter = TRUE`. |
 | `kind` | `0 \| 1 \| 2` | — | Filter to one volatility tier. |
@@ -381,12 +387,16 @@ Destroyed pools are always excluded.
     }
   ],
   "before": 1747399118,
+  "before_id": 48213,
   "limit": 50
 }
 ```
 
 `before` in the response is the oldest returned trade's timestamp — feed it back
 as the `before` param to page further. `null` when the page came back empty.
+`before_id` is that trade's `trade_id`; pass both back together. Paging on
+`before` alone still works but can drop the remaining trades of the block the
+previous page ended in.
 
 One deliberate difference from the per-pair route: `price_usd` and `value_usd`
 are priced off the shared [USD table](#usd-valuation) rather than only from
@@ -680,22 +690,25 @@ All optional. With none, the endpoint returns the full daily history — the ori
 | Name | Type | Default | Notes |
 |---|---|---|---|
 | `res` | `1m` \| `1h` \| `1d` \| `1M` | `1d` | Resolution. `1m` and `1M` apply only in range mode (below); in default mode any unrecognized value — including `1m` and `1M` — serves `1d`. `1M` buckets by whole calendar month and is only offered by series whose ladder includes it (currently the `bridge-*` series). |
-| `from` | unix seconds | — | Start of a zoom window. Must be sent together with `to`. |
-| `to` | unix seconds | — | End of a zoom window. Must be greater than `from`. |
+| `from` | unix seconds | — | Start of a zoom window. Must be sent together with `to`. Clamped to `>= 0`. |
+| `to` | unix seconds | — | End of a zoom window. Must be greater than `from` after clamping. Clamped to `<= now + one bucket` of `res`. |
 
 **Default mode** — no `from`/`to`. Returns the full-history series at daily (`res=1d`) or hourly (`res=1h`) resolution. Hourly exists for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, `pools-closed`, and the `bridge-*` series; requesting `res=1h` on those silently serves `1d`. Both resolutions come from the in-process cache described above, so `Cache-Control` is the per-series `max-age` in the table below. The response is the flat shape shown above (single-series) for every series in default mode, `blackhole` excepted (see its row below).
 
-**Range ("zoom") mode** — `from` **and** `to` both present. Returns only the points inside `[from, to)`, served from a separate tile-quantized, bounded cache, at `res=1m|1h|1d|1M` (default `1d`). Supported for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, and `pools-closed`, which are daily-only and return an empty `series` here. Bad bounds (`to ≤ from`, or non-numeric) yield `400 {"error":"bad from/to"}`. `Cache-Control: public, max-age=86400` once the whole window has settled (`to` older than the ~80-minute / 80-block confirmation horizon), otherwise `max-age=60`.
+**Range ("zoom") mode** — `from` **and** `to` both present. Returns only the points inside `[from, to)`, served from a separate tile-quantized, bounded cache, at `res=1m|1h|1d|1M` (default `1d`). Supported for every series **except** `beam-vol`, `dex-vol`, `blackhole`, `pools-created`, and `pools-closed`, which are daily-only and return an empty `series` here. Bad bounds (non-numeric, or `to ≤ from` once clamped) yield `400 {"error":"bad from/to"}`. `Cache-Control: public, max-age=86400` once the whole window has settled (`to` older than the ~80-minute / 80-block confirmation horizon), otherwise `max-age=60`.
 
-In range mode the body carries an explicit `kind` discriminant instead of always being the flat shape — the shape is a fixed property of the series name, never of the query params, so a client never has to sniff the body to know which one it got:
+**Window width cap.** The window is served in tiles of 256 buckets. A window wider than 2 000 buckets plus two edge tiles (10 tiles: ~1.8 days at `1m`, ~107 days at `1h`) is served at the next coarser resolution on the series' ladder instead of the one requested, repeatedly until it fits; the coarsest rung (`1d`) is served at any width, bounded only by the `from`/`to` clamps above. Whatever is served is reported back in the body's `res` field, so a client that needs the finer resolution should narrow the window rather than assume the request was honored. A window that would still exceed 128 tiles at the coarsest rung yields `400 {"error":"range too wide for resolution"}`.
+
+In range mode the body carries an explicit `kind` discriminant instead of always being the flat shape — the shape is a fixed property of the series name, never of the query params, so a client never has to sniff the body to know which one it got — and a `res` field naming the resolution actually served (the requested one, or a coarser one per the cap above / the series' ladder):
 
 ```json
-{ "kind": "single", "series": [ { "ts": 1700000000, "value": 1234567.89 } ] }
+{ "kind": "single", "res": "1h", "series": [ { "ts": 1700000000, "value": 1234567.89 } ] }
 ```
 
 ```json
 {
   "kind": "multi",
+  "res": "1d",
   "series": [
     { "key": "beam2eth", "label": "Beam → Ethereum", "points": [ { "ts": 1700000000, "value": 12 } ] }
   ]
@@ -776,7 +789,7 @@ and BEAM/WBEAM on both Ethereum mainnet and Arbitrum One.
       "eth_pipe": "0x7c3fe09e86b0d8661d261a49bfa385536b7077f9",
       "eth_token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
       "asset_symbol": "bUSDT",
-      "outgoing": { "pending": 99, "relayed": 0, "failed": 0, "unknown": 0, "total": 99 },
+      "outgoing": { "pending": 99, "relayed": 0, "failed": 0, "unknown": 0, "unsettleable": 0, "skipped": 0, "total": 99 },
       "incoming": { "not_delivered": 2, "unclaimed": 2, "complete": 136, "unknown": 0, "total": 140 },
       "oldest_open_ts": "2022-06-14T09:12:00.000Z",
       "last_message_ts": "2026-08-08T13:56:26.000Z",
@@ -801,12 +814,28 @@ many contributed.
 
 Status vocabularies differ by direction, because the underlying contract states do:
 
-- `beam2eth` — `pending` (no settling Ethereum tx seen), `relayed`, `failed`, `unknown`.
+- `beam2eth` — `pending` (no settling Ethereum tx seen), `relayed`, `failed`,
+  `unsettleable`, `skipped`, `unknown`.
 - `eth2beam` — `not_delivered` (the relayer never pushed it to Beam), `unclaimed`
   (delivered; the recipient hasn't signed `ReceiveFunds`), `complete`, `unknown`.
 
 `unclaimed` is **not** an error: only the recipient can claim, so a message can sit
 there indefinitely. Don't count it as a bridge failure.
+
+`unsettleable` and `skipped` are **derived**, not stored. Both refine `pending`,
+which otherwise reads as "on its way" for messages that will never move — the
+relayer gives up after three attempts rather than retrying indefinitely, so
+nothing is coming back for them:
+
+- `unsettleable` — the amount underflowed, making it larger than everything the
+  bridge holds. There is nothing to release against it. Provable from the row.
+- `skipped` — a later message on the same bridge has already settled, so the
+  relayer moved past this one. This catches stalls we cannot diagnose from our
+  side (a fee under the relayer's minimum, for instance) without needing to know
+  the reason.
+
+Both are terminal, so neither counts toward `oldest_open_ts`, and both accept
+`?status=` like any stored value.
 
 `over_collateral` counts open `beam2eth` messages whose amount exceeds the
 collateral the bridge holds. Such a message cannot settle — there is nothing to
@@ -1230,9 +1259,11 @@ deliberately 503 rather than 504 — Cloudflare rewrites origin 502/504 bodies,
 and the Download button needs the JSON error to explain itself. The IPFS fetch
 is bounded at 60 s, under Cloudflare's 100 s origin-response limit.
 
-## `GET /api/ipfs/{cid}`
+## `GET /ipfs/{cid}`
 
-General-purpose read-only IPFS gateway over the same transport.
+General-purpose read-only IPFS gateway over the same transport. Served at the
+site root without the `/api` prefix, matching the path shape of every other IPFS
+gateway, so a client can swap `ipfs.io` / `dweb.link` for this host unchanged.
 
 | Name | Type | Default | Notes |
 |---|---|---|---|
@@ -1340,15 +1371,17 @@ monotonic cumulative totals, so the bucket's high is its end state.
 ## Social-card images
 
 Three routes render images rather than JSON, for link unfurls and embeds. They
-are part of the public surface but aren't meant to be consumed as data.
+are part of the public surface but aren't meant to be consumed as data. All
+three live at the site root, without the `/api` prefix, so the URLs stay short
+and hotlinkable.
 
 | Route | Type | Notes |
 |---|---|---|
-| `GET /api/og/site.svg` | `image/svg+xml` | Site-wide Open Graph card: headline stats. |
-| `GET /api/og/pair/{id}.svg` | `image/svg+xml` | Per-pair card. `id` takes the same forms as [`/api/pairs/{id}`](#get-apipairsid). |
-| `GET /api/pair/{id}/chart.png` | `image/png` | Rendered price chart for one pair. |
+| `GET /og/site.svg` | `image/svg+xml` | Site-wide Open Graph card: headline stats. |
+| `GET /og/pair/{id}.svg` | `image/svg+xml` | Per-pair card. `id` takes the same forms as [`/api/pairs/{id}`](#get-apipairsid). |
+| `GET /pair/{id}/chart.png` | `image/png` | Rendered price chart for one pair. |
 
-`/api/pair/{id}/chart.png` accepts `days` (int 1..3650 or `all`, default 1),
+`/pair/{id}/chart.png` accepts `days` (int 1..3650 or `all`, default 1),
 `w` (200..2000, default 720) and `h` (150..1200, default 360). Candle
 granularity follows `days` — 5m up to a day, widening to 1d beyond a year — so
 the image stays readable at every range. An unknown pair returns a 404 whose body is still a PNG carrying a

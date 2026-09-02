@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import type { ApiPair, ApiPairTier, LiquidityInterval, LiquiditySource } from '../api/types';
 import { usePoolLiquidity, usePagedLpEvents, useAsset } from '../hooks';
-import { fmt$, fmtNum, fmtPct, fmtPrice, fmtDateFull } from './format';
+import { fmt$, fmtNum, fmtPct, fmtPrice, fmtDateFull, fromGroths } from './format';
 import { PoolHistoryChart, type SeriesVisibility } from './PoolHistoryChart';
 import { CenterOnControl } from './CenterOnControl';
 import { Pager } from './Pager';
@@ -248,11 +248,6 @@ const TableWrap = styled.div`
   }
 `;
 
-function human(amount: string | null | undefined, decimals: number): number {
-  if (!amount) return 0;
-  return Number(amount) / 10 ** decimals;
-}
-
 // BEAM (aid 0) is mined, every other asset is minted.
 const supplyWord = (aid: number): string => (aid === 0 ? 'mined' : 'minted');
 
@@ -301,8 +296,8 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
 
   const { data: asset1 } = useAsset(p.aid1);
   const { data: asset2 } = useAsset(p.aid2);
-  const supply1 = asset1?.emission ? human(asset1.emission, asset1.decimals) : null;
-  const supply2 = asset2?.emission ? human(asset2.emission, asset2.decimals) : null;
+  const supply1 = asset1?.emission ? fromGroths(asset1.emission, asset1.decimals) : null;
+  const supply2 = asset2?.emission ? fromGroths(asset2.emission, asset2.decimals) : null;
 
   const pct1 = supply1 && supply1 > 0 && p.reserve1_human != null ? (p.reserve1_human / supply1) * 100 : null;
   const pct2 = supply2 && supply2 > 0 && p.reserve2_human != null ? (p.reserve2_human / supply2) * 100 : null;
@@ -312,7 +307,7 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
   const mcUsd = p.price_usd != null && supply2 != null ? p.price_usd * supply2 : null;
   const mcBeam = beamPerToken != null && supply2 != null ? beamPerToken * supply2 : null;
   const chg = fmtPct(p.price_change_24h);
-  const volBeam = isBeamPair ? human(p.volume_24h_groth, p.decimals1) : null;
+  const volBeam = isBeamPair ? fromGroths(p.volume_24h_groth, p.decimals1) : null;
 
   // Existing tiers carry their LP id + reserves (Add/Withdraw). Missing ones get
   // a Create button — but ONLY in the combined-pair view, where `p.tiers` is the
@@ -579,8 +574,8 @@ export const LiquidityBanner: React.FC<Props> = ({ id, pair: p }) => {
                       <tr key={e.event_id}>
                         <td>{fmtDateFull(e.timestamp)}</td>
                         <td className={dep ? 'pos' : 'neg'}>{dep ? 'deposit' : 'withdraw'}</td>
-                        <td className={dep ? 'pos' : 'neg'}>{fmtNum(human(e.amount1, p.decimals1), 4)}</td>
-                        <td className={dep ? 'pos' : 'neg'}>{fmtNum(human(e.amount2, p.decimals2), 4)}</td>
+                        <td className={dep ? 'pos' : 'neg'}>{fmtNum(fromGroths(e.amount1, p.decimals1), 4)}</td>
+                        <td className={dep ? 'pos' : 'neg'}>{fmtNum(fromGroths(e.amount2, p.decimals2), 4)}</td>
                         <td className={pct != null && pct < 0 ? 'neg' : 'pos'}>
                           {pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}
                         </td>

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getBridgeHealth, listBridgeMessages, lookupBridgeTransfer } from '../repos/bridge.js';
 import { etherscanEnabled } from '../../services/etherscan.js';
+import { queryInt } from '../query.js';
 
 // ---------------------------------------------------------------------------
 // /api/bridge/health    — per-bridge liveness + peg backing.
@@ -12,7 +13,7 @@ import { etherscanEnabled } from '../../services/etherscan.js';
 
 const VALID_DIRECTIONS = new Set(['beam2eth', 'eth2beam']);
 const VALID_STATUSES = new Set([
-  'pending', 'relayed', 'failed', // beam2eth
+  'pending', 'relayed', 'failed', 'unsettleable', 'skipped', // beam2eth
   'not_delivered', 'unclaimed', 'complete', // eth2beam
   'unknown', // either
 ]);
@@ -59,8 +60,8 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       limit?: string; offset?: string;
     };
   }>('/bridge/messages', async (req, reply) => {
-    const limit = Math.min(Math.max(Number(req.query.limit ?? 50) || 50, 1), 500);
-    const offset = Math.max(Number(req.query.offset ?? 0) || 0, 0);
+    const limit = queryInt(req.query.limit, { default: 50, min: 1, max: 500 });
+    const offset = queryInt(req.query.offset, { default: 0, min: 0 });
     const direction = req.query.direction && VALID_DIRECTIONS.has(req.query.direction)
       ? req.query.direction : undefined;
     const status = req.query.status && VALID_STATUSES.has(req.query.status)

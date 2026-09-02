@@ -147,59 +147,112 @@ export async function syncAssetsCatalog(): Promise<number> {
   // assets but only a handful of distinct issuing contracts).
   const contractKinds = await fetchContractKinds();
 
-  let upserted = 0;
+  // Rows are collected and written as one multi-row upsert — a catalog of a
+  // few hundred assets is one round-trip instead of one per asset. The
+  // catalog lists each aid once, so the batch never touches the same row
+  // twice (a multi-row upsert may not); last-seen wins defensively anyway.
+  const byAid = new Map<number, AssetUpsertRow>();
   for (const row of resp.value.slice(1)) {
     const picked = pickRow(row);
     if (!picked || picked.aid === null) continue;
     if (picked.aid === 0) continue; // BEAM seeded by migration
 
     const meta = parseAssetMetadata(picked.metadata);
-    const ownerKind = picked.owner_cid ? contractKinds.get(picked.owner_cid) ?? null : null;
-    const params: ReadonlyArray<string | number | bigint | null> = [
-      picked.aid,
-      meta.name ?? null,
-      meta.short_name ?? null,
-      meta.unit_name ?? null,
-      meta.description ?? null,
-      8, // decimals — all observed BEAM assets are 8-decimal
-      picked.supply ?? null,
-      picked.lock_height ?? null,
-      meta.color ?? null,
-      meta.logo_url ?? null,
-      meta.site_url ?? null,
-      meta.long_description ?? null,
-      picked.owner_cid,
-      ownerKind,
-      picked.owner_addr,
-    ];
-
-    await q(
-      `INSERT INTO assets (
-         aid, name, short_name, unit_name, description, decimals, emission, lock_height, color, logo_url, website, long_description, owner_cid, owner_kind, owner_addr, last_updated_at
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
-       ON CONFLICT (aid) DO UPDATE SET
-         name             = EXCLUDED.name,
-         short_name       = EXCLUDED.short_name,
-         unit_name        = EXCLUDED.unit_name,
-         description      = EXCLUDED.description,
-         emission         = EXCLUDED.emission,
-         lock_height      = COALESCE(EXCLUDED.lock_height, assets.lock_height),
-         color            = EXCLUDED.color,
-         logo_url         = EXCLUDED.logo_url,
-         website          = EXCLUDED.website,
-         long_description = EXCLUDED.long_description,
-         owner_cid        = EXCLUDED.owner_cid,
-         owner_kind       = COALESCE(EXCLUDED.owner_kind, assets.owner_kind),
-         owner_addr       = EXCLUDED.owner_addr,
-         last_updated_at  = now()`,
-      params,
-    );
-    upserted++;
+    byAid.set(picked.aid, {
+      aid: picked.aid,
+      name: meta.name ?? null,
+      shortName: meta.short_name ?? null,
+      unitName: meta.unit_name ?? null,
+      description: meta.description ?? null,
+      emission: picked.supply !== null ? picked.supply.toString() : null,
+      lockHeight: picked.lock_height ?? null,
+      color: meta.color ?? null,
+      logoUrl: meta.logo_url ?? null,
+      website: meta.site_url ?? null,
+      longDescription: meta.long_description ?? null,
+      ownerCid: picked.owner_cid,
+      ownerKind: picked.owner_cid ? contractKinds.get(picked.owner_cid) ?? null : null,
+      ownerAddr: picked.owner_addr,
+    });
   }
+
+  const upserted = await flushAssets([...byAid.values()]);
 
   logger.info({ upserted, total: resp.value.length - 1 }, 'assets catalog synced');
   return upserted;
+}
+
+interface AssetUpsertRow {
+  aid: number;
+  name: string | null;
+  shortName: string | null;
+  unitName: string | null;
+  description: string | null;
+  emission: string | null;
+  lockHeight: number | null;
+  color: string | null;
+  logoUrl: string | null;
+  website: string | null;
+  longDescription: string | null;
+  ownerCid: string | null;
+  ownerKind: string | null;
+  ownerAddr: string | null;
+}
+
+/** One multi-row upsert for the catalog. Returns the number of rows written
+ *  (inserted or updated). All observed BEAM assets are 8-decimal. */
+async function flushAssets(rows: AssetUpsertRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const res = await q(
+    `INSERT INTO assets (
+       aid, name, short_name, unit_name, description, decimals, emission, lock_height,
+       color, logo_url, website, long_description, owner_cid, owner_kind, owner_addr,
+       last_updated_at
+     )
+     SELECT t.aid, t.name, t.short_name, t.unit_name, t.description, 8, t.emission, t.lock_height,
+            t.color, t.logo_url, t.website, t.long_description, t.owner_cid, t.owner_kind, t.owner_addr,
+            now()
+       FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[],
+                   $6::numeric[], $7::bigint[],
+                   $8::text[], $9::text[], $10::text[], $11::text[],
+                   $12::text[], $13::text[], $14::text[])
+              AS t(aid, name, short_name, unit_name, description,
+                   emission, lock_height,
+                   color, logo_url, website, long_description,
+                   owner_cid, owner_kind, owner_addr)
+     ON CONFLICT (aid) DO UPDATE SET
+       name             = EXCLUDED.name,
+       short_name       = EXCLUDED.short_name,
+       unit_name        = EXCLUDED.unit_name,
+       description      = EXCLUDED.description,
+       emission         = EXCLUDED.emission,
+       lock_height      = COALESCE(EXCLUDED.lock_height, assets.lock_height),
+       color            = EXCLUDED.color,
+       logo_url         = EXCLUDED.logo_url,
+       website          = EXCLUDED.website,
+       long_description = EXCLUDED.long_description,
+       owner_cid        = EXCLUDED.owner_cid,
+       owner_kind       = COALESCE(EXCLUDED.owner_kind, assets.owner_kind),
+       owner_addr       = EXCLUDED.owner_addr,
+       last_updated_at  = now()`,
+    [
+      rows.map((r) => r.aid),
+      rows.map((r) => r.name),
+      rows.map((r) => r.shortName),
+      rows.map((r) => r.unitName),
+      rows.map((r) => r.description),
+      rows.map((r) => r.emission),
+      rows.map((r) => r.lockHeight),
+      rows.map((r) => r.color),
+      rows.map((r) => r.logoUrl),
+      rows.map((r) => r.website),
+      rows.map((r) => r.longDescription),
+      rows.map((r) => r.ownerCid),
+      rows.map((r) => r.ownerKind),
+      rows.map((r) => r.ownerAddr),
+    ],
+  );
+  return res.rowCount ?? rows.length;
 }
 
 /**

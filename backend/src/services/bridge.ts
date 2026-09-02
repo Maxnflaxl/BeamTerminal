@@ -7,7 +7,7 @@ import { q } from '../db.js';
 import { logger } from '../logger.js';
 import { invokeContract } from '../walletApi.js';
 import { getBlockTsMap } from './blockTimestamps.js';
-import { getContract } from '../explorer.js';
+import { getContract, type ContractResponse } from '../explorer.js';
 import {
   LOG_WINDOW,
   NEW_LOCAL_MESSAGE_TOPIC,
@@ -247,14 +247,10 @@ async function pipeCall<T>(args: string): Promise<T> {
 }
 
 /**
- * Exact digits of a numeric field, read from the shader's response text before
- * JSON.parse sees it.
- *
- * The shader emits amounts as bare JSON numbers, and a Beam Amount is a uint64:
- * anything past 2^53 groths loses digits the moment it becomes a double. That
- * is 90M BEAM for an ordinary transfer, but a message whose fee underflowed
- * carries ~1.8e19 groths, where the nearest double is thousands of groths away
- * — enough to turn an exact -50 BEAM overshoot into -49.99999616.
+ * Exact digits of a numeric field, read from the response text before
+ * JSON.parse sees it. Amounts arrive as bare JSON numbers and a Beam Amount is
+ * a uint64, so anything past 2^53 groths loses digits as a double — enough to
+ * turn an exact -50 BEAM overshoot into -49.99999616.
  */
 function rawIntField(raw: string, field: string): string | null {
   const m = new RegExp(`"${field}"\\s*:\\s*"?(\\d+)"?`).exec(raw);
@@ -273,19 +269,13 @@ interface LocalMsgOut {
   height?: number;
 }
 interface MsgStatusOut { status?: number }
-interface ViewParamsOut {
-  'relayer pubkey'?: string;
-  // Yes, the shader really spells it "tocken CID".
-  'tocken CID'?: string;
-  'token asset ID'?: number;
-}
 
-export async function getLocalMsgCount(cid: string): Promise<number> {
+async function getLocalMsgCount(cid: string): Promise<number> {
   const out = await pipeCall<LocalMsgCountOut>(`role=manager,action=local_msg_count,cid=${cid}`);
   return typeof out?.count === 'number' ? out.count : 0;
 }
 
-export async function getLocalMsg(cid: string, msgId: number): Promise<LocalMsgOut | null> {
+async function getLocalMsg(cid: string, msgId: number): Promise<LocalMsgOut | null> {
   const contract = await loadWasm();
   const args = `role=manager,action=local_msg,cid=${cid},msgId=${msgId}`;
   let res;
@@ -314,18 +304,14 @@ export async function getLocalMsg(cid: string, msgId: number): Promise<LocalMsgO
 }
 
 /** Raw contract status: 0 not delivered, 1 complete, 2 delivered-unclaimed. */
-export async function getMsgStatus(cid: string, msgId: number): Promise<number | null> {
+async function getMsgStatus(cid: string, msgId: number): Promise<number | null> {
   const out = await pipeCall<MsgStatusOut>(`role=manager,action=msg_status,cid=${cid},msgId=${msgId}`);
   return typeof out?.status === 'number' ? out.status : null;
 }
 
-export async function getViewParams(cid: string): Promise<ViewParamsOut> {
-  return pipeCall<ViewParamsOut>(`role=manager,action=view_params,cid=${cid}`);
-}
-
 // Per §5.2 of the spec: 0/1/2 are three genuinely different situations and the
 // mapping must never collapse them. `unknown` is reserved for read failures.
-export function mapIncomingStatus(raw: number | null): string {
+function mapIncomingStatus(raw: number | null): string {
   switch (raw) {
     case 0: return 'not_delivered';
     case 1: return 'complete';
@@ -473,19 +459,70 @@ async function ingestOutgoing(b: BridgeDef): Promise<number> {
 // ---------------------------------------------------------------------------
 // Ethereum -> Beam: refresh the Beam-side view of incoming messages
 //
-// Until the Ethereum log ingest lands there's no authoritative list of incoming
-// msgIds, so we probe upward from 1 until we're past the highest id the
-// contract knows about. `msg_status` is the only readable signal: `remote_msg`
-// returns "absent" for completed messages, because ReceiveFunds deletes the
-// header (pipe_contract.cpp Method_4).
+// `msg_status` is the only readable signal: `remote_msg` returns "absent" for
+// completed messages, because ReceiveFunds deletes the header
+// (pipe_contract.cpp Method_4).
 //
-// Cheap enough to redo in full each cycle at current volumes (646 calls swept
-// every bridge in 27s), and it self-corrects if a status changes. Once the
-// Ethereum side is ingested this is driven by the known msgId set instead.
+// A message only ever moves 0 -> 2 -> 1, and the claim that produces 1 releases
+// the funds, so `complete` is the one state the contract has no path out of.
+// A cycle therefore re-reads just the ids still in flight plus the tail above
+// the highest id on record, a few probes at a time. Every FULL_SWEEP_EVERY
+// cycles the whole range is re-read from 0 instead, so a state that changed
+// underneath us — a shallow reorg undoing a claim, a row written from a bad
+// read — is corrected within the hour rather than never.
 // ---------------------------------------------------------------------------
 
-const PROBE_TAIL = 32; // consecutive status-0 ids that end the scan
+const PROBE_TAIL = 32; // consecutive status-0 ids that end the tail scan
 const PROBE_CEILING = 4096; // hard stop; current max across bridges is ~220
+const PROBE_CONCURRENCY = 8; // msg_status reads in flight per bridge
+const FULL_SWEEP_EVERY = 12; // cycles between full re-reads; 5-min cycles → hourly
+const TERMINAL_INCOMING_STATUS = 'complete';
+
+let cycleCount = 0;
+
+/** Run `fn` over `items` with at most `limit` calls in flight; results keep item order. */
+async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      // eslint-disable-next-line no-await-in-loop
+      results[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+function range(from: number, toInclusive: number): number[] {
+  const out: number[] = [];
+  for (let i = from; i <= toInclusive; i += 1) out.push(i);
+  return out;
+}
+
+/**
+ * Incoming ids already on record for a bridge: the highest one, and those whose
+ * status can still change.
+ */
+async function knownIncoming(b: BridgeDef): Promise<{ maxId: number; inFlight: number[] }> {
+  const { rows } = await q<{ msg_id: string; status: string }>(
+    `SELECT msg_id::text, status
+       FROM bridge_messages
+      WHERE bridge = $1 AND direction = 'eth2beam'
+      ORDER BY msg_id`,
+    [b.key],
+  );
+  let maxId = -1;
+  const inFlight: number[] = [];
+  for (const r of rows) {
+    const id = Number(r.msg_id);
+    if (id > maxId) maxId = id;
+    if (r.status !== TERMINAL_INCOMING_STATUS) inFlight.push(id);
+  }
+  return { maxId, inFlight };
+}
 
 /**
  * Highest incoming msgId the Ethereum log ingest has recorded, or -1 before it
@@ -503,29 +540,38 @@ async function highestIncomingFromLogs(b: BridgeDef): Promise<number> {
   return hi === null || hi === undefined ? -1 : Number(hi);
 }
 
-async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: number }> {
-  const found: Array<{ msgId: number; status: string }> = [];
-  let consecutiveAbsent = 0;
+async function refreshIncoming(b: BridgeDef, fullSweep: boolean): Promise<{ scanned: number; open: number }> {
+  const known = await knownIncoming(b);
+  const probe = async (msgId: number): Promise<{ msgId: number; status: string }> => ({
+    msgId,
+    status: mapIncomingStatus(await getMsgStatus(b.cid, msgId)),
+  });
+
   // Ids start at 0, not 1: the b-asset Pipes' first NewLocalMessage carries
   // msgId 0, and probing from 1 silently skipped it on every bridge.
-  let msgId = -1;
+  const onRecord = fullSweep ? range(0, known.maxId) : known.inFlight;
+  const found = await mapLimit(onRecord, PROBE_CONCURRENCY, probe);
+  let scanned = onRecord.length;
 
+  // Tail above anything on record, in small batches until a run of PROBE_TAIL
+  // status-0 ids says the contract knows nothing further. The 0s are kept for
+  // now: a gap under the far side's high-water mark is itself the interesting
+  // signal (relayer never delivered it); the trailing run past the mark is
+  // trimmed below.
+  let consecutiveAbsent = 0;
+  let msgId = known.maxId + 1;
   while (msgId < PROBE_CEILING && consecutiveAbsent < PROBE_TAIL) {
-    msgId += 1;
+    const batch = range(msgId, Math.min(msgId + PROBE_CONCURRENCY, PROBE_CEILING) - 1);
     // eslint-disable-next-line no-await-in-loop
-    const raw = await getMsgStatus(b.cid, msgId);
-    const status = mapIncomingStatus(raw);
-    if (raw === 0) {
-      consecutiveAbsent += 1;
-    } else {
-      consecutiveAbsent = 0;
+    const results = await mapLimit(batch, PROBE_CONCURRENCY, probe);
+    scanned += batch.length;
+    for (const r of results) {
+      found.push(r);
+      consecutiveAbsent = r.status === 'not_delivered' ? consecutiveAbsent + 1 : 0;
     }
-    // Persist everything below the high-water mark, including the 0s: a gap
-    // under the mark is itself the interesting signal (relayer never delivered
-    // it). Trailing 0s past the mark are just "doesn't exist yet" and are
-    // trimmed after the loop.
-    found.push({ msgId, status });
+    msgId += batch.length;
   }
+  found.sort((x, y) => x.msgId - y.msgId);
 
   // Drop the trailing not_delivered run, but only above the highest id the
   // Ethereum side has actually seen. A message that exists in the logs and
@@ -540,7 +586,7 @@ async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: n
     if (last.status !== 'not_delivered' || last.msgId <= knownHi) break;
     found.pop();
   }
-  if (found.length === 0) return { scanned: msgId, open: 0 };
+  if (found.length === 0) return { scanned, open: 0 };
 
   const placeholders: string[] = [];
   const params: Array<string | number> = [];
@@ -562,10 +608,9 @@ async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: n
     params,
   );
 
-  const open = found.filter((f) => f.status !== 'complete').length;
-  return { scanned: msgId, open };
+  const open = found.filter((f) => f.status !== TERMINAL_INCOMING_STATUS).length;
+  return { scanned, open };
 }
-
 
 // ---------------------------------------------------------------------------
 // Beam-side blocks, from the Pipe's own call history
@@ -584,7 +629,11 @@ async function refreshIncoming(b: BridgeDef): Promise<{ scanned: number; open: n
 //    straight off the call list.
 //
 // One /contract fetch per bridge covers both — a few dozen to a few hundred
-// rows.
+// rows — and, on the BEAM-custody Pipes, the locked-funds read as well. It is
+// fetched without a height floor on purpose: the incoming resolver stamps the
+// *earliest* delivery per message and rewrites the column wholesale, and the
+// outgoing one maps reported heights that may sit anywhere in history, so a
+// truncated call list would null or shift heights already resolved.
 // ---------------------------------------------------------------------------
 
 interface PipeCall {
@@ -595,9 +644,8 @@ interface PipeCall {
   args: string;
 }
 
-async function pipeCalls(cid: string): Promise<PipeCall[]> {
-  const res = await getContract({ id: cid });
-  const table = (res as unknown as Record<string, unknown>)['Calls history'];
+function pipeCalls(contract: ContractResponse): PipeCall[] {
+  const table = (contract as unknown as Record<string, unknown>)['Calls history'];
   const rows = (table as { value?: unknown[] } | undefined)?.value;
   if (!Array.isArray(rows)) return [];
   const calls: PipeCall[] = [];
@@ -627,19 +675,14 @@ function leadingMsgId(args: string): number | null {
   return Number.isSafeInteger(id) ? id : null;
 }
 
-// Largest integer a double holds exactly. Rows above it were stored before
-// getLocalMsg read the response text, so their trailing digits are rounded.
+// Largest integer a double holds exactly; above it, stored digits may be rounded.
 const DOUBLE_EXACT_MAX = 9007199254740992n; // 2^53
 
 /**
- * Re-read outgoing messages whose stored figures are too large to have survived
- * a double, and rewrite them with the exact digits.
- *
- * The ingest cursor only moves forward, so a row stored imprecisely would keep
- * its rounded value forever. Self-healing rather than a one-off migration
- * because the same rounding would come back with any future message this large
- * — and it is bounded: ordinary transfers stay far below 2^53 groths (90M
- * BEAM), so in practice this matches only messages whose fee underflowed.
+ * Rewrite outgoing rows stored before getLocalMsg read the response text. The
+ * ingest cursor only moves forward, so a rounded row would keep its lost digits
+ * forever. Bounded: ordinary transfers stay far below 2^53 groths (90M BEAM),
+ * so in practice only underflowed amounts match.
  */
 async function repairImpreciseOutgoing(b: BridgeDef): Promise<number> {
   const { rows } = await q<{ msg_id: string }>(
@@ -757,8 +800,11 @@ async function resolveIncomingHeights(b: BridgeDef, calls: PipeCall[]): Promise<
   return rowCount ?? 0;
 }
 
-async function resolveBeamHeights(b: BridgeDef): Promise<{ outgoing: number; incoming: number }> {
-  const calls = await pipeCalls(b.cid);
+async function resolveBeamHeights(
+  b: BridgeDef,
+  contract: ContractResponse,
+): Promise<{ outgoing: number; incoming: number }> {
+  const calls = pipeCalls(contract);
   if (calls.length === 0) return { outgoing: 0, incoming: 0 };
   return {
     outgoing: await resolveOutgoingHeights(b, calls),
@@ -948,11 +994,11 @@ async function settleOutgoing(b: BridgeDef): Promise<number> {
 // ---------------------------------------------------------------------------
 
 /** Native BEAM (aid 0) locked in a Beam-side Pipe, read from the explorer's
- *  "Locked Funds" table. Raw groths — request without `exp_am`, which would
- *  return a formatted string like "1,736,549.28438526". */
-async function beamLockedFunds(cid: string): Promise<bigint | null> {
-  const res = await getContract({ id: cid });
-  const table = (res as unknown as Record<string, unknown>)['Locked Funds'];
+ *  "Locked Funds" table. Raw groths — the response must come from a request
+ *  without `exp_am`, which would return a formatted string like
+ *  "1,736,549.28438526". */
+function beamLockedFunds(contract: ContractResponse): bigint | null {
+  const table = (contract as unknown as Record<string, unknown>)['Locked Funds'];
   const rows = (table as { value?: unknown[] } | undefined)?.value;
   if (!Array.isArray(rows)) return null;
   for (const row of rows) {
@@ -970,7 +1016,7 @@ async function beamLockedFunds(cid: string): Promise<bigint | null> {
   return null;
 }
 
-async function snapshotEscrow(b: BridgeDef): Promise<void> {
+async function snapshotEscrow(b: BridgeDef, contract: ContractResponse): Promise<void> {
   const block = await blockNumber(b.chainId);
   let locked: bigint;
   let lockedDecimals: number;
@@ -981,7 +1027,7 @@ async function snapshotEscrow(b: BridgeDef): Promise<void> {
     // Collateral is native BEAM held by the Beam Pipe; the wrapped asset is the
     // ERC20 minted on Ethereum. Asking the Ethereum Pipe for a balance here
     // yields 0 — it mints rather than escrows.
-    const beamLocked = await beamLockedFunds(b.cid);
+    const beamLocked = beamLockedFunds(contract);
     if (beamLocked === null) {
       logger.warn({ bridge: b.key }, 'bridge: could not read Beam-side locked funds; skipping escrow snapshot');
       return;
@@ -1048,6 +1094,8 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
     logsIngested: 0, settled: 0, logsCaughtUp: 0, heightsResolved: 0,
     beamSideResolved: 0,
   };
+  const fullSweep = cycleCount % FULL_SWEEP_EVERY === 0;
+  cycleCount += 1;
 
   for (const b of BRIDGES) {
     try {
@@ -1059,14 +1107,18 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
       const ingested = await ingestOutgoing(b);
       // eslint-disable-next-line no-await-in-loop
       await repairImpreciseOutgoing(b);
+      // One explorer fetch of the Pipe serves both the call-history resolvers
+      // and the locked-funds read.
       // eslint-disable-next-line no-await-in-loop
-      const resolvedHeights = await resolveBeamHeights(b);
+      const contract = await getContract({ id: b.cid });
       // eslint-disable-next-line no-await-in-loop
-      const { scanned, open } = await refreshIncoming(b);
+      const resolvedHeights = await resolveBeamHeights(b, contract);
+      // eslint-disable-next-line no-await-in-loop
+      const { scanned, open } = await refreshIncoming(b, fullSweep);
       // eslint-disable-next-line no-await-in-loop
       const settled = await settleOutgoing(b);
       // eslint-disable-next-line no-await-in-loop
-      await snapshotEscrow(b);
+      await snapshotEscrow(b, contract);
       res.bridges += 1;
       res.outgoingIngested += ingested;
       res.incomingOpen += open;
@@ -1076,7 +1128,7 @@ export async function syncBridges(): Promise<BridgeSyncResult> {
       res.beamSideResolved += resolvedHeights.incoming;
       res.settled += settled;
       if (caughtUp) res.logsCaughtUp += 1;
-      logger.debug({ bridge: b.key, ingested, scanned, open }, 'bridge synced');
+      logger.debug({ bridge: b.key, ingested, scanned, open, fullSweep }, 'bridge synced');
     } catch (err) {
       // One unreachable Pipe must not stop the others.
       logger.warn(

@@ -38,16 +38,18 @@ interface TradeRow {
 interface PoolMetaRow {
   pool_id: string;
   aid1: string;
-  is_imposter1: boolean;
-  is_imposter2: boolean;
-  destroyed_at_height: string | null;
   decimals1: number;
   decimals2: number;
 }
 
 function toDecimal(n: number, maxFractionDigits = 18): string {
   if (!Number.isFinite(n)) return '0';
-  let s = n.toFixed(Math.min(maxFractionDigits, 20));
+  // Number#toFixed switches to exponent notation at 1e21; render such
+  // magnitudes through BigInt instead. Every double that large is already an
+  // integer, so no fractional digits are lost.
+  let s = Math.abs(n) >= 1e21
+    ? BigInt(n).toString()
+    : n.toFixed(Math.min(maxFractionDigits, 20));
   if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
   return s || '0';
 }
@@ -62,23 +64,22 @@ export async function cgHistoricalTradesRoutes(app: FastifyInstance): Promise<vo
       const aid2 = Number(m[2]);
       const kind = Number(m[3]);
 
-      // Resolve pool + check imposter / destroyed exclusions for /cg/*.
+      // Resolve the pool. Destroyed pools and pools with an imposter on either
+      // side are excluded from /cg/* entirely, so they resolve as not found.
       const { rows: poolRows } = await q<PoolMetaRow>(
         `SELECT p.pool_id::text, p.aid1::text,
-                a1.is_imposter AS is_imposter1, a2.is_imposter AS is_imposter2,
-                p.destroyed_at_height::text, a1.decimals AS decimals1, a2.decimals AS decimals2
+                a1.decimals AS decimals1, a2.decimals AS decimals2
            FROM pools p
            JOIN assets a1 ON a1.aid = p.aid1
            JOIN assets a2 ON a2.aid = p.aid2
-          WHERE p.aid1 = $1 AND p.aid2 = $2 AND p.kind = $3`,
+          WHERE p.aid1 = $1 AND p.aid2 = $2 AND p.kind = $3
+            AND p.destroyed_at_height IS NULL
+            AND NOT a1.is_imposter AND NOT a2.is_imposter`,
         [aid1, aid2, kind],
       );
       const pool = poolRows[0];
-      if (!pool || pool.destroyed_at_height !== null) {
+      if (!pool) {
         throw NotFound('PAIR_NOT_FOUND', `no active pair ${req.params.ticker_id}`);
-      }
-      if (pool.is_imposter1 || pool.is_imposter2) {
-        throw NotFound('PAIR_NOT_FOUND', `pair ${req.params.ticker_id} is imposter`);
       }
 
       const parsed = Query.safeParse(req.query);
@@ -88,7 +89,18 @@ export async function cgHistoricalTradesRoutes(app: FastifyInstance): Promise<vo
       const opts = parsed.data;
 
       const args: Array<string | number | Date> = [pool.pool_id];
-      const filters: string[] = ['confirmed = TRUE'];
+      // Priced trades only — the same predicate the OHLCV aggregates use, so a
+      // trade that would print as "0" here never appears at all.
+      const filters: string[] = [
+        'confirmed = TRUE',
+        't.price_native IS NOT NULL',
+        't.price_native > 0',
+      ];
+      // buy = base (aid1) acquired ⇒ target (aid2) paid in, so aid_in != aid1.
+      if (opts.type !== undefined) {
+        args.push(pool.aid1);
+        filters.push(opts.type === 'buy' ? `t.aid_in <> $${args.length}` : `t.aid_in = $${args.length}`);
+      }
       if (opts.start_time !== undefined) {
         args.push(new Date(opts.start_time * 1000));
         filters.push(`block_ts >= $${args.length}`);
@@ -117,12 +129,8 @@ export async function cgHistoricalTradesRoutes(app: FastifyInstance): Promise<vo
       const sell: ReturnType<typeof formatTrade>[] = [];
       const aid1Pool = Number(pool.aid1);
       for (const r of rows) {
-        // buy = base (aid1) acquired ⇒ target (aid2) paid in, so aid_in != aid1.
         const isBuy = Number(r.aid_in) !== aid1Pool;
-        const item = formatTrade(r, isBuy);
-        if (opts.type === 'buy' && !isBuy) continue;
-        if (opts.type === 'sell' && isBuy) continue;
-        (isBuy ? buy : sell).push(item);
+        (isBuy ? buy : sell).push(formatTrade(r, isBuy));
       }
 
       void reply.header('cache-control', 'public, max-age=15');

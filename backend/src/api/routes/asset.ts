@@ -1,13 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { q } from '../../db.js';
 import { BadRequest, NotFound } from '../error.js';
+import { queryInt } from '../query.js';
 import { getAssetHistory, getContracts } from '../../explorer.js';
 import type { Row, Table, TypedCell } from '../../explorer.js';
 
 // Tiny in-process LRU for /asset/{aid}/history — explorer can be slow on
 // long histories and the data only changes when the asset mints/burns.
 const HISTORY_CACHE_MS = 5 * 60 * 1000;
-const historyCache = new Map<number, { ts: number; payload: HistoryItem[] }>();
+// Keyed `${aid}:${limit}`; bounded so arbitrary (aid, limit) pairs cannot grow
+// it without limit — oldest-first eviction suffices given the short TTL.
+const HISTORY_CACHE_MAX = 2000;
+const historyCache = new Map<string, { ts: number; payload: HistoryItem[] }>();
 
 interface HistoryItem {
   height: number;
@@ -239,7 +243,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     '/asset/:aid/history',
     async (req, reply) => {
       const aid = Number(req.params.aid);
-      if (!Number.isFinite(aid) || aid <= 0) {
+      if (!Number.isInteger(aid) || aid <= 0) {
         throw BadRequest(
           'BAD_REQUEST',
           aid === 0
@@ -247,12 +251,11 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
             : 'aid must be a positive integer',
         );
       }
-      const limitRaw = req.query.limit ? Number(req.query.limit) : 100;
-      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
+      const limit = queryInt(req.query.limit, { default: 100, min: 1, max: 500 });
 
       // Cache lookup (cache key includes limit so different limits don't
       // collide; in practice almost everyone uses the default).
-      const cacheKey = aid * 10_000 + limit;
+      const cacheKey = `${aid}:${limit}`;
       const hit = historyCache.get(cacheKey);
       const now = Date.now();
       if (hit && now - hit.ts < HISTORY_CACHE_MS) {
@@ -295,6 +298,10 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       }
       const history = rawHistory.map((h) => ({ ...h, ts: tsByHeight.get(h.height) ?? null }));
 
+      if (historyCache.size >= HISTORY_CACHE_MAX) {
+        const oldest = historyCache.keys().next().value;
+        if (oldest !== undefined) historyCache.delete(oldest);
+      }
       historyCache.set(cacheKey, { ts: now, payload: history });
       void reply.header('cache-control', 'public, max-age=300');
       return { aid, history, cached: false };

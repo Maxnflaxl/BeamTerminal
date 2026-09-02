@@ -11,6 +11,10 @@ const Query = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   // Cursor mode (newest-first "load older"). Mutually exclusive with `offset`.
   before: z.coerce.number().int().positive().optional(),
+  // Row id (trade_id / event_id) of the last row seen, paired with `before`.
+  // Several trades share one block timestamp, so `before` alone would skip
+  // the rest of the block the previous page ended in.
+  before_id: z.coerce.number().int().positive().optional(),
   // Offset mode (numbered pagination). When present, takes precedence over
   // `before`. `count=true` additionally returns the pool's total row count so
   // the UI can render "Showing X to Y of N entries".
@@ -74,12 +78,22 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
       throw BadRequest('BAD_REQUEST', parsed.error.issues[0]?.message ?? 'invalid query');
     }
     const {
-      kind, limit, before, offset, count, include_unconfirmed,
+      kind, limit, before, before_id, offset, count, include_unconfirmed,
     } = parsed.data;
 
     const useOffset = offset !== undefined;
     const beforeTs = before ? new Date(before * 1000) : new Date();
     const confirmedFilter = include_unconfirmed ? '' : 'AND t.confirmed = TRUE';
+    // Keyset cursor: `(block_ts, id) < (ts, id)` when the caller passed both
+    // halves, plain `block_ts < ts` for `before`-only callers.
+    const cursorParams: Array<Date | number> =
+      before !== undefined && before_id !== undefined ? [beforeTs, before_id] : [beforeTs];
+    const cursorWhere = (idCol: string): string => (
+      cursorParams.length === 2
+        ? `(t.block_ts, t.${idCol}) < ($2, $3)`
+        : 't.block_ts < $2'
+    );
+    const cursorLimitParam = `$${2 + cursorParams.length}`;
 
     if (kind === 'lp') {
       // ctl_after: LP token supply at the first snapshot taken at/after the
@@ -108,11 +122,11 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
                   ${ctlAfterCol}
              FROM lp_events t
             WHERE t.pool_id = ANY($1)
-              AND t.block_ts < $2
+              AND ${cursorWhere('event_id')}
               ${confirmedFilter}
             ORDER BY t.block_ts DESC, t.event_id DESC
-            LIMIT $3`,
-          [poolIds, beforeTs, limit],
+            LIMIT ${cursorLimitParam}`,
+          [poolIds, ...cursorParams, limit],
         );
       const trades = rows.map((r) => {
         const ctlAfter = r.ctl_after ? Number(r.ctl_after) : null;
@@ -143,6 +157,7 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
       return {
         trades,
         before: useOffset ? null : trades.at(-1)?.timestamp ?? null,
+        before_id: useOffset ? null : trades.at(-1)?.event_id ?? null,
         offset: useOffset ? offset : null,
         limit,
         total,
@@ -184,11 +199,11 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
              JOIN pools p   ON p.pool_id = t.pool_id
              JOIN assets a1 ON a1.aid    = p.aid1
             WHERE t.pool_id = ANY($1)
-              AND t.block_ts < $2
+              AND ${cursorWhere('trade_id')}
               ${confirmedFilter}
             ORDER BY t.block_ts DESC, t.trade_id DESC
-            LIMIT $3`,
-          [poolIds, beforeTs, limit],
+            LIMIT ${cursorLimitParam}`,
+          [poolIds, ...cursorParams, limit],
         ),
     ]);
 
@@ -238,6 +253,7 @@ export async function tradesRoutes(app: FastifyInstance): Promise<void> {
     return {
       trades,
       before: useOffset ? null : trades.at(-1)?.timestamp ?? null,
+      before_id: useOffset ? null : trades.at(-1)?.trade_id ?? null,
       offset: useOffset ? offset : null,
       limit,
       total,
@@ -274,6 +290,7 @@ const GLOBAL_KIND_LABEL: Record<number, string> = { 0: 'Low', 1: 'Medium', 2: 'H
 const GlobalQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   before: z.coerce.number().int().positive().optional(),
+  before_id: z.coerce.number().int().positive().optional(),
   include_unconfirmed: queryBool(true),
   include_imposters: queryBool(false),
   kind: z.coerce.number().int().min(0).max(2).optional(),
@@ -294,11 +311,19 @@ export async function globalTradesRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       throw BadRequest('BAD_REQUEST', parsed.error.issues[0]?.message ?? 'invalid query');
     }
-    const { limit, before, include_unconfirmed, include_imposters, kind, aid } = parsed.data;
+    const { limit, before, before_id, include_unconfirmed, include_imposters, kind, aid } = parsed.data;
 
     const beforeTs = before ? new Date(before * 1000) : new Date();
-    const where: string[] = ['t.block_ts < $1', 'p.destroyed_at_height IS NULL'];
+    const where: string[] = ['p.destroyed_at_height IS NULL'];
     const params: (Date | number | boolean)[] = [beforeTs];
+    // Keyset cursor (see the per-pair route): both halves resume exactly after
+    // the last row seen; `before` alone stays a plain timestamp bound.
+    if (before !== undefined && before_id !== undefined) {
+      params.push(before_id);
+      where.push('(t.block_ts, t.trade_id) < ($1, $2)');
+    } else {
+      where.push('t.block_ts < $1');
+    }
 
     if (!include_unconfirmed) where.push('t.confirmed = TRUE');
     if (!include_imposters) where.push('a1.is_imposter = FALSE', 'a2.is_imposter = FALSE');
@@ -387,6 +412,7 @@ export async function globalTradesRoutes(app: FastifyInstance): Promise<void> {
     return {
       trades,
       before: trades.at(-1)?.timestamp ?? null,
+      before_id: trades.at(-1)?.trade_id ?? null,
       limit,
     };
   });

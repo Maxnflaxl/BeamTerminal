@@ -3,7 +3,7 @@ import { styled } from '@linaria/react';
 import type { AreaData, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
 import { theme } from '../shared';
 import { Overlay, useEscapeClose } from '../../../components/modalChrome';
-import { fmtCompact } from '../../../components/format';
+import { fmtCompact, fromGroths } from '../../../components/format';
 import {
   createBeamChart,
   ChartWrap,
@@ -19,7 +19,7 @@ import {
 // its dates/values with the same crosshair + axes as the rest of the explorer).
 
 export function grothToBeamx(groth: string | number | null | undefined): number {
-  return groth == null ? 0 : Number(groth) / 1e8;
+  return fromGroths(groth, 8);
 }
 
 export { fmtCompact };

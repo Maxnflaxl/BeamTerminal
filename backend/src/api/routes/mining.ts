@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { q } from '../../db.js';
 import { POOLS } from '../../mining/pools.js';
 import { getNetworkSnapshot } from '../../services/networkSnapshot.js';
+import { queryInt } from '../query.js';
 
 // ---------------------------------------------------------------------------
 // /api/mining/pools — latest snapshot per pool + current network hashrate
@@ -144,11 +145,8 @@ export async function miningRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/mining/blocks', async (req, reply) => {
     const query = req.query as Record<string, string | undefined>;
-    const rawLimit = parseInt(query['limit'] ?? '50', 10);
-    const limit = Math.min(200, Math.max(1, isNaN(rawLimit) ? 50 : rawLimit));
-
-    const rawOffset = parseInt(query['offset'] ?? '0', 10);
-    const offset = Math.max(0, isNaN(rawOffset) ? 0 : rawOffset);
+    const limit = queryInt(query['limit'], { default: 50, min: 1, max: 200 });
+    const offset = queryInt(query['offset'], { default: 0, min: 0 });
 
     // Select the recent-blocks window by block_ts (partition column) to avoid
     // the unstable height-ordered MergeAppend; the outer ORDER BY r.height sorts

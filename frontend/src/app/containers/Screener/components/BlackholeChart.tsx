@@ -15,7 +15,8 @@ import { PALLETE_ASSETS } from '@app/shared/constants';
 import { clearChildren, createBeamChart, makeSpan } from './chartTheme';
 import type { ApiBlackholeSeries } from '../api/client';
 import type { ApiAssetListEntry } from '../api/types';
-import { useAssets } from '../hooks';
+import { useSharedAssets } from '../assetColors';
+import { fmtDayLocal, fmtNativeUnits } from './format';
 
 // Colour per asset — the asset's brand colour (OPT_COLOR) when known, otherwise
 // the same per-aid palette slot AssetIcon falls back to, so the line, its legend
@@ -446,14 +447,6 @@ const ArrowIcon: React.FC = () => (
   </svg>
 );
 
-// Local-time YYYY-MM-DD (toISOString would drift a day for users far from UTC).
-function formatDate(ts: number): string {
-  const d = new Date(ts * 1000);
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
 function fmtBurned(v: number): string {
   return v.toLocaleString('en-US', { maximumFractionDigits: v >= 1 ? 2 : 8 });
 }
@@ -468,21 +461,10 @@ interface Props {
   showMarkers?: boolean;
 }
 
-function defaultFormatter(v: number): string {
-  if (!Number.isFinite(v)) return '';
-  const abs = Math.abs(v);
-  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}k`;
-  if (abs >= 1) return v.toFixed(2);
-  if (abs > 0) return v.toPrecision(3);
-  return '0';
-}
-
 export const BlackholeChart: React.FC<Props> = ({
   series,
   logScale = false,
-  formatter = defaultFormatter,
+  formatter = fmtNativeUnits,
   showMarkers = false,
 }) => {
   const innerRef = useRef<HTMLDivElement>(null);
@@ -513,7 +495,7 @@ export const BlackholeChart: React.FC<Props> = ({
   const focusedRef = useRef<number | null>(null);
   const navigate = useNavigate();
 
-  const { data: assetsData } = useAssets();
+  const { data: assetsData } = useSharedAssets();
   const metaByAid = useMemo(() => {
     const map = new Map<number, ApiAssetListEntry>();
     if (assetsData) for (const a of assetsData.assets) map.set(a.aid, a);
@@ -740,7 +722,7 @@ export const BlackholeChart: React.FC<Props> = ({
           tip.appendChild(rest);
         }
       }
-      if (cache.when) cache.when.textContent = formatDate(param.time as number);
+      if (cache.when) cache.when.textContent = fmtDayLocal(param.time as number);
       for (const r of shown) {
         const node = cache.rows.get(r.aid);
         if (!node) continue;
@@ -1017,7 +999,7 @@ export const BlackholeChart: React.FC<Props> = ({
                 </PopRow>
                 <PopRow>
                   <span>First burn</span>
-                  <span className="v">{formatDate(hoverSeries.points[0]!.ts)}</span>
+                  <span className="v">{fmtDayLocal(hoverSeries.points[0]!.ts)}</span>
                 </PopRow>
                 {hoverMeta ? (
                   <PopRow>

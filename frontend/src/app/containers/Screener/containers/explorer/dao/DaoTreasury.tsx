@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { styled } from '@linaria/react';
 import AssetIcon, { useAssetColorResolver } from '@app/shared/components/AssetsIcon';
 import { BlockHeight } from '@app/shared/components';
 import { Overlay, useEscapeClose } from '../../../components/modalChrome';
-import { useAssetIndex } from '../../../hooks';
+import { usePolled } from '../../../hooks';
+import { useSharedAssetIndex } from '../../../assetColors';
 import {
   Page,
   ExplorerHeader,
@@ -21,7 +22,7 @@ import {
   Donut,
 } from '../shared';
 import type { DonutSlice } from '../shared';
-import { fromGrothsStr } from '../../../components/format';
+import { fromGroths, fromGrothsStr } from '../../../components/format';
 import { api } from '../../../api/client';
 import type { ApiDaoTreasury, ApiDaoAssetHistory } from '../../../api/types';
 import { TimeChart, fmtUsd, fmtCompact } from './daoShared';
@@ -217,9 +218,10 @@ const HistSummary = styled.div`
 `;
 
 export const DaoTreasury: React.FC = () => {
-  const [d, setD] = useState<ApiDaoTreasury | null>(null);
-  const meta = useAssetIndex();
-  const [error, setError] = useState<string | null>(null);
+  const treasury = usePolled<ApiDaoTreasury>(() => api.daoTreasury(), [], 60_000);
+  const d = treasury.data;
+  const { error } = treasury;
+  const meta = useSharedAssetIndex();
   const [donut, setDonut] = useState(false);
   const [hist, setHist] = useState<{ aid: number; data: ApiDaoAssetHistory | null } | null>(null);
   const closeHist = useCallback(() => setHist(null), []);
@@ -232,25 +234,6 @@ export const DaoTreasury: React.FC = () => {
 
   const assetColor = useAssetColorResolver();
 
-  useEffect(() => {
-    let alive = true;
-    const load = (): void => {
-      api
-        .daoTreasury()
-        .then((x) => alive && (setD(x), setError(null)))
-        .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
-    };
-    load();
-    const id = setInterval(() => {
-      if (document.hidden) return;
-      void load();
-    }, 60_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
-
   const symOf = (aid: number): string => meta.get(aid)?.short_name ?? `aid ${aid}`;
   const nameOf = (aid: number): string | null => meta.get(aid)?.name ?? null;
   // Colour donut slices / legend swatches exactly the way AssetIcon paints the
@@ -258,7 +241,7 @@ export const DaoTreasury: React.FC = () => {
   const colorOf = (aid: number): string => assetColor(aid, meta.get(aid)?.color);
   const fmtAmt = (groth: string, aid: number): string => {
     const dec = meta.get(aid)?.decimals ?? 8;
-    return fmtCompact(Number(groth) / Math.pow(10, dec));
+    return fmtCompact(fromGroths(groth, dec));
   };
 
   const openAsset = (aid: number): void => {

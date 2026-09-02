@@ -6,7 +6,6 @@ import { actions as mainActions } from '@app/containers/Pools/store/index';
 import { buildShaderRuntimeMap, getShaderDescriptor, getShaderFeatures, ShaderFeature } from '@app/core/shaderRegistry';
 
 import connector from '@core/connector';
-import { setTxStatus } from '@app/containers/Pools/store/actions';
 import { isInsideWallet } from '@core/walletEnv';
 import store from '../../../index';
 
@@ -30,7 +29,6 @@ export async function start() {
   });
 
   store.dispatch(mainActions.loadAppParams.request(buildShaderRuntimeMap(shaderBytesByFeature)));
-  store.dispatch(mainActions.loadPoolsList.request());
 }
 
 export function remoteEventChannel() {
@@ -75,7 +73,6 @@ function* sharedSaga() {
           break;
 
         case 'ev_txs_changed':
-          store.dispatch(setTxStatus(payload.result));
           store.dispatch(mainActions.loadAppParams.request(buildShaderRuntimeMap(shaderBytesByFeature)));
           break;
         default:

@@ -241,18 +241,22 @@ UI fetches the latest row for "current BEAM/USD". CG `/cg/tickers` computes `liq
 `backend/src/services/reorg.ts`. BEAM reorgs in practice are 1–2 blocks deep, but the indexer is correct for arbitrary depth.
 
 1. **Detect**: read `cursor.last_indexed_hash`; fetch `/block?height=last_indexed_height` from the chain; compare hashes. If they match, return.
-2. **Find common ancestor**: walk backward with exponentially growing steps (`step *= 2` each iteration) until `/block?height=H` returns `found: true`. The explorer always serves the *active* chain's hash at H, so the first height we can fetch is on the active chain — we accept that as the ancestor.
+2. **Find common ancestor**: a height H is "still ours" when the chain's `/block?height=H` hash equals the hash recorded in `block_timestamps.hash` for H. (The explorer serves the *active* chain's block for every height at or below the tip, so `found: true` alone proves nothing — only the hash comparison does. Rows that predate hash recording have `hash IS NULL` and are accepted on `found` alone, which bounds the rewind at the oldest hash-less row.) The search runs in two phases:
+   * **Bracket**: probe `last_indexed_height − 1`, then step back by doubling offsets (1, 2, 4, …) until a probe matches. Every mismatching probe is on the orphaned branch; the first match brackets the ancestor to `[match, previous mismatch)`.
+   * **Bisect** that bracket until the matching and mismatching heights are adjacent; the matching one is the exact ancestor.
+
+   A typical 1–2-block reorg matches on the first probe and skips the bisection. Worst case at the 80-block confirmation depth is 7 doublings + 6 bisections.
 3. **Rewind** in a single transaction:
-   * `DELETE` past-ancestor rows from `trades`, `lp_events`, `pool_state_snapshots`, `block_timestamps`.
+   * `DELETE` past-ancestor rows from `trades`, `lp_events`, `pool_state_snapshots`, `block_timestamps` (and drop the same heights from the in-process block-timestamp LRU, which fronts that table).
    * `UPDATE pools SET destroyed_at_height = NULL WHERE destroyed_at_height > ancestor` (undo any over-eager destruction).
    * Reset `cursor` to `(ancestor, new_hash_at_ancestor)`.
 4. Continuous aggregates auto-correct on their next refresh — Timescale re-scans within `start_offset` (smallest is 6 h for `candles_1m`) on every scheduled refresh, so deleted-trade buckets recompute. Our 80-block confirmation window (~80 min) sits well inside every `start_offset`, so reorg-induced rewrites always land inside the refresh range.
 
-Verified manually 2026-05-17: deleting a trade then calling `refresh_continuous_aggregate(...)` removed the affected candle bucket.
+The hashes the search compares against are recorded going forward by the same path that caches timestamps: every `/block` fetch in `blockTimestamps.ts` stores the block's hash alongside its timestamp, and the steady-state tick primes the head height with the hash `/status` already carries. A pre-existing row without a hash is filled in the next time that height is fetched.
 
 ## Block timestamp cache
 
-`backend/src/services/blockTimestamps.ts` keeps an LRU + Postgres-backed cache (`block_timestamps` table) of height → timestamp. The first time a trade at height H is ingested, `getBlockTs(H)` hits `/block?height=H`; subsequent reads hit memory (10 000-entry LRU) or the DB.
+`backend/src/services/blockTimestamps.ts` keeps an LRU + Postgres-backed cache (`block_timestamps` table) of height → timestamp, plus the block hash at that height (used by reorg recovery, above). The first time a trade at height H is ingested, `getBlockTs(H)` hits `/block?height=H`; subsequent reads hit memory (10 000-entry LRU) or the DB. A reorg rewind evicts the LRU entries above the ancestor together with the DB rows (`invalidateBlockTsAbove`), so the orphaned branch's timestamps are never served to re-ingest.
 
 `getBlockTsMap(heights)` bulk-resolves the unique set, batching explorer fetches at concurrency 4 to avoid hammering the node.
 

@@ -3,9 +3,9 @@
 // The connector singleton (`@core/connector`) does NOT auto-connect on page
 // load; that only happens when the page is opened inside a BEAM wallet (see
 // `shared/store/saga.ts`). In a plain browser the wallet stays disconnected
-// until the user explicitly clicks "Connect" via `connectWallet()` below.
+// until the user explicitly clicks "Connect" via `useWallet().connect()`.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import connector from '@core/connector';
 import { ensureConnected, isInsideWallet } from '@core/walletEnv';
 import { AddLiquidityApi, CreatePoolApi, LoadPoolsList, TradePoolApi, WithdrawApi } from '@core/api';
@@ -20,11 +20,18 @@ interface WalletState {
   connecting: boolean;
 }
 
+// Module-level store shared by every `useWallet` instance. The connector is a
+// singleton, so its state is global: one poller watches it and every mounted
+// hook is notified on change, rather than each instance polling on its own.
 let cached: WalletState = {
   headless: true,
   inWallet: isInsideWallet(),
   connecting: false,
 };
+
+type Listener = () => void;
+const listeners = new Set<Listener>();
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 function snapshot(connecting: boolean): WalletState {
   return {
@@ -34,33 +41,59 @@ function snapshot(connecting: boolean): WalletState {
   };
 }
 
+/** Re-read the connector and notify subscribers when any field changed. */
+function refresh(connecting = cached.connecting): void {
+  const next = snapshot(connecting);
+  if (next.headless === cached.headless && next.inWallet === cached.inWallet && next.connecting === cached.connecting) {
+    return;
+  }
+  cached = next;
+  listeners.forEach((l) => l());
+}
+
+/** Register a change listener. The shared poller starts with the first
+ *  subscriber and stops with the last, so nothing ticks while no wallet-aware
+ *  surface is mounted. Hidden tabs skip the tick. */
+function subscribe(listener: Listener): () => void {
+  listeners.add(listener);
+  if (listeners.size === 1) {
+    refresh();
+    pollTimer = setInterval(() => {
+      if (document.hidden) return;
+      refresh();
+    }, 3000);
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0 && pollTimer !== null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  };
+}
+
+/** Ask the wallet to connect. `connecting` is shared state, so every mounted
+ *  hook shows the in-flight status, not only the one whose button was pressed. */
+async function connect(): Promise<boolean> {
+  refresh(true);
+  try {
+    return await ensureConnected();
+  } finally {
+    refresh(false);
+  }
+}
+
 export function useWallet(): WalletState & { connect: () => Promise<boolean> } {
-  const [state, setState] = useState<WalletState>(() => {
-    cached = snapshot(false);
-    return cached;
-  });
+  const [state, setState] = useState<WalletState>(() => snapshot(cached.connecting));
 
   useEffect(() => {
-    const tick = (): void => {
-      const next = snapshot(state.connecting);
-      if (next.headless !== cached.headless || next.inWallet !== cached.inWallet) {
-        cached = next;
-        setState(next);
-      }
-    };
-    tick();
-    const t = setInterval(() => {
-      if (document.hidden) return;
-      tick();
-    }, 3000);
-    return () => clearInterval(t);
-  }, [state.connecting]);
-
-  const connect = useCallback(async (): Promise<boolean> => {
-    setState((s) => ({ ...s, connecting: true }));
-    const ok = await ensureConnected();
-    setState(snapshot(false));
-    return ok;
+    const unsubscribe = subscribe(() => setState(cached));
+    // Sync to the store's current snapshot: `subscribe` only re-reads the
+    // connector for the first subscriber, and it may have changed between this
+    // instance's render and its mount.
+    refresh();
+    setState(cached);
+    return unsubscribe;
   }, []);
 
   return { ...state, connect };

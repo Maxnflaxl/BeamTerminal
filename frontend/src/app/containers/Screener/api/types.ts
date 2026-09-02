@@ -744,6 +744,10 @@ export interface ApiBridgeOutgoingCounts {
   relayed: number;
   failed: number;
   unknown: number;
+  /** Amount underflowed past what the bridge holds, so it can never settle. */
+  unsettleable: number;
+  /** A later message on this bridge already settled; the relayer moved past it. */
+  skipped: number;
   total: number;
 }
 

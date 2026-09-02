@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { queryBool } from '../query.js';
 import { q } from '../../db.js';
 import { BadRequest, NotFound } from '../error.js';
-import { listPairs, resolvePair, type PairRowRaw, type SortKey } from '../repos/pairs.js';
+import { countPairs, listPairs, resolvePair, type PairRowRaw, type SortKey } from '../repos/pairs.js';
 import { loadUsdTable, type UsdTable } from '../repos/usd.js';
 import { loadSparklines7d } from '../repos/sparklines.js';
 
@@ -263,7 +263,12 @@ export async function pairsRoutes(app: FastifyInstance): Promise<void> {
     const needsAppSort = grouped
       || opts.sort_by === 'volume_24h_usd' || opts.sort_by === 'tvl_usd';
 
-    const [usd, lastHeight, rows] = await Promise.all([
+    const filters = {
+      ...(opts.search !== undefined ? { search: opts.search } : {}),
+      ...(opts.kind !== undefined ? { kind: opts.kind as 0 | 1 | 2 } : {}),
+      include_imposters: opts.include_imposters,
+    };
+    const [usd, lastHeight, rows, sqlTotal] = await Promise.all([
       loadUsdTable(),
       readLastIndexedHeight(),
       listPairs({
@@ -273,16 +278,17 @@ export async function pairsRoutes(app: FastifyInstance): Promise<void> {
         order: needsAppSort ? 'asc' : opts.order,
         limit: needsAppSort ? 500 : opts.limit,
         offset: needsAppSort ? 0 : opts.offset,
-        ...(opts.search !== undefined ? { search: opts.search } : {}),
-        ...(opts.kind !== undefined ? { kind: opts.kind as 0 | 1 | 2 } : {}),
-        include_imposters: opts.include_imposters,
+        ...filters,
       }),
+      // SQL-side paging returns one page, so the match count needs its own
+      // query. The app-sort path already holds the whole (≤500-row) set.
+      needsAppSort ? null : countPairs(filters),
     ]);
 
     let pairs = rows.map((r) => toResponse(r, usd));
     if (grouped) pairs = groupByPair(pairs);
 
-    const total = pairs.length;
+    const total = sqlTotal ?? pairs.length;
 
     if (needsAppSort) {
       const sign = opts.order === 'asc' ? 1 : -1;

@@ -185,8 +185,11 @@ function maybeKickBlockMetricsCatchUp(headHeight: number): void {
     if (current >= headHeight) return;
     const from = current + 1;
     const to = Math.min(from + BLOCK_METRICS_PER_TICK - 1, headHeight);
-    const inserted = await ingestBlockMetricsRange(from, to);
-    logger.info({ from, to, inserted, head: headHeight }, 'block_metrics catch-up');
+    // The range is written contiguously from `from`; a failed height stops
+    // the pass short of `to`, and the next pass resumes from MAX(height) —
+    // i.e. retries that height rather than leaving a hole behind it.
+    const { inserted, lastHeight } = await ingestBlockMetricsRange(from, to);
+    logger.info({ from, to, inserted, last_height: lastHeight, head: headHeight }, 'block_metrics catch-up');
   })()
     .catch((err) => {
       logger.warn(
@@ -572,10 +575,11 @@ async function tick(): Promise<void> {
 
   // `/status` already carries the head block's hash and timestamp — no extra
   // explorer round-trips. Prime the block-ts caches so downstream
-  // getBlockTs/getBlockTsMap calls for the head height stay local.
+  // getBlockTs/getBlockTsMap calls for the head height stay local; the hash
+  // goes along so the reorg ancestor search can later verify this height.
   const headTs = new Date(status.timestamp * 1000);
   const headHash = status.hash;
-  await primeBlockTs(status.height, headTs);
+  await primeBlockTs(status.height, headTs, headHash);
 
   const last = await readCursor();
   // If we're a long way behind, run in backfill mode (calls only, no per-page

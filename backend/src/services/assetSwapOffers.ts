@@ -1,6 +1,6 @@
 import { q, QueryArg } from '../db.js';
 import { logger } from '../logger.js';
-import { getAssetSwaps, AssetSwapOfferRaw } from '../explorer.js';
+import { ExplorerHttpError, getAssetSwaps, AssetSwapOfferRaw } from '../explorer.js';
 
 // ---------------------------------------------------------------------------
 // Mirror the explorer's `/asset_swaps` feed into asset_swap_offers.
@@ -46,7 +46,7 @@ function decimalToAtomic(formatted: string, decimals: number): string {
 
 // 404 from the explorer means it was built without BEAM_ASSET_SWAP_SUPPORT.
 function isFeatureUnavailable(err: unknown): boolean {
-  return err instanceof Error && err.message.includes('HTTP 404');
+  return err instanceof ExplorerHttpError && err.statusCode === 404;
 }
 
 export async function syncAssetSwapOffers(): Promise<{ open: number; closed: number } | null> {

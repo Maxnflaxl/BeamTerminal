@@ -1,6 +1,7 @@
 import { getBlock } from '../explorer.js';
 import { pool, q } from '../db.js';
 import { logger } from '../logger.js';
+import { getStoredBlockHash, invalidateBlockTsAbove } from './blockTimestamps.js';
 
 interface CursorRow {
   last_indexed_height: string;
@@ -20,9 +21,10 @@ export interface ReorgResult {
  * Compare our cursor's last-indexed hash against what the chain currently
  * reports at the same height. On mismatch, rewind to the common ancestor.
  *
- * Rewind strategy: binary-search backward by halving the window. We expect
- * reorgs to be very shallow (1–2 blocks on BEAM mainnet), so the search
- * usually finishes in a few iterations.
+ * Rewind strategy: walk back from the cursor comparing the chain's hash at
+ * each probed height against the hash we recorded in `block_timestamps`
+ * (see findCommonAncestor). We expect reorgs to be very shallow (1–2 blocks
+ * on BEAM mainnet), so the search usually finishes in a few iterations.
  *
  * After rewind: DELETE all trades / lp_events / pool_state_snapshots /
  * block_timestamps rows with height > common_ancestor, and reset the cursor.
@@ -30,8 +32,6 @@ export interface ReorgResult {
  * Continuous aggregates (candles_*, liquidity_1h) auto-correct: Timescale's
  * refresh policy re-scans within `start_offset` (smallest is 6h on candles_1m)
  * on every scheduled refresh, so deleted-trade buckets vanish or recompute.
- * Verified manually 2026-05-17: DELETE on trades then
- * `CALL refresh_continuous_aggregate(...)` removed the affected candle.
  * Our 80-block confirmation window (~80 min) is well within the smallest
  * start_offset, so reorg-induced rewrites always land inside the refresh range.
  */
@@ -104,32 +104,62 @@ function hashesMatch(chainHex: string, dbBuf: Buffer): boolean {
 }
 
 /**
- * Walk backward from `startHeight` until /block returns a hash for that height
- * that we agree with. We don't actually have prior hashes stored (just the
- * latest), so we use a different test: at each candidate height H, we accept
- * H as the common ancestor if H ≤ 0 OR if it's "deep enough" that no further
- * disagreement is plausible. In practice we step back by powers of two until
- * the chain reports a `found: true` block — then we're safely on the active
- * chain at that point.
+ * True when our recorded view of height `h` is still what the chain serves.
  *
- * Worst case: 80 blocks back (our confirmation depth), 7 doublings.
+ * The explorer answers `/block?height=H` from the active chain for every
+ * height at or below the tip, so `found` alone says nothing about whether
+ * *our* block at H survived — only comparing hashes does. The comparison uses
+ * the hash `block_timestamps` recorded when H was first fetched. Rows written
+ * before hashes were recorded have none; such heights are accepted as
+ * on-chain (the only test available is `found`), which bounds the rewind at
+ * the oldest hash-less row instead of walking to genesis.
+ */
+async function isOnActiveChain(h: number): Promise<boolean> {
+  const blk = await getBlock({ height: h });
+  if (!blk.found || !blk.hash) return false;
+  const stored = await getStoredBlockHash(h);
+  if (stored === null) return true;
+  return hashesMatch(blk.hash, stored);
+}
+
+/**
+ * Finds the highest height at or below `startHeight - 1` whose recorded hash
+ * still matches the chain.
+ *
+ * Phase 1 — bracket: probe `startHeight - 1`, then step back by doubling
+ * offsets (1, 2, 4, …) until a probe matches. Every probe that mismatched is
+ * on the orphaned branch; the first match is on the active chain, and the
+ * ancestor lies in [match, previous mismatch).
+ *
+ * Phase 2 — bisect that bracket: the lowest probe matched and the highest
+ * mismatched, so the invariant `lo matches, hi mismatches` narrows until the
+ * two are adjacent, and `lo` is the exact common ancestor.
+ *
+ * Typical reorg (1–2 blocks): the first probe matches and phase 2 is skipped.
+ * Worst case at our 80-block confirmation depth: 7 doublings + 6 bisections.
  */
 async function findCommonAncestor(startHeight: number): Promise<number> {
+  // `hi` is the lowest height known to be orphaned. The cursor height itself
+  // is where the mismatch was detected.
+  let hi = startHeight;
+  let lo = -1;
+
   let step = 1;
-  let h = startHeight - 1;
-  while (h > 0) {
-    const blk = await getBlock({ height: h });
-    if (blk.found && blk.hash) {
-      // The explorer always returns the *active* chain's block at H, so any
-      // height we can fetch a hash for is on the active chain. Use the first
-      // such H we find as the common ancestor — anything beyond that is in
-      // the orphaned branch we're discarding.
-      return h;
+  for (let h = startHeight - 1; h > 0; h -= step, step *= 2) {
+    if (await isOnActiveChain(h)) {
+      lo = h;
+      break;
     }
-    h -= step;
-    step *= 2;
+    hi = h;
   }
-  return 0;
+  if (lo < 0) return 0;
+
+  while (hi - lo > 1) {
+    const mid = lo + Math.floor((hi - lo) / 2);
+    if (await isOnActiveChain(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }
 
 async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<void> {
@@ -157,6 +187,9 @@ async function rewindTo(commonHeight: number, newHash: Buffer | null): Promise<v
       [commonHeight],
     );
     await client.query('DELETE FROM block_timestamps      WHERE height > $1', [commonHeight]);
+    // The in-process block-ts cache fronts that table; drop the same heights
+    // there so a timestamp from the orphaned branch can't be served later.
+    invalidateBlockTsAbove(commonHeight);
     // Watched-contract call history is height-keyed and reorg-cleaned like the
     // hot tables. Purge past the ancestor and clamp each contract's cursor so
     // the next tick re-ingests [ancestor+1, head] idempotently.

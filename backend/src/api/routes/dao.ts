@@ -3,6 +3,7 @@ import { loadDaoTreasury, loadDaoTreasuryAsset } from '../repos/daoTreasury.js';
 import { loadDaoRevenue } from '../repos/daoRevenue.js';
 import { loadDaoGovernance, loadDaoProposal } from '../repos/daoGovernance.js';
 import { loadDaoOverview } from '../repos/daoOverview.js';
+import { queryInt } from '../query.js';
 
 // ---------------------------------------------------------------------------
 // /api/dao/* — DAO explorer surface (DaoVault treasury/revenue, DaoVote
@@ -26,7 +27,7 @@ export async function daoRoutes(app: FastifyInstance): Promise<void> {
       return { error: { code: 'BAD_REQUEST', message: 'invalid asset id' } };
     }
     const query = req.query as { limit?: string };
-    const limit = Math.min(500, Math.max(1, Number(query.limit ?? 100) || 100));
+    const limit = queryInt(query.limit, { default: 100, min: 1, max: 500 });
     void reply.header('cache-control', 'public, max-age=60');
     return loadDaoTreasuryAsset(aid, limit);
   });
@@ -48,8 +49,8 @@ export async function daoRoutes(app: FastifyInstance): Promise<void> {
       return { error: { code: 'BAD_REQUEST', message: 'invalid proposal id' } };
     }
     const query = req.query as { offset?: string; limit?: string };
-    const offset = Math.max(0, Number(query.offset ?? 0) || 0);
-    const limit = Math.min(200, Math.max(1, Number(query.limit ?? 25) || 25));
+    const offset = queryInt(query.offset, { default: 0, min: 0 });
+    const limit = queryInt(query.limit, { default: 25, min: 1, max: 200 });
     void reply.header('cache-control', 'public, max-age=60');
     const result = await loadDaoProposal(id, offset, limit);
     if (!result.proposal) {

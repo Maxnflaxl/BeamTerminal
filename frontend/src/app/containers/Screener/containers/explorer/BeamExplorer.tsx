@@ -30,6 +30,7 @@ import { ChartModal } from '../../components/chart-compare/ChartModal';
 import type { SeriesDescriptor, ResolvedPoint } from '../../components/chart-compare/types';
 import { downloadBlob, downloadSvgAsPng } from '../../components/chart-compare/download';
 import { Overlay, CloseBtn, useEscapeClose } from '../../components/modalChrome';
+import { compact } from '../../components/format';
 import { buildHdrsCsv, buildHdrsSvg } from './hdrs-chart/hdrsExport';
 import type { HdrsExportRow, HdrsSvgModel } from './hdrs-chart/hdrsExport';
 
@@ -2370,12 +2371,7 @@ const BYTE_CODES = new Set(['c', 'C', 'a', 'A']);
 // Compact count: 2,000,000 -> "2M", 25,600 -> "25.6K".
 function fmtCompact(v: number): string {
   if (!Number.isFinite(v)) return '';
-  const abs = Math.abs(v);
-  const trim = (n: number): string => n.toFixed(2).replace(/\.?0+$/, '');
-  if (abs >= 1e9) return `${trim(v / 1e9)}B`;
-  if (abs >= 1e6) return `${trim(v / 1e6)}M`;
-  if (abs >= 1e3) return `${trim(v / 1e3)}K`;
-  return intFmt.format(v);
+  return compact(v, { trim: true, base: (x) => intFmt.format(x) });
 }
 
 // Byte count -> KB/MB/GB (decimal, so 4,000,000,000 -> "4 GB").

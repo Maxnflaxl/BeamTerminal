@@ -15,7 +15,6 @@ export { default as ProgressBar } from './ProgressBar';
 export { default as AssetsSection } from './AssetsSection';
 export { default as AssetsContainer } from './AssetsContainer';
 export { default as Container } from './Container';
-export { default as ReactSelect } from './ReactSelect';
 export { default as Loader } from './Loader';
 export { default as LoadingSkileton } from './LoadingSkileton';
 export { default as TopNav } from './TopNav';

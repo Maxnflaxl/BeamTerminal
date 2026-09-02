@@ -5,6 +5,7 @@ import { PALLETE_ASSETS } from '@app/shared/constants';
 import { theme } from '../containers/explorer/shared/theme';
 import { clearChildren, createBeamChart, makeSpan } from './chartTheme';
 import type { ApiKeyedSeries } from '../api/client';
+import { fmtDayLocal } from './format';
 
 // Colour is bound to the series' own key, never to its position in the
 // response: filtering a line out, or the server reordering the groups, must
@@ -239,14 +240,6 @@ const Tooltip = styled.div`
   }
 `;
 
-// Local-time YYYY-MM-DD (toISOString would drift a day for users far from UTC).
-function formatDate(ts: number): string {
-  const d = new Date(ts * 1000);
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
 interface Props {
   series: ReadonlyArray<ApiKeyedSeries>;
   logScale?: boolean;
@@ -384,7 +377,7 @@ export const KeyedLinesChart: React.FC<Props> = ({ series, logScale = false, for
           cache.rows.set(r.key, { row, val });
         }
       }
-      if (cache.when) cache.when.textContent = formatDate(param.time as number);
+      if (cache.when) cache.when.textContent = fmtDayLocal(param.time as number);
       for (const r of rows) {
         const node = cache.rows.get(r.key);
         if (!node) continue;

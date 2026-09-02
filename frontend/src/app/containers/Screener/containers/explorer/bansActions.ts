@@ -72,7 +72,3 @@ export function methodCategory(method: string): BansCategory {
       return 'other';
   }
 }
-
-export function categoryMeta(key: BansCategory): CategoryMeta | undefined {
-  return CATEGORIES.find((c) => c.key === key);
-}

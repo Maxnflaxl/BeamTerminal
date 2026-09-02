@@ -101,6 +101,9 @@ export const Chart: React.FC<Props> = ({
   // Stash via ref so we don't capture stale data each refresh.
   const candlesRef = useRef<ApiCandle[]>(candles);
   candlesRef.current = candles;
+  // time → candle, rebuilt alongside setData below, so the crosshair handler
+  // resolves the hovered bar in O(1) instead of scanning every candle per move.
+  const candleByTimeRef = useRef<Map<number, ApiCandle>>(new Map());
   // `onReachStart` should also stay fresh without re-creating the chart.
   const onReachStartRef = useRef<(() => void) | undefined>(onReachStart);
   onReachStartRef.current = onReachStart;
@@ -225,7 +228,7 @@ export const Chart: React.FC<Props> = ({
         nodes.trades.textContent = '';
         return;
       }
-      const c = candlesRef.current.find((cd) => (cd.time as UTCTimestamp) === param.time);
+      const c = candleByTimeRef.current.get(param.time as number);
       if (!c) return;
       const change = c.open > 0 ? ((c.close - c.open) / c.open) * 100 : 0;
       const sign = change >= 0 ? '+' : '';
@@ -265,6 +268,9 @@ export const Chart: React.FC<Props> = ({
 
   // Push data into the series whenever candles change.
   useEffect(() => {
+    const byTime = new Map<number, ApiCandle>();
+    for (const c of candles) byTime.set(c.time, c);
+    candleByTimeRef.current = byTime;
     const s = seriesRef.current;
     if (!s) return;
     if (style === 'candle') {

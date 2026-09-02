@@ -97,7 +97,7 @@ Query params:
 
 | Name | Type | Default | Notes |
 |---|---|---|---|
-| `type` | `"buy"` \| `"sell"` | — | If omitted, returns both. |
+| `type` | `"buy"` \| `"sell"` | — | If omitted, returns both. Applied in SQL before `limit`, so `?type=buy&limit=100` returns up to 100 buys. |
 | `limit` | int, 0..500 | 100 | `0` means "full history" (capped at 5000 for safety). |
 | `start_time` | unix seconds | — | Inclusive. |
 | `end_time` | unix seconds | — | Inclusive. |
@@ -143,7 +143,8 @@ Response:
 Filters:
 
 * `confirmed = TRUE` only.
-* Imposter / destroyed pairs respond 404 rather than empty.
+* Trades without a price (`price_native` NULL or ≤ 0) are excluded, matching the OHLCV aggregates.
+* Imposter / destroyed pairs respond 404 (`PAIR_NOT_FOUND`, "no active pair …") rather than empty.
 * Default ordering: `trade_timestamp DESC`.
 
 `Cache-Control: public, max-age=15`.
@@ -191,7 +192,7 @@ When applying via the CG application form:
 
 * `/cg/*` handlers live in the same Fastify service as `/api/*` (`backend/src/api/routes/cg/`).
 * Imposter / destroyed / zero-liquidity filters are applied in the CG handlers, not via a shared SQL view — keeps the differences visible. We accept that the two surfaces have intentionally different row sets.
-* Numeric formatting goes through a `toDecimal(value, maxFractionDigits)` helper so we never accidentally emit scientific notation.
+* Numeric formatting goes through a `toDecimal(value, maxFractionDigits)` helper so we never accidentally emit scientific notation; magnitudes ≥ 1e21 are rendered through `BigInt` as full plain-decimal strings.
 * `trades.price_native` and `trades.volume_aid1` / `volume_aid2` are pre-computed at insert time (see [database.md §trades](database.md#trades--hypertable)), so the CG endpoints don't need joins against `pools` on the hot path.
 
 ## Reference implementations cited by the spec

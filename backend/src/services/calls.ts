@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { getContract } from '../explorer.js';
+import { getContract, type ContractResponse } from '../explorer.js';
 import { parseCallsHistory, type AmmCall } from '../parsers/amm.js';
 import { ensureAssetExists } from './assets.js';
 import { resolvePoolId, type PoolKey } from './pools.js';
@@ -31,9 +31,9 @@ function priceAid2PerAid1(volumeAid1: bigint, volumeAid2: bigint): string {
  * The explorer caps any single `/contract?nMaxTxs=N` response at N rows (and
  * N is bounded server-side; 2000 is the hard ceiling). When a height window
  * has more calls than the cap, the tail is silently dropped. We detect cap-hit
- * (calls.length >= MAX_CALLS_PER_PAGE) and recursively split the range in half
- * until each sub-window fits — `ON CONFLICT DO NOTHING` on the inserts makes
- * re-covering a boundary cheap.
+ * on the raw response (see pageTruncated) and recursively split the range in
+ * half until each sub-window fits — `ON CONFLICT DO NOTHING` on the inserts
+ * makes re-covering a boundary cheap.
  *
  * Caller is responsible for advancing the cursor *after* this completes.
  */
@@ -48,12 +48,13 @@ export async function indexCalls(
     hMax,
     nMaxTxs: MAX_CALLS_PER_PAGE,
   });
+  const truncated = pageTruncated(resp);
   const calls = parseCallsHistory(resp);
 
   // Cap-hit on a >1-block window means data was truncated — split and recurse.
   // A single block hitting the cap is exceptional (no realistic AMM has 2000
   // calls in one block); log and process what we got.
-  if (calls.length >= MAX_CALLS_PER_PAGE && hMax > hMin) {
+  if (truncated && hMax > hMin) {
     const mid = Math.floor((hMin + hMax) / 2);
     logger.info(
       { hMin, hMax, calls: calls.length, limit: MAX_CALLS_PER_PAGE, split_at: mid },
@@ -116,7 +117,7 @@ export async function indexCalls(
   await flushTrades(tradeRows);
   await flushLpEvents(lpRows);
 
-  if (calls.length >= MAX_CALLS_PER_PAGE && hMin === hMax) {
+  if (truncated && hMin === hMax) {
     logger.warn(
       { height: hMin, calls: calls.length, limit: MAX_CALLS_PER_PAGE },
       'single block exceeded nMaxTxs cap — data beyond limit silently lost',
@@ -124,6 +125,23 @@ export async function indexCalls(
   }
 
   return { trades, lp, lifecycle, skipped };
+}
+
+/**
+ * Whether the explorer cut the "Calls history" page short. Judged on the raw
+ * response, not on the parsed AMM calls: parseCallsHistory drops rows it
+ * doesn't recognise (nested fee skims, unknown methods), so a full page can
+ * parse to well under the cap and hide the truncation. Prefers the explorer's
+ * `more` marker on the table when it sends one; otherwise the raw row count
+ * (minus the header row) reaching the cap.
+ */
+function pageTruncated(resp: ContractResponse): boolean {
+  const table = resp['Calls history'];
+  const more = (table as { more?: { hMax?: number } } | undefined)?.more
+    ?? (resp as { more?: { hMax?: number } }).more;
+  if (more?.hMax != null) return true;
+  const rawRows = (table?.value.length ?? 1) - 1;
+  return rawRows >= MAX_CALLS_PER_PAGE;
 }
 
 type WriteOutcome = 'trade' | 'lp' | 'lifecycle' | 'skipped';

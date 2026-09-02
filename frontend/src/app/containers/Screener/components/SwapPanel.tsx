@@ -385,8 +385,10 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
         <BoxHeader>
           <span>You Pay</span>
           <UsdHint>
-            {pay.aid === 0 && pair.aid1 === 0 && pair.price_usd !== null && hasAmount
-              ? fmt$(v * (pair.price_usd / (pair.price_native ?? 1)))
+            {/* price_usd is USD per aid2 and price_native is aid2 per aid1, so
+                USD per aid1 (the BEAM side here) is their product. */}
+            {pay.aid === 0 && pair.aid1 === 0 && pair.price_usd !== null && pair.price_native !== null && hasAmount
+              ? fmt$(v * pair.price_usd * pair.price_native)
               : ''}
           </UsdHint>
         </BoxHeader>

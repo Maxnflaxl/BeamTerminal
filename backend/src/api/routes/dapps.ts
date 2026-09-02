@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { q } from '../../db.js';
 import { NotFound } from '../error.js';
+import { queryInt } from '../query.js';
 
 // ---------------------------------------------------------------------------
 // /api/dapps             — registered dapps (joined to publisher).
@@ -216,7 +217,7 @@ export async function dappsRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { limit?: string; action?: string } }>(
     '/dapps/calls',
     async (req, reply) => {
-      const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 1000);
+      const limit = queryInt(req.query.limit, { default: 200, min: 1, max: 1000 });
       const params: (string | number)[] = [];
       let where = '';
       if (req.query.action !== undefined) {

@@ -26,6 +26,7 @@ import {
   fmtGrouped,
   fmtNum,
   fmtPriceImpact,
+  fromGroths,
   pairUrlId,
 } from '../components/format';
 
@@ -944,18 +945,14 @@ export const PairDetail: React.FC = () => {
   );
 };
 
+// Trade-row amount: K/M-suffixed above 1000, grouped 2-decimal above 1,
+// otherwise up to 6 fractional digits so dust trades stay readable. Plain
+// Number math (see `fromGroths`) — no BigInt, which `Math.pow` rejects.
 function fmtAmt(s: string | null | undefined, decimals: number): string {
   if (!s) return '0';
-  // NOTE: BigInt math was used originally for precision, but our Babel target
-  // transpiles `**` into `Math.pow(...)`, which throws on BigInts. Switch to
-  // plain Number — amounts here fit comfortably in MAX_SAFE_INTEGER for any
-  // realistic trade (and we're truncating to display precision anyway).
-  const n = Number(s) / 10 ** decimals;
+  const n = fromGroths(s, decimals);
   if (!Number.isFinite(n)) return s;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
-  if (n >= 1) return fmtGrouped(n, 2);
+  if (n >= 1) return fmtNum(n, 2);
   if (n === 0) return '0';
-  const dec = Math.min(decimals, 6);
-  return fmtGrouped(n, dec);
+  return fmtGrouped(n, Math.min(decimals, 6));
 }

@@ -137,6 +137,10 @@ export async function atomicSwapsRoutes(app: FastifyInstance): Promise<void> {
       // Default to the last 30 days. `bucket` controls down-sampling: '1h' (default)
       // returns at most ~720 points for the default window — comfortable for a chart.
       const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 30 * 24 * 3600 * 1000);
+      if (Number.isNaN(since.getTime())) {
+        void reply.code(400);
+        return { error: 'bad since' };
+      }
       const bucket = req.query.bucket === '1d' ? '1 day' : req.query.bucket === '15m' ? '15 minutes' : '1 hour';
 
       const { rows } = await q<AtomicSwapTotalsRow>(

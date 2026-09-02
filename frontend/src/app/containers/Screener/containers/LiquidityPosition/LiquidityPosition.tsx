@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { styled } from '@linaria/react';
 import { useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../../api/client';
@@ -430,13 +430,21 @@ export const LiquidityPosition: React.FC = () => {
   const [analyticsUnit, setAnalyticsUnit] = useState<Unit>(1);
   const [tab, setTab] = useState<'il' | 'scenarios' | 'simulator'>('il');
 
+  // Bumped per pool selection (and per lookup, which clears the selection), so
+  // a slower response for an earlier pool cannot overwrite the current one.
+  const pairReqRef = useRef(0);
+
   const selectPool = useCallback(async (lpToken: number): Promise<void> => {
+    pairReqRef.current += 1;
+    const req = pairReqRef.current;
     setSelectedLp(lpToken);
     setPair(null);
     try {
       const p = await api.pair(lpToken);
+      if (pairReqRef.current !== req) return;
       setPair(p);
     } catch {
+      if (pairReqRef.current !== req) return;
       setError('Could not load the current pool state.');
     }
   }, []);
@@ -453,6 +461,7 @@ export const LiquidityPosition: React.FC = () => {
       setPools(null);
       setSelectedLp(null);
       setPair(null);
+      pairReqRef.current += 1;
       try {
         const res = await api.lpPosition.events(trimmed);
         setUnresolved(res.unresolved);

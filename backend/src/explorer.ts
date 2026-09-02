@@ -80,6 +80,22 @@ export type TypedCell =
 const MAX_ATTEMPTS = 4;
 const BASE_BACKOFF_MS = 250;
 
+/** A non-2xx explorer response. Callers branch on `statusCode` (e.g. a 404
+ *  marks a feature the explorer was built without) rather than on the text. */
+export class ExplorerHttpError extends Error {
+  readonly statusCode: number;
+  readonly url: string;
+
+  constructor(statusCode: number, url: string, detail?: string) {
+    super(detail === undefined
+      ? `HTTP ${statusCode} from ${url}`
+      : `HTTP ${statusCode} from ${url}: ${detail}`);
+    this.name = 'ExplorerHttpError';
+    this.statusCode = statusCode;
+    this.url = url;
+  }
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const url = `${config.EXPLORER_URL}${path}`;
   let lastErr: unknown;
@@ -88,11 +104,11 @@ async function fetchJson<T>(path: string): Promise<T> {
     try {
       const { statusCode, body } = await request(url, { method: 'GET' });
       if (statusCode >= 500) {
-        lastErr = new Error(`HTTP ${statusCode} from ${url}`);
+        lastErr = new ExplorerHttpError(statusCode, url);
       } else if (statusCode >= 400) {
         // Non-retryable client error
         const text = await body.text();
-        throw new Error(`HTTP ${statusCode} from ${url}: ${text.slice(0, 200)}`);
+        throw new ExplorerHttpError(statusCode, url, text.slice(0, 200));
       } else {
         return (await body.json()) as T;
       }

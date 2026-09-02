@@ -30,6 +30,7 @@ import {
   fmtRelative,
 } from './shared';
 import { api } from '../../api/client';
+import { compact, fmtDuration, fromGroths } from '../../components/format';
 import type { ApiAssetSwapOffer, ApiAssetsList, ApiAsset } from '../../api/types';
 
 const AssetCell = styled.span`
@@ -74,23 +75,16 @@ function decimalsFor(asset: ApiAsset | undefined): number {
 
 function formatGroths(amount: string, dec: number): string {
   // Amount is the raw integer unit (groths for 8-dec assets).
-  const v = Number(amount) / 10 ** dec;
+  const v = fromGroths(amount, dec);
   if (!Number.isFinite(v)) return amount;
-  if (Math.abs(v) >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
-  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  if (Math.abs(v) >= 1e3) return `${(v / 1e3).toFixed(2)}K`;
-  return v.toFixed(Math.min(dec, 6)).replace(/\.?0+$/, '');
+  return compact(v, { base: (x) => x.toFixed(Math.min(dec, 6)).replace(/\.?0+$/, '') });
 }
 
 function timeLeft(iso: string): string {
   const ts = new Date(iso).getTime();
   if (!Number.isFinite(ts)) return '—';
-  const delta = Math.round((ts - Date.now()) / 1000);
-  if (delta <= 0) return 'expired';
-  if (delta < 60) return `${delta}s`;
-  if (delta < 3600) return `${Math.round(delta / 60)}m`;
-  if (delta < 86400) return `${Math.round(delta / 3600)}h`;
-  return `${Math.round(delta / 86400)}d`;
+  const delta = (ts - Date.now()) / 1000;
+  return delta <= 0 ? 'expired' : fmtDuration(delta);
 }
 
 export const AssetSwaps: React.FC = () => {

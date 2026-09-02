@@ -4,7 +4,11 @@ import { q } from '../../db.js';
 import { fetchNetworkSeries, fetchNetworkSeriesHourly, type NetworkSeries, type ChartPoint } from '../../services/networkStats.js';
 import { fetchBlackholeSeries } from '../../services/blackhole.js';
 import { supplyAtHeight } from '../../services/beamEmission.js';
-import { serveRange, RANGE_META, bridgeMultiSeries, bridgeSingleSeries, type Res as RangeRes } from './chart-range.js';
+import { logger } from '../../logger.js';
+import {
+  serveRange, RANGE_META, bridgeMultiSeries, bridgeSingleSeries, buildSimpleLevelSql, clampRange,
+  RangeTooWideError, type Res as RangeRes, type SimpleLevelChart,
+} from './chart-range.js';
 
 interface SeriesPoint {
   ts: number;
@@ -18,59 +22,33 @@ interface ChartBody {
   series: unknown;
 }
 
-// ---------------------------------------------------------------------------
-// Hashrate per day in Sol/s. Matches the Health page's diffToHashrate logic
-// (= difficulty / block_time), aggregated as Σ difficulty / Δt across each
-// day's blocks. Chainwork can't be used directly because Beam's chainwork is
-// exponential (2^diff per block), not Σ difficulty.
-// ---------------------------------------------------------------------------
-const HASHRATE_SQL = `
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
-         (SUM(difficulty)::float8
-            / NULLIF(EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts)), 0))::float8 AS value
-    FROM block_metrics
-   WHERE difficulty > 0
-   GROUP BY time_bucket(INTERVAL '1 day', block_ts)
-  HAVING COUNT(*) > 1
-   ORDER BY 1
-`;
+// The four single-aggregate level charts (hashrate, difficulty, block-time,
+// price) take their SQL from chart-range's builder so each aggregate expression
+// is written once: the whole table for the daily tier, the trailing 35 days for
+// the hourly tier. Hashrate and block time keep their HAVING COUNT(*) > 1 guard
+// — a one-block bucket has no Δt.
+const HOURLY_WINDOW_DAYS = 35;
+function levelSql(name: SimpleLevelChart): Pick<ChartDef, 'sql' | 'hourlySql'> {
+  return {
+    sql: buildSimpleLevelSql(name, '1d', 'all'),
+    hourlySql: buildSimpleLevelSql(name, '1h', { recentDays: HOURLY_WINDOW_DAYS }),
+  };
+}
 
-// Hourly hashrate — same Σdifficulty/Δt method as HASHRATE_SQL, bucketed hourly
-// over a recent bounded window. Hashrate is a per-bucket rate, scale-invariant
-// to bucket size, so no rolling window is needed.
-const HASHRATE_HOURLY_SQL = `
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 hour', block_ts))::bigint AS ts,
-         (SUM(difficulty)::float8
-            / NULLIF(EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts)), 0))::float8 AS value
-    FROM block_metrics
-   WHERE difficulty > 0
-     AND block_ts > now() - INTERVAL '35 days'
-   GROUP BY time_bucket(INTERVAL '1 hour', block_ts)
-  HAVING COUNT(*) > 1
-   ORDER BY 1
-`;
-
-// Per-day average block time in seconds (Δt across the day's blocks).
-const BLOCK_TIME_SQL = `
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
-         (EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts))
-            / NULLIF(COUNT(*) - 1, 0))::float8 AS value
-    FROM block_metrics
-   GROUP BY time_bucket(INTERVAL '1 day', block_ts)
-  HAVING COUNT(*) > 1
-   ORDER BY 1
-`;
-
-const BLOCK_TIME_HOURLY_SQL = `
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 hour', block_ts))::bigint AS ts,
-         (EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts))
-            / NULLIF(COUNT(*) - 1, 0))::float8 AS value
-    FROM block_metrics
-   WHERE block_ts > now() - INTERVAL '35 days'
-   GROUP BY time_bucket(INTERVAL '1 hour', block_ts)
-  HAVING COUNT(*) > 1
-   ORDER BY 1
-`;
+// End-of-day reserves per pool, shared by every daily DEX query below. Reads
+// the liquidity_1h continuous aggregate instead of re-aggregating the raw
+// pool_state_snapshots hypertable's full history per refresh: the last hourly
+// `last` of a day is the day's last raw sample, so last-per-day over the hourly
+// rows equals last-per-day over the snapshots. The view is real-time
+// (materialized_only = false), so the not-yet-materialized tail is included.
+const POOL_DAY_CTE = `pool_day AS (
+    SELECT pool_id,
+           time_bucket(INTERVAL '1 day', bucket) AS day,
+           last(reserve1, bucket)::numeric AS reserve1,
+           last(reserve2, bucket)::numeric AS reserve2
+      FROM liquidity_1h
+     GROUP BY pool_id, time_bucket(INTERVAL '1 day', bucket)
+  )`;
 
 // Per-day DEX TVL in USD. End-of-day reserves per pool, priced via the
 // BEAM oracle directly (BEAM-quoted pools) or via the BEAM-paired pool's
@@ -87,14 +65,7 @@ const TVL_SQL = `
       FROM oracle_snapshots
      GROUP BY day
   ),
-  pool_day AS (
-    SELECT pool_id,
-           time_bucket(INTERVAL '1 day', ts) AS day,
-           last(reserve1, ts)::numeric AS reserve1,
-           last(reserve2, ts)::numeric AS reserve2
-      FROM pool_state_snapshots
-     GROUP BY pool_id, time_bucket(INTERVAL '1 day', ts)
-  ),
+  ${POOL_DAY_CTE},
   beam_paired AS (
     SELECT DISTINCT ON (pd.day, p.aid2)
            pd.day,
@@ -198,26 +169,6 @@ const TVL_HOURLY_SQL = `
     FROM priced
    WHERE tvl_usd IS NOT NULL
    GROUP BY hour
-   ORDER BY 1
-`;
-
-// Per-day average network difficulty (mean across the day's blocks).
-const DIFFICULTY_SQL = `
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', block_ts))::bigint AS ts,
-         AVG(difficulty)::float8 AS value
-    FROM block_metrics
-   WHERE difficulty > 0
-   GROUP BY time_bucket(INTERVAL '1 day', block_ts)
-   ORDER BY 1
-`;
-
-const DIFFICULTY_HOURLY_SQL = `
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 hour', block_ts))::bigint AS ts,
-         AVG(difficulty)::float8 AS value
-    FROM block_metrics
-   WHERE difficulty > 0
-     AND block_ts > now() - INTERVAL '35 days'
-   GROUP BY time_bucket(INTERVAL '1 hour', block_ts)
    ORDER BY 1
 `;
 
@@ -392,14 +343,7 @@ const DEX_VOLUME_SQL = `
       FROM oracle_snapshots
      GROUP BY day
   ),
-  pool_day AS (
-    SELECT pool_id,
-           time_bucket(INTERVAL '1 day', ts) AS day,
-           last(reserve1, ts)::numeric AS reserve1,
-           last(reserve2, ts)::numeric AS reserve2
-      FROM pool_state_snapshots
-     GROUP BY pool_id, time_bucket(INTERVAL '1 day', ts)
-  ),
+  ${POOL_DAY_CTE},
   beam_paired AS (
     SELECT DISTINCT ON (pd.day, p.aid2)
            pd.day,
@@ -656,26 +600,6 @@ async function marketCapSeries(bucket: '1 day' | '1 hour', recentOnly: boolean):
   }));
 }
 
-const PRICE_SQL = `
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 day', ts))::bigint AS ts,
-         last(beam_usd, ts)::float8 AS value
-    FROM oracle_snapshots
-   WHERE beam_usd IS NOT NULL
-   GROUP BY time_bucket(INTERVAL '1 day', ts)
-   ORDER BY 1
-`;
-
-// Hourly BEAM/USD close over a recent bounded window.
-const PRICE_HOURLY_SQL = `
-  SELECT EXTRACT(epoch FROM time_bucket(INTERVAL '1 hour', ts))::bigint AS ts,
-         last(beam_usd, ts)::float8 AS value
-    FROM oracle_snapshots
-   WHERE beam_usd IS NOT NULL
-     AND ts > now() - INTERVAL '35 days'
-   GROUP BY time_bucket(INTERVAL '1 hour', ts)
-   ORDER BY 1
-`;
-
 // Per-day DEX-wide volatility index: TVL-weighted average of per-pool realized
 // volatility across all pairs, in percent. Per-pool daily closes come from
 // candles_1d; each pool's 30-day rolling annualized vol is weighted by that
@@ -697,14 +621,7 @@ const DEX_VOL_SQL = `
       FROM oracle_snapshots
      GROUP BY day
   ),
-  pool_day AS (
-    SELECT pool_id,
-           time_bucket(INTERVAL '1 day', ts) AS day,
-           last(reserve1, ts)::numeric AS reserve1,
-           last(reserve2, ts)::numeric AS reserve2
-      FROM pool_state_snapshots
-     GROUP BY pool_id, time_bucket(INTERVAL '1 day', ts)
-  ),
+  ${POOL_DAY_CTE},
   beam_paired AS (
     SELECT DISTINCT ON (pd.day, p.aid2)
            pd.day,
@@ -885,18 +802,18 @@ function netFetcherHourly(key: keyof NetworkSeries): () => Promise<SeriesPoint[]
 }
 
 const CHART_DEFS: ReadonlyArray<ChartDef> = [
-  { name: 'hashrate',   sql: HASHRATE_SQL,   hourlySql: HASHRATE_HOURLY_SQL,   maxAgeSec: 600 },
+  { name: 'hashrate',   ...levelSql('hashrate'),   maxAgeSec: 600 },
   { name: 'coinbase',   sql: COINBASE_SQL,   hourlySql: COINBASE_HOURLY_SQL,   maxAgeSec: 600 },
   { name: 'assets',     sql: ASSETS_SQL,     hourlySql: ASSETS_HOURLY_SQL,     maxAgeSec: 600 },
   { name: 'dex-volume', sql: DEX_VOLUME_SQL, hourlySql: DEX_VOLUME_HOURLY_SQL, maxAgeSec: 1800 },
-  { name: 'difficulty', sql: DIFFICULTY_SQL, hourlySql: DIFFICULTY_HOURLY_SQL, maxAgeSec: 600 },
-  { name: 'block-time', sql: BLOCK_TIME_SQL, hourlySql: BLOCK_TIME_HOURLY_SQL, maxAgeSec: 600 },
+  { name: 'difficulty', ...levelSql('difficulty'), maxAgeSec: 600 },
+  { name: 'block-time', ...levelSql('block-time'), maxAgeSec: 600 },
   { name: 'tvl',        sql: TVL_SQL,        hourlySql: TVL_HOURLY_SQL,        maxAgeSec: 1800 },
   { name: 'pools-created', sql: POOLS_CREATED_SQL, maxAgeSec: 1800 },
   { name: 'pools-closed',  sql: POOLS_CLOSED_SQL,  maxAgeSec: 1800 },
   { name: 'beam-vol',   sql: BEAM_VOL_SQL,   maxAgeSec: 1800 },
   { name: 'dex-vol',    sql: DEX_VOL_SQL,    maxAgeSec: 1800 },
-  { name: 'price',      sql: PRICE_SQL,      hourlySql: PRICE_HOURLY_SQL,      maxAgeSec: 600 },
+  { name: 'price',      ...levelSql('price'),      maxAgeSec: 600 },
   { name: 'market-cap', fetch: () => marketCapSeries('1 day', false),
                         hourlyFetch: () => marketCapSeries('1 hour', true), maxAgeSec: 600 },
   // From the explorer's /hdrs endpoint (one fetch yields all ten).
@@ -983,8 +900,7 @@ async function runQuery(def: ChartDef, res: Res): Promise<ChartBody> {
     throw new Error(`chart ${def.name} has neither sql nor fetch`);
   }
   const n = Array.isArray(body.series) ? body.series.length : 0;
-  // eslint-disable-next-line no-console -- Fastify pino logger is per-request.
-  console.log(`[charts] ${def.name}:${res} refreshed: ${n} pts in ${Date.now() - t0}ms`);
+  logger.debug({ chart: def.name, res, points: n, ms: Date.now() - t0 }, 'chart refreshed');
   return body;
 }
 
@@ -1035,9 +951,8 @@ export function startChartCacheRefresher(): void {
   // Serial pre-warm — don't slam Postgres with many heavy queries at once.
   void (async () => {
     for (const u of units) {
-      await refresh(u.def, u.res).catch((err) => {
-        // eslint-disable-next-line no-console
-        console.warn(`[charts] pre-warm failed for ${u.def.name}:${u.res}:`, err instanceof Error ? err.message : err);
+      await refresh(u.def, u.res).catch((err: unknown) => {
+        logger.warn({ chart: u.def.name, res: u.res, err }, 'chart pre-warm failed');
       });
     }
   })();
@@ -1049,9 +964,8 @@ export function startChartCacheRefresher(): void {
     const offset = (REFRESH_INTERVAL_MS / units.length) * i;
     setTimeout(() => {
       setInterval(() => {
-        refresh(u.def, u.res).catch((err) => {
-          // eslint-disable-next-line no-console
-          console.warn(`[charts] refresh failed for ${u.def.name}:${u.res}:`, err instanceof Error ? err.message : err);
+        refresh(u.def, u.res).catch((err: unknown) => {
+          logger.warn({ chart: u.def.name, res: u.res, err }, 'chart refresh failed');
         });
       }, every);
     }, offset);
@@ -1063,12 +977,25 @@ export async function chartsRoutes(app: FastifyInstance): Promise<void> {
     app.get(`/charts/${def.name}`, async (req, reply) => {
       const qp = req.query as { res?: string; from?: string; to?: string };
       if (qp.from !== undefined && qp.to !== undefined && RANGE_META[def.name]) {
-        const fromSec = Number(qp.from), toSec = Number(qp.to);
+        const rawFrom = Number(qp.from), rawTo = Number(qp.to);
         const res: RangeRes = qp.res === '1m' ? '1m' : qp.res === '1h' ? '1h' : qp.res === '1M' ? '1M' : '1d';
-        if (!Number.isFinite(fromSec) || !Number.isFinite(toSec) || toSec <= fromSec) {
+        if (!Number.isFinite(rawFrom) || !Number.isFinite(rawTo)) {
           void reply.status(400); return { error: 'bad from/to' };
         }
-        const { body, etag, immutable } = await serveRange(def.name, res, fromSec, toSec);
+        // Clamp to [0, now + one bucket] before the order check, so a window
+        // lying entirely in the future is rejected rather than served empty.
+        const { from: fromSec, to: toSec } = clampRange(rawFrom, rawTo, res);
+        if (toSec <= fromSec) {
+          void reply.status(400); return { error: 'bad from/to' };
+        }
+        let served: Awaited<ReturnType<typeof serveRange>>;
+        try {
+          served = await serveRange(def.name, res, fromSec, toSec);
+        } catch (err) {
+          if (err instanceof RangeTooWideError) { void reply.status(400); return { error: 'range too wide for resolution' }; }
+          throw err;
+        }
+        const { body, etag, immutable } = served;
         void reply.header('cache-control', `public, max-age=${immutable ? 86400 : 60}`);
         void reply.header('etag', etag);
         const inm = req.headers['if-none-match'];

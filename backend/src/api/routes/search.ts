@@ -2,6 +2,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { BadRequest } from '../error.js';
+import { config } from '../../config.js';
 import { getBlock, getContract } from '../../explorer.js';
 import {
   classify, searchAssets, searchPools, searchDapps, searchPublishers, searchCharts, searchPages,
@@ -11,7 +12,6 @@ import {
 
 const EXPLORER_TIMEOUT_MS = 700;
 const CACHE_TTL_MS = 30_000;
-const BANS_CID = 'af4550f1f8a6051ffeffea06e0cb978f8076fdfc2101d2273d4e62c86540bc5e';
 
 // Tiny TTL + bounded-size cache (mirrors the historyCache pattern in
 // routes/asset.ts). Keys here include arbitrary user input (block:/kernel:/
@@ -104,7 +104,7 @@ function bansDomainExists(state: ContractStateAny, name: string): { owner: strin
 
 async function lookupBans(name: string): Promise<SearchItem[]> {
   // One cached fetch of the whole Domains state, reused across queries.
-  const state = await cached('bans:state', () => getContract({ id: BANS_CID })) as ContractStateAny;
+  const state = await cached('bans:state', () => getContract({ id: config.BANS_CID })) as ContractStateAny;
   const hit = bansDomainExists(state, name);
   if (!hit) return [];
   return [{
@@ -155,7 +155,10 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
       exTasks.push(withTimeout(lookupKernel(c.hex64), EXPLORER_TIMEOUT_MS));
       exTasks.push(withTimeout(lookupContract(c.hex64), EXPLORER_TIMEOUT_MS));
     }
-    if (c.bansName !== null) exTasks.push(withTimeout(lookupBans(c.bansName), EXPLORER_TIMEOUT_MS));
+    // An empty BANS_CID disables the BANS scrape, and with it the name lookup.
+    if (c.bansName !== null && config.BANS_CID !== '') {
+      exTasks.push(withTimeout(lookupBans(c.bansName), EXPLORER_TIMEOUT_MS));
+    }
 
     const [dbResults, exResults] = await Promise.all([
       Promise.allSettled(dbTasks),

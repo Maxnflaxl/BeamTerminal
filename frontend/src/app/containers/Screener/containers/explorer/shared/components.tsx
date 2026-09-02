@@ -11,7 +11,6 @@
 // Linaria styled-components, keeping the explorer surface visually coherent
 // with the rest of the app.
 
-import React from 'react';
 import { styled } from '@linaria/react';
 import { theme } from './theme';
 
@@ -112,13 +111,6 @@ export const Card = styled.section`
   border-radius: ${theme.radius.lg};
   padding: ${theme.spacing.cardPad};
   margin-bottom: 16px;
-`;
-
-export const Surface2 = styled.div`
-  background: ${theme.color.surface2};
-  border: 1px solid ${theme.color.borderDim};
-  border-radius: ${theme.radius.md};
-  padding: 12px;
 `;
 
 // ---------------------------------------------------------------------------
@@ -413,45 +405,6 @@ export const WarnBox = styled.div`
 // ---------------------------------------------------------------------------
 // Node selector (shared across BANS/Bridge — pick one explorer-node URL)
 // ---------------------------------------------------------------------------
-
-const NodeSelectorBox = styled.div`
-  display: flex;
-  align-items: center;
-  & > * + * {
-    margin-left: 8px;
-  }
-  background: ${theme.color.surface};
-  border: 1px solid ${theme.color.borderDim};
-  border-radius: ${theme.radius.md};
-  padding: 4px 8px;
-  font-size: 11px;
-  & > .lbl {
-    color: ${theme.color.muted};
-  }
-`;
-
-export interface NodeOption {
-  value: string;
-  label: string;
-}
-
-export const NodeSelector: React.FC<{
-  options: ReadonlyArray<NodeOption>;
-  value: string;
-  onChange: (v: string) => void;
-  label?: string;
-}> = ({ options, value, onChange, label = 'Node' }) => (
-  <NodeSelectorBox>
-    <span className="lbl">{label}</span>
-    <Select value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </Select>
-  </NodeSelectorBox>
-);
 
 // ---------------------------------------------------------------------------
 // Convenience layout helpers

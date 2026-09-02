@@ -169,16 +169,17 @@ CREATE INDEX oracle_snapshots_height_idx ON oracle_snapshots (height DESC);
 
 ### `block_timestamps` — height cache
 
-`migrations/006_block_timestamps.sql`.
+`migrations/006_block_timestamps.sql` + `054_block_timestamps_hash.sql`.
 
 ```sql
 CREATE TABLE block_timestamps (
   height  BIGINT PRIMARY KEY,
-  ts      TIMESTAMPTZ NOT NULL
+  ts      TIMESTAMPTZ NOT NULL,
+  hash    BYTEA                 -- block hash at `height`; NULL on rows written before 054
 );
 ```
 
-Populated lazily by the indexer (one `GET /block?height=H` per uncached height; an in-process LRU sits in front of this table). Reorg rewinds delete past-ancestor rows from here too so re-ingest re-fetches the chain's authoritative timestamp.
+Populated lazily by the indexer (one `GET /block?height=H` per uncached height; an in-process LRU sits in front of this table). `hash` is what reorg recovery compares against the chain's current hash at H to locate the common ancestor (see [indexer.md §Reorg handling](indexer.md#reorg-handling)); a NULL hash is filled in the next time that height is fetched and never overwritten once set. Reorg rewinds delete past-ancestor rows from here (and from the LRU) so re-ingest re-fetches the chain's authoritative timestamp and hash.
 
 ### `cursor` — single-row indexer state
 

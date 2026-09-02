@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import BeamDappConnector from '@core/BeamDappConnector.js';
@@ -18,6 +18,8 @@ import {
   theme,
 } from './shared';
 import { api, apiUrl } from '../../api/client';
+import { fmtRelative } from '../../components/format';
+import { usePolled } from '../../hooks';
 import { Overlay, useEscapeClose } from '../../components/modalChrome';
 import type { ApiDapp, ApiDappDetail, ApiDappPublisher, ApiDappVersion } from '../../api/types';
 import CopyIcon from './shared/icons/copy.svg';
@@ -420,42 +422,13 @@ const Toast = styled.div`
 // helpers
 // ---------------------------------------------------------------------------
 
-// Multi-unit relative time. For older entries we want "2y 2m 3d ago" rather
-// than "1234d ago" — the longer something has been around the more useful the
-// composite breakdown is.
-//
-// "Months" here are 30 days, "years" 365 — fine for display: we never claim
-// a precise calendar duration, and the trailing units (e.g. "3d") let the
-// user spot rough age. We show up to two non-zero units, biggest first.
-function fmtRelative(iso: string | null | undefined): string | null {
+// Two-unit relative time ("2y 2mo ago", "3h 12m ago") — the older an entry,
+// the more useful the composite breakdown. null when the date is unknown so
+// callers can render the hoverable "unknown" instead of a dash.
+function fmtAgo(iso: string | null | undefined): string | null {
   if (!iso) return null;
-  const ts = new Date(iso).getTime();
-  if (!Number.isFinite(ts)) return null;
-  let s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s ago`;
-
-  const Y = 365 * 24 * 3600;
-  const M = 30 * 24 * 3600;
-  const D = 24 * 3600;
-  const H = 3600;
-  const MIN = 60;
-  const parts: string[] = [];
-  const take = (size: number, suf: string) => {
-    const n = Math.floor(s / size);
-    if (n > 0) {
-      parts.push(`${n}${suf}`);
-      s -= n * size;
-    }
-  };
-  take(Y, 'y');
-  take(M, 'mo');
-  // No years/months → fall through to days/hours/minutes.
-  take(D, 'd');
-  take(H, 'h');
-  take(MIN, 'm');
-  // Keep at most two units (biggest first) so older entries read like
-  // "2y 2mo" and recent ones like "3h 12m". Single-unit ("4d") is fine too.
-  return `${parts.slice(0, 2).join(' ')} ago`;
+  const rel = fmtRelative(iso, { units: 2 });
+  return rel === '—' ? null : rel;
 }
 
 function fmtAbsolute(iso: string | null | undefined): string | null {
@@ -491,7 +464,7 @@ const Unknown: React.FC<{ reason?: string }> = ({ reason = UNKNOWN_TOOLTIP }) =>
 // Inline "x ago" used in card meta / table cells. Falls back to a hoverable
 // "unknown" so the UI never silently lies about an on-chain date.
 const RelDate: React.FC<{ iso: string | null; reason?: string }> = ({ iso, reason }) => {
-  const rel = fmtRelative(iso);
+  const rel = fmtAgo(iso);
   return rel != null ? <>{rel}</> : <Unknown reason={reason} />;
 };
 
@@ -507,7 +480,7 @@ const DateBlock: React.FC<{ iso: string | null; height: number | null; reason?: 
     <>
       <div>{abs}</div>
       <Muted style={{ margin: '2px 0 0', fontSize: 10 }}>
-        height {height ?? '—'} · {fmtRelative(iso)}
+        height {height ?? '—'} · {fmtAgo(iso)}
       </Muted>
     </>
   );
@@ -1094,9 +1067,10 @@ export const Dapps: React.FC = () => {
     else if (tabParam === 'dapps' || searchParams.get('dapp')) setTab('dapps');
   }, [searchParams]);
 
-  const [dapps, setDapps] = useState<ApiDapp[] | null>(null);
-  const [publishers, setPublishers] = useState<ApiDappPublisher[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const feed = usePolled(() => Promise.all([api.dapps(), api.dappPublishers()]), [], REFRESH_MS);
+  const dapps: ApiDapp[] | null = feed.data ? feed.data[0].dapps : null;
+  const publishers: ApiDappPublisher[] | null = feed.data ? feed.data[1].publishers : null;
+  const err = feed.error;
 
   // Modal state
   const [openDapp, setOpenDapp] = useState<ApiDapp | null>(null);
@@ -1131,38 +1105,6 @@ export const Dapps: React.FC = () => {
     const ms = msg.length > 40 ? 6000 : 1800;
     window.setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), ms);
   }, []);
-
-  // Guards refresh below — a poll resolving after navigate-away must not
-  // setState on the unmounted component.
-  const aliveRef = useRef(true);
-  useEffect(
-    () => () => {
-      aliveRef.current = false;
-    },
-    [],
-  );
-
-  const refresh = useCallback(async () => {
-    try {
-      const [d, p] = await Promise.all([api.dapps(), api.dappPublishers()]);
-      if (!aliveRef.current) return;
-      setDapps(d.dapps);
-      setPublishers(p.publishers);
-      setErr(null);
-    } catch (e) {
-      if (!aliveRef.current) return;
-      setErr(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const id = setInterval(() => {
-      if (document.hidden) return;
-      void refresh();
-    }, REFRESH_MS);
-    return () => clearInterval(id);
-  }, [refresh]);
 
   // Load version history lazily when a dapp modal opens.
   useEffect(() => {

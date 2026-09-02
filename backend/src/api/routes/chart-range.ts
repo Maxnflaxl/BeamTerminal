@@ -14,10 +14,37 @@ export type Res = '1m' | '1h' | '1d' | '1M';
 export type TiledRes = Exclude<Res, '1M'>;
 
 export const BUCKET_SECONDS: Record<TiledRes, number> = { '1m': 60, '1h': 3600, '1d': 86_400 };
+// '1M' has no fixed width; this is only the clamp allowance for `to` (see clampRange).
+const MONTH_SECONDS = 2_592_000;
 export const TILE_BUCKETS = 256;
 export const MAX_POINTS = 2000;
+// Widest window served at a given resolution before the request is moved up the
+// ladder: MAX_POINTS worth of buckets plus the two partial tiles a tile-aligned
+// client window adds at either edge. The coarsest tiled rung is exempt (there is
+// nothing coarser to move to) — its width is bounded by clampRange instead.
+export const MAX_RANGE_TILES = Math.ceil(MAX_POINTS / TILE_BUCKETS) + 2;
+// Absolute ceiling on tiles fetched for one request, at any resolution. Past
+// this the request is refused rather than served.
+export const HARD_MAX_TILES = 128;
+// Tiles fetched concurrently for one request.
+const TILE_CONCURRENCY = 6;
 
 export interface RangePoint { ts: number; value: number }
+
+export class RangeTooWideError extends Error {
+  constructor(res: Res, tiles: number) {
+    super(`range too wide for resolution ${res}: ${tiles} tiles > ${HARD_MAX_TILES}`);
+    this.name = 'RangeTooWideError';
+  }
+}
+
+/** Clamp a requested window to [0, now + one bucket]. `to` may end up ≤ `from`;
+ *  the caller decides how to answer that. */
+export function clampRange(fromSec: number, toSec: number, res: Res): { from: number; to: number } {
+  const bucket = res === '1M' ? MONTH_SECONDS : BUCKET_SECONDS[res];
+  const nowSec = Math.floor(Date.now() / 1000);
+  return { from: Math.max(0, fromSec), to: Math.min(toSec, nowSec + bucket) };
+}
 
 export function tileSpan(res: TiledRes): number {
   return BUCKET_SECONDS[res] * TILE_BUCKETS;
@@ -29,12 +56,35 @@ export function alignRange(fromSec: number, toSec: number, res: TiledRes): { fro
   return { from: Math.floor(fromSec / b) * b, to: Math.ceil(toSec / b) * b };
 }
 
+/** Number of tiles [first, to) spans at `res`, without materializing them. */
+export function tileCount(fromSec: number, toSec: number, res: TiledRes): number {
+  const span = tileSpan(res);
+  const first = Math.floor(fromSec / span) * span;
+  return Math.max(0, Math.ceil((toSec - first) / span));
+}
+
 /** Ascending tile-start epochs whose [start, start+tileSpan) cover [from, to). */
 export function tilesFor(fromSec: number, toSec: number, res: TiledRes): number[] {
   const span = tileSpan(res);
   const first = Math.floor(fromSec / span) * span;
+  const n = tileCount(fromSec, toSec, res);
   const out: number[] = [];
-  for (let t = first; t < toSec; t += span) out.push(t);
+  for (let i = 0; i < n; i += 1) out.push(first + i * span);
+  return out;
+}
+
+/** `Promise.all(items.map(fn))` with at most `limit` calls in flight. Results
+ *  keep input order. */
+async function mapLimit<T, R>(items: ReadonlyArray<T>, limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next; next += 1;
+      out[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return out;
 }
 
@@ -93,10 +143,20 @@ export class RangeCache {
 
 const PG_INTERVAL: Record<TiledRes, string> = { '1m': "INTERVAL '1 minute'", '1h': "INTERVAL '1 hour'", '1d': "INTERVAL '1 day'" };
 
+/** Time window a level query scans: a fixed [from, to) in epoch seconds, the
+ *  trailing `recentDays` relative to now(), or the whole table. */
+export type SqlWindow = { from: number; to: number } | { recentDays: number } | 'all';
+
+function windowPredicates(tsCol: string, window: SqlWindow): string[] {
+  if (window === 'all') return [];
+  if ('recentDays' in window) return [`${tsCol} > now() - INTERVAL '${window.recentDays} days'`];
+  return [`${tsCol} >= to_timestamp(${window.from})`, `${tsCol} <  to_timestamp(${window.to})`];
+}
+
 // Per-bucket value expressions over `block_metrics`/`oracle_snapshots`, bucketed
-// by $B on the scan's timestamp column, windowed to [$from, $to). Mirrors the
-// legacy hourly SQL bodies but with a request-sized window, never a 35d constant.
-function simpleLevelSql(res: TiledRes, fromSec: number, toSec: number, opts: {
+// by $B on the scan's timestamp column over `window`. One builder serves the
+// cached full-history and 35-day tiers in charts.ts and the tiled range mode here.
+function simpleLevelSql(res: TiledRes, window: SqlWindow, opts: {
   table: 'block_metrics' | 'oracle_snapshots';
   tsCol: 'block_ts' | 'ts';
   value: string;          // aggregate expression
@@ -104,19 +164,53 @@ function simpleLevelSql(res: TiledRes, fromSec: number, toSec: number, opts: {
   having?: string;        // optional HAVING
 }): string {
   const B = PG_INTERVAL[res];
-  const extra = opts.where ? `AND ${opts.where}` : '';
+  const preds = [...(opts.where ? [opts.where] : []), ...windowPredicates(opts.tsCol, window)];
+  const where = preds.length ? `WHERE ${preds.join('\n       AND ')}` : '';
   const having = opts.having ? `HAVING ${opts.having}` : '';
   return `
     SELECT EXTRACT(epoch FROM time_bucket(${B}, ${opts.tsCol}))::bigint AS ts,
            ${opts.value} AS value
       FROM ${opts.table}
-     WHERE ${opts.tsCol} >= to_timestamp(${fromSec})
-       AND ${opts.tsCol} <  to_timestamp(${toSec})
-       ${extra}
+     ${where}
      GROUP BY time_bucket(${B}, ${opts.tsCol})
      ${having}
      ORDER BY 1
   `;
+}
+
+export type SimpleLevelChart = 'price' | 'hashrate' | 'difficulty' | 'block-time';
+
+/** The four single-aggregate level charts. Each aggregate expression lives here
+ *  only; charts.ts derives its daily/hourly SQL from this same builder. */
+export function buildSimpleLevelSql(name: SimpleLevelChart, res: TiledRes, window: SqlWindow): string {
+  switch (name) {
+    case 'price':
+      return simpleLevelSql(res, window, {
+        table: 'oracle_snapshots', tsCol: 'ts', value: 'last(beam_usd, ts)::float8', where: 'beam_usd IS NOT NULL',
+      });
+    // Hashrate in Sol/s = Σ difficulty / Δt across the bucket's blocks (the
+    // Health page's diffToHashrate). Chainwork can't be used directly because
+    // Beam's chainwork is exponential (2^diff per block), not Σ difficulty. A
+    // per-bucket rate, so it is scale-invariant to bucket size.
+    case 'hashrate':
+      return simpleLevelSql(res, window, {
+        table: 'block_metrics', tsCol: 'block_ts',
+        value: "(SUM(difficulty)::float8 / NULLIF(EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts)), 0))::float8",
+        where: 'difficulty > 0', having: 'COUNT(*) > 1',
+      });
+    // Mean difficulty across the bucket's blocks.
+    case 'difficulty':
+      return simpleLevelSql(res, window, {
+        table: 'block_metrics', tsCol: 'block_ts', value: 'AVG(difficulty)::float8', where: 'difficulty > 0',
+      });
+    // Average block time in seconds (Δt across the bucket's blocks).
+    case 'block-time':
+      return simpleLevelSql(res, window, {
+        table: 'block_metrics', tsCol: 'block_ts',
+        value: '(EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts)) / NULLIF(COUNT(*) - 1, 0))::float8',
+        having: 'COUNT(*) > 1',
+      });
+  }
 }
 
 function tvlRangeSql(res: TiledRes, fromSec: number, toSec: number): string {
@@ -196,26 +290,8 @@ function assetsRangeSql(res: TiledRes, fromSec: number, toSec: number): string {
 
 export function buildLevelRangeSql(name: string, res: TiledRes, fromSec: number, toSec: number): string {
   switch (name) {
-    case 'price':
-      return simpleLevelSql(res, fromSec, toSec, {
-        table: 'oracle_snapshots', tsCol: 'ts', value: 'last(beam_usd, ts)::float8', where: 'beam_usd IS NOT NULL',
-      });
-    case 'hashrate':
-      return simpleLevelSql(res, fromSec, toSec, {
-        table: 'block_metrics', tsCol: 'block_ts',
-        value: "(SUM(difficulty)::float8 / NULLIF(EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts)), 0))::float8",
-        where: 'difficulty > 0', having: 'COUNT(*) > 1',
-      });
-    case 'difficulty':
-      return simpleLevelSql(res, fromSec, toSec, {
-        table: 'block_metrics', tsCol: 'block_ts', value: 'AVG(difficulty)::float8', where: 'difficulty > 0',
-      });
-    case 'block-time':
-      return simpleLevelSql(res, fromSec, toSec, {
-        table: 'block_metrics', tsCol: 'block_ts',
-        value: '(EXTRACT(epoch FROM MAX(block_ts) - MIN(block_ts)) / NULLIF(COUNT(*) - 1, 0))::float8',
-        having: 'COUNT(*) > 1',
-      });
+    case 'price': case 'hashrate': case 'difficulty': case 'block-time':
+      return buildSimpleLevelSql(name, res, { from: fromSec, to: toSec });
     case 'tvl':    return tvlRangeSql(res, fromSec, toSec);
     case 'assets': return assetsRangeSql(res, fromSec, toSec);
     default: throw new Error(`buildLevelRangeSql: not a level chart: ${name}`);
@@ -393,6 +469,11 @@ function bridgeBucketFor(res: Res): BridgeBucket {
   return res === '1M' ? 'month' : 'day';
 }
 
+/** The rung a bridge series is actually served at for a requested `res`. */
+function bridgeResFor(res: Res): Res {
+  return res === '1M' ? '1M' : '1d';
+}
+
 // etagOf hashes JSON.stringify(body), so groups must come back in a stable
 // order — an unordered SQL result would churn the ETag and defeat 304s.
 // Plain comparison, not localeCompare: collation is locale/ICU-dependent and
@@ -514,9 +595,28 @@ function toRange(rows: ReadonlyArray<{ ts: string | number; value: number | null
 // `{series: []}` is ambiguous between an empty single series and an empty
 // multi-series window, so consumers must switch on `kind`, never on
 // `'points' in series[0]`.
+// `res` is the resolution actually served, which can be coarser than the one
+// requested (ladder fallback, or a window too wide for the requested rung).
 export type RangeBody =
-  | { kind: 'single'; series: RangePoint[] }
-  | { kind: 'multi'; series: MultiSeriesGroup[] };
+  | { kind: 'single'; res: Res; series: RangePoint[] }
+  | { kind: 'multi'; res: Res; series: MultiSeriesGroup[] };
+
+/**
+ * Tiled resolution to serve `[from, to)` at. Starts at the requested rung (or the
+ * coarsest when the chart doesn't offer it) and moves up the ladder while the
+ * window spans more than MAX_RANGE_TILES tiles; the coarsest rung is served at
+ * any width up to HARD_MAX_TILES, past which the request is refused.
+ */
+export function resolveTiledRes(ladder: ReadonlyArray<TiledRes>, res: Res, fromSec: number, toSec: number): TiledRes {
+  // Ladders are coarsest-first; walk from the requested rung toward index 0.
+  let i = res !== '1M' ? ladder.indexOf(res) : -1;
+  if (i < 0) i = 0;
+  while (i > 0 && tileCount(fromSec, toSec, ladder[i]!) > MAX_RANGE_TILES) i -= 1;
+  const eff = ladder[i]!;
+  const tiles = tileCount(fromSec, toSec, eff);
+  if (tiles > HARD_MAX_TILES) throw new RangeTooWideError(eff, tiles);
+  return eff;
+}
 
 export async function serveRange(name: string, res: Res, fromSec: number, toSec: number): Promise<{ body: RangeBody; etag: string; immutable: boolean }> {
   const meta = RANGE_META[name];
@@ -541,7 +641,7 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
         label: g.label,
         points: g.points.filter((p) => p.ts >= fromSec && p.ts < toSec),
       }));
-      return { kind: 'multi', series };
+      return { kind: 'multi', res: bridgeResFor(res), series };
     });
     const entry = rangeCache.set(key, body, false);
     return { body, etag: entry.etag, immutable: false };
@@ -561,7 +661,7 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
         return pts;
       });
     const series = all.filter((p) => p.ts >= fromSec && p.ts < toSec);
-    const body: RangeBody = { kind: 'single', series };
+    const body: RangeBody = { kind: 'single', res: bridgeResFor(res), series };
     return { body, etag: etagOf(body), immutable: false };
   }
 
@@ -581,21 +681,22 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
         return pts;
       });
     const series = all.filter((p) => p.ts >= fromSec && p.ts < toSec);
-    const body: RangeBody = { kind: 'single', series };
+    const body: RangeBody = { kind: 'single', res: '1M', series };
     return { body, etag: etagOf(body), immutable: false };
   }
 
   // Ladders are coarsest-first (e.g. ['1d','1h','1m']); fall back to the coarsest
   // tiled tier when the requested res isn't offered for this chart, or is '1M'
-  // without a registered month fetcher.
+  // without a registered month fetcher — and coarsen a window too wide for the
+  // requested rung (see resolveTiledRes).
   const tiledLadder = meta.ladder.filter((r): r is TiledRes => r !== '1M');
   if (tiledLadder.length === 0) throw new Error(`chart ${name}: ladder has no tiled resolution`);
-  const effRes: TiledRes = res !== '1M' && tiledLadder.includes(res) ? res : tiledLadder[0]!;
+  const effRes = resolveTiledRes(tiledLadder, res, fromSec, toSec);
   const { from, to } = alignRange(fromSec, toSec, effRes);
 
   const tiles = tilesFor(from, to, effRes);
   const span = tileSpan(effRes);
-  const perTile = await Promise.all(tiles.map(async (tileStart) => {
+  const perTile = await mapLimit(tiles, TILE_CONCURRENCY, async (tileStart) => {
     const tileEnd = tileStart + span;
     const key = `${name}:${effRes}:${tileStart}`;
     const cached = rangeCache.get(key);
@@ -606,13 +707,13 @@ export async function serveRange(name: string, res: Res, fromSec: number, toSec:
       rangeCache.set(key, pts, immutable);
       return pts;
     });
-  }));
+  });
 
   // Concatenate tiles (ascending, non-overlapping) and slice to the exact aligned window.
   const merged: RangePoint[] = [];
   for (const pts of perTile) for (const p of pts) if (p.ts >= from && p.ts < to) merged.push(p);
   merged.sort((a, b) => a.ts - b.ts);
-  const body: RangeBody = { kind: 'single', series: merged };
+  const body: RangeBody = { kind: 'single', res: effRes, series: merged };
   const immutable = to < nowSec - CONFIRMATION_SECONDS;
   return { body, etag: etagOf(body), immutable };
 }

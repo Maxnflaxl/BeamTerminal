@@ -36,10 +36,3 @@ export const getRealAssetIdForFake = (assetId: number | string | null | undefine
 
 export const isImposterAsset = (assetId: number | string | null | undefined): boolean =>
   getRealAssetIdForFake(assetId) !== null;
-
-export const poolHasImposterAsset = (
-  aid1: number | string | null | undefined,
-  aid2: number | string | null | undefined,
-): boolean => isImposterAsset(aid1) || isImposterAsset(aid2);
-
-export const getImposterAssetEntries = (): Array<[number, number]> => Array.from(IMPOSTER_ASSET_MAP.entries());

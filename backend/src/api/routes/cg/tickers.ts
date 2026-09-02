@@ -47,7 +47,12 @@ const TIER_FEE: Record<number, number> = {
 /** Trim trailing zeros after the decimal point; keep at least one digit. */
 function toDecimal(n: number, maxFractionDigits = 18): string {
   if (!Number.isFinite(n)) return '0';
-  let s = n.toFixed(Math.min(maxFractionDigits, 20));
+  // Number#toFixed switches to exponent notation at 1e21; render such
+  // magnitudes through BigInt instead. Every double that large is already an
+  // integer, so no fractional digits are lost.
+  let s = Math.abs(n) >= 1e21
+    ? BigInt(n).toString()
+    : n.toFixed(Math.min(maxFractionDigits, 20));
   if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
   return s || '0';
 }

@@ -6,7 +6,8 @@ import type { IChartApi, UTCTimestamp } from 'lightweight-charts';
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import { BlockHeight } from '@app/shared/components/BlockHeight';
 import { SimpleChart } from './SimpleChart';
-import { useAssets } from '../hooks';
+import { useSharedAssets } from '../assetColors';
+import { fmtDayLocal } from './format';
 import type { ApiChartPoint } from '../api/client';
 import type { ApiAssetListEntry } from '../api/types';
 
@@ -241,16 +242,6 @@ const ArrowIcon: React.FC = () => (
   </svg>
 );
 
-// Local-time YYYY-MM-DD — toISOString() would drift by a day for users far
-// from UTC and disagree with every other date the wallet UI shows.
-function formatDate(ts: number): string {
-  const d = new Date(ts * 1000);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 interface PlacedMarker {
   asset: ApiAssetListEntry;
   x: number;
@@ -329,7 +320,7 @@ const ConfidentialAssetsChartWithMarkers: React.FC<Omit<Props, 'showMarkers'>> =
   logScale,
   hideAmml = true,
 }) => {
-  const { data: assetsData } = useAssets();
+  const { data: assetsData } = useSharedAssets();
   const navigate = useNavigate();
 
   // Hot-path refs: chart instance and per-marker anchor DOM nodes. We
@@ -620,7 +611,7 @@ const HoveredPopover: React.FC<HoveredPopoverProps> = ({ marker, onMouseEnter, o
       {asset.minted_at_ts != null ? (
         <PopRow>
           <span>Minted</span>
-          <span>{formatDate(asset.minted_at_ts)}</span>
+          <span>{fmtDayLocal(asset.minted_at_ts)}</span>
         </PopRow>
       ) : null}
       {asset.minted_at_height != null ? (

@@ -10,33 +10,18 @@ import type { ApiChartPoint } from '../../api/client';
 import { Sparkline } from '../../components/Sparkline';
 import { Page, Card, H2, H3, DataTable, TabBtn, Dot, Btn, Muted, theme, fmtHashrate, Donut } from './shared';
 import { MiningCalculator } from './MiningCalculator';
+import { compact, fmtRelative } from '../../components/format';
+import { usePolled } from '../../hooks';
 
 // --- helpers -----------------------------------------------------------------
 
-function fmtSI(v: number): string {
-  if (!Number.isFinite(v)) return '—';
-  if (Math.abs(v) >= 1e9) return `${(v / 1e9).toFixed(1)}G`;
-  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (Math.abs(v) >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
-  return v.toFixed(0);
-}
+// Axis-scale count: one decimal per tier, integers below 1K.
+const fmtSI = (v: number): string => compact(v, { decimals: 1, base: 0 });
 
 // Difficulty is shown to two decimals (5.88M reads better than fmtSI's 5.9M).
-function fmtDifficulty(diff: number): string {
-  if (diff >= 1e9) return `${(diff / 1e9).toFixed(2)}G`;
-  if (diff >= 1e6) return `${(diff / 1e6).toFixed(2)}M`;
-  if (diff >= 1e3) return `${(diff / 1e3).toFixed(2)}K`;
-  return diff.toFixed(2);
-}
+const fmtDifficulty = (diff: number): string => compact(diff, { base: 2 });
 
-function fmtAge(iso: string | null): string {
-  if (!iso) return '—';
-  const secs = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (secs < 90) return `${Math.round(secs)}s ago`;
-  if (secs < 5400) return `${Math.round(secs / 60)}m ago`;
-  if (secs < 129600) return `${Math.round(secs / 3600)}h ago`;
-  return `${Math.round(secs / 86400)}d ago`;
-}
+const fmtAge = (iso: string | null): string => (iso ? fmtRelative(iso) : '—');
 
 // Block solve-time bar: width grows with the interval (full at ~5× target),
 // red once a block took noticeably longer than BEAM's ~60s target.
@@ -524,14 +509,23 @@ type Tab = 'blocks' | 'diffprice' | 'hashrate';
 
 export const Mining: React.FC = () => {
   const BLOCKS_PER_PAGE = 25;
-  const [poolData, setPoolData] = useState<ApiMiningPools | null>(null);
-  const [blockData, setBlockData] = useState<ApiMiningBlocks | null>(null);
-  // Canonical network snapshot: difficulty, avg block time, last-60 blocks.
-  const [net, setNet] = useState<ApiNetwork | null>(null);
-  const [poolErr, setPoolErr] = useState<string | null>(null);
-  const [blocksLoaded, setBlocksLoaded] = useState(false);
-  const [blocksError, setBlocksError] = useState(false);
   const [blockPage, setBlockPage] = useState(0);
+  // Three independent polls so a pool-feed outage doesn't blank the block
+  // list (and vice versa), and paging the blocks doesn't refetch the others.
+  const poolsPoll = usePolled<ApiMiningPools>(() => api.miningPools(), [], 60_000);
+  const blocksPoll = usePolled<ApiMiningBlocks>(
+    () => api.miningBlocks(BLOCKS_PER_PAGE, blockPage * BLOCKS_PER_PAGE),
+    [blockPage],
+    60_000,
+  );
+  // Canonical network snapshot: difficulty, avg block time, last-60 blocks.
+  const networkPoll = usePolled<ApiNetwork>(() => api.network(), [], 60_000);
+  const poolData = poolsPoll.data;
+  const poolErr = poolsPoll.error;
+  const blockData = blocksPoll.data;
+  const blocksLoaded = !blocksPoll.loading;
+  const blocksError = blocksPoll.error !== null;
+  const net = networkPoll.data;
   const [tab, setTab] = useState<Tab>('blocks');
   const [calcOpen, setCalcOpen] = useState(false);
   const closeCalc = useCallback(() => setCalcOpen(false), []);
@@ -544,54 +538,6 @@ export const Mining: React.FC = () => {
 
   const chartWrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-
-  // --- polling ---------------------------------------------------------------
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      api
-        .miningPools()
-        .then((d) => {
-          if (alive) {
-            setPoolData(d);
-            setPoolErr(null);
-          }
-        })
-        .catch((e: Error) => {
-          if (alive) setPoolErr(e?.message ?? 'failed to load');
-        });
-      api
-        .miningBlocks(BLOCKS_PER_PAGE, blockPage * BLOCKS_PER_PAGE)
-        .then((d) => {
-          if (alive) {
-            setBlockData(d);
-            setBlocksLoaded(true);
-            setBlocksError(false);
-          }
-        })
-        .catch(() => {
-          if (alive) {
-            setBlocksLoaded(true);
-            setBlocksError(true);
-          }
-        });
-      api
-        .network()
-        .then((d) => {
-          if (alive) setNet(d);
-        })
-        .catch(() => {});
-    };
-    load();
-    const t = setInterval(() => {
-      if (document.hidden) return;
-      void load();
-    }, 60_000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [blockPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- fetch chart series lazily when tab changes ---------------------------
   useEffect(() => {

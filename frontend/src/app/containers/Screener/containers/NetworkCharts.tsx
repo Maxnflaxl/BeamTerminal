@@ -25,6 +25,7 @@ import { KeyedLinesChart, buildKeyedColors, type SeriesFill } from '../component
 import { downloadBlob, downloadSvgAsPng } from '../components/chart-compare/download';
 import { fmtHashrate } from './explorer/shared';
 import { LADDERS, MAX_POINTS, TILE_BUCKETS, type ZoomRes } from '../lib/zoomResolution';
+import { compact, fmtNativeUnits, fromGroths } from '../components/format';
 
 // chartKey → the range-mode fetcher (`?res&from&to`) the zoom hook calls once
 // the user has zoomed past the daily-only view. Keys without an entry (or
@@ -299,9 +300,10 @@ function useTiered(
   dailyFetcher: () => Promise<ApiChartSeries>,
   hourlyFetcher: () => Promise<ApiChartSeries>,
   res: ChartRes,
+  enabled = true,
 ): FetchState<ApiChartSeries> {
-  const daily = useOneShot<ApiChartSeries>(dailyFetcher);
-  const hourly = useOneShot<ApiChartSeries>(hourlyFetcher, res === '1h');
+  const daily = useOneShot<ApiChartSeries>(dailyFetcher, enabled);
+  const hourly = useOneShot<ApiChartSeries>(hourlyFetcher, enabled && res === '1h');
   return res === '1h' ? hourly : daily;
 }
 
@@ -608,13 +610,9 @@ const CloseButton = styled.button`
 
 function fmtUsd(v: number): string {
   if (!Number.isFinite(v)) return '';
-  if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}k`;
   // One decimal count across the whole sub-dollar range so an axis spanning it
   // doesn't mix label widths.
-  if (v !== 0 && Math.abs(v) < 1) return `$${v.toFixed(6)}`;
-  return `$${v.toFixed(2)}`;
+  return `$${compact(v, { decimals: { K: 1 }, base: (x) => x.toFixed(x !== 0 && Math.abs(x) < 1 ? 6 : 2) })}`;
 }
 
 function fmtBlockTime(v: number): string {
@@ -624,30 +622,19 @@ function fmtBlockTime(v: number): string {
 
 function fmtBeam(v: number): string {
   // Input is groths; 1 BEAM = 1e8 groths.
-  const beam = v / 1e8;
+  const beam = fromGroths(v, 8);
   if (!Number.isFinite(beam)) return '';
-  const abs = Math.abs(beam);
-  if (abs >= 1e9) return `${(beam / 1e9).toFixed(2)}B BEAM`;
-  if (abs >= 1e6) return `${(beam / 1e6).toFixed(2)}M BEAM`;
-  if (abs >= 1e3) return `${(beam / 1e3).toFixed(2)}k BEAM`;
-  if (abs >= 1) return `${beam.toFixed(2)} BEAM`;
-  return `${beam.toFixed(4)} BEAM`;
+  return `${compact(beam, { base: (x) => x.toFixed(Math.abs(x) >= 1 ? 2 : 4) })} BEAM`;
 }
 
 function fmtDifficulty(v: number): string {
   if (!Number.isFinite(v)) return '';
-  const abs = Math.abs(v);
-  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
-  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}G`;
-  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}K`;
-  return v.toFixed(0);
+  return compact(v, { base: 0 });
 }
 
 function fmtInt(v: number): string {
-  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
-  return v.toFixed(0);
+  if (!Number.isFinite(v)) return '';
+  return compact(v, { decimals: { K: 1 }, base: 0 });
 }
 
 function fmtBytes(v: number): string {
@@ -670,21 +657,7 @@ function fmtVol(v: number): string {
 }
 
 // Native token units (no currency symbol) for the multi-series axes/tooltips.
-// The decimal count follows the magnitude — bridge TVL by asset puts 4.6M BEAM
-// and 0.014 BTC on one axis, where any fixed count renders one end as "0.00"
-// and the other with meaningless precision. Bounded width (k/M/B/T suffixes)
-// so axis labels never grow long enough to resize the pinned price-axis gutter.
-function fmtNative(v: number): string {
-  if (!Number.isFinite(v)) return '';
-  const abs = Math.abs(v);
-  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
-  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}k`;
-  if (abs >= 1) return v.toFixed(2);
-  if (abs > 0) return v.toPrecision(3);
-  return '0';
-}
+const fmtNative = fmtNativeUnits;
 
 function toCsv(series: ReadonlyArray<ApiChartPoint>, title: string): string {
   const lines = [`# ${title}`, 'timestamp_iso,timestamp_unix,value'];
@@ -1229,50 +1202,66 @@ export const NetworkCharts: React.FC = () => {
   // in, finer buckets become available. null = not yet reported (use timeframe).
   const [viewSpan, setViewSpan] = useState<number | null>(null);
 
+  const [category, setCategory] = useState<Category>('blockchain');
+  // Only the visible tab's datasets fetch; each hook loads the first time its
+  // flag flips true, so switching tabs (or to an hourly timeframe) pulls just
+  // what that tab plots instead of every series on the page.
+  const onBlockchain = category === 'blockchain';
+  const onLelantus = category === 'lelantus';
+  const onDefi = category === 'defi';
+
   const hashrate = useTiered(
     () => api.charts.hashrate(),
     () => api.charts.hashrate({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const difficulty = useTiered(
     () => api.charts.difficulty(),
     () => api.charts.difficulty({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const blockTime = useTiered(
     () => api.charts.blockTime(),
     () => api.charts.blockTime({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const coinbase = useTiered(
     () => api.charts.coinbase(),
     () => api.charts.coinbase({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const tvl = useTiered(
     () => api.charts.tvl(),
     () => api.charts.tvl({ res: '1h' }),
     res,
+    onDefi,
   );
   const price = useTiered(
     () => api.charts.price(),
     () => api.charts.price({ res: '1h' }),
     res,
+    onDefi,
   );
   const marketCap = useTiered(
     () => api.charts.marketCap(),
     () => api.charts.marketCap({ res: '1h' }),
     res,
+    onDefi,
   );
   const dexVolume = useTiered(
     () => api.charts.dexVolume(),
     () => api.charts.dexVolume({ res: '1h' }),
     res,
+    onDefi,
   );
-  const beamVol = useOneShot<ApiChartSeries>(() => api.charts.beamVol());
-  const dexVol = useOneShot<ApiChartSeries>(() => api.charts.dexVol());
-  const poolsCreatedRaw = useOneShot<ApiChartSeries>(() => api.charts.poolsCreated());
-  const poolsClosedRaw = useOneShot<ApiChartSeries>(() => api.charts.poolsClosed());
+  const beamVol = useOneShot<ApiChartSeries>(() => api.charts.beamVol(), onDefi);
+  const dexVol = useOneShot<ApiChartSeries>(() => api.charts.dexVol(), onDefi);
+  const poolsCreatedRaw = useOneShot<ApiChartSeries>(() => api.charts.poolsCreated(), onDefi);
+  const poolsClosedRaw = useOneShot<ApiChartSeries>(() => api.charts.poolsClosed(), onDefi);
   // Start the cumulative pool-count charts at 0 rather than their first day's total.
   const poolsCreated = useMemo(
     () => withZeroBaseline(poolsCreatedRaw),
@@ -1286,7 +1275,7 @@ export const NetworkCharts: React.FC = () => {
   // DEX volume (total) is an all-time cumulative — it can only come from the
   // daily tier (the hourly tier is a bounded trailing-24h window). Derive its
   // running sum from a dedicated daily fetch, independent of the active tier.
-  const dexVolumeDaily = useOneShot<ApiChartSeries>(() => api.charts.dexVolume());
+  const dexVolumeDaily = useOneShot<ApiChartSeries>(() => api.charts.dexVolume(), onDefi);
   const dexVolumeCumulative = useMemo<FetchState<ApiChartSeries>>(() => {
     if (!dexVolumeDaily.data) {
       return { data: null, loading: dexVolumeDaily.loading, error: dexVolumeDaily.error };
@@ -1303,88 +1292,104 @@ export const NetworkCharts: React.FC = () => {
     () => api.charts.assets(),
     () => api.charts.assets({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const transactionsDaily = useTiered(
     () => api.charts.transactionsDaily(),
     () => api.charts.transactionsDaily({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const transactionsTotal = useTiered(
     () => api.charts.transactionsTotal(),
     () => api.charts.transactionsTotal({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const txosTotal = useTiered(
     () => api.charts.txosTotal(),
     () => api.charts.txosTotal({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const utxosTotal = useTiered(
     () => api.charts.utxosTotal(),
     () => api.charts.utxosTotal({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const shieldedInsDaily = useTiered(
     () => api.charts.shieldedInsDaily(),
     () => api.charts.shieldedInsDaily({ res: '1h' }),
     res,
+    onLelantus,
   );
   const shieldedInsTotal = useTiered(
     () => api.charts.shieldedInsTotal(),
     () => api.charts.shieldedInsTotal({ res: '1h' }),
     res,
+    onLelantus,
   );
   const shieldedOutsDaily = useTiered(
     () => api.charts.shieldedOutsDaily(),
     () => api.charts.shieldedOutsDaily({ res: '1h' }),
     res,
+    onLelantus,
   );
   const shieldedOutsTotal = useTiered(
     () => api.charts.shieldedOutsTotal(),
     () => api.charts.shieldedOutsTotal({ res: '1h' }),
     res,
+    onLelantus,
   );
   const contractsTotal = useTiered(
     () => api.charts.contractsTotal(),
     () => api.charts.contractsTotal({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const sizeTotal = useTiered(
     () => api.charts.sizeTotal(),
     () => api.charts.sizeTotal({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const archiveTotal = useTiered(
     () => api.charts.archiveTotal(),
     () => api.charts.archiveTotal({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const feesDaily = useTiered(
     () => api.charts.feesDaily(),
     () => api.charts.feesDaily({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const feesTotal = useTiered(
     () => api.charts.feesTotal(),
     () => api.charts.feesTotal({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const contractCallsDaily = useTiered(
     () => api.charts.contractCallsDaily(),
     () => api.charts.contractCallsDaily({ res: '1h' }),
     res,
+    onBlockchain,
   );
   const contractCallsTotal = useTiered(
     () => api.charts.contractCallsTotal(),
     () => api.charts.contractCallsTotal({ res: '1h' }),
     res,
+    onBlockchain,
   );
-  const blackhole = useOneShot<ApiBlackholeBody>(() => api.charts.blackhole());
-  const bridgeTransfers = useOneShot<ApiChartSeries>(() => api.charts.bridgeTransfers());
-  const bridgeFees = useOneShot<ApiChartSeries>(() => api.charts.bridgeFees());
-  const bridgeTvl = useOneShot<ApiChartSeries>(() => api.charts.bridgeTvl());
-  const bridgeTransfersTotalRaw = useOneShot<ApiChartSeries>(() => api.charts.bridgeTransfersTotal());
-  const bridgeFeesTotalRaw = useOneShot<ApiChartSeries>(() => api.charts.bridgeFeesTotal());
+  const blackhole = useOneShot<ApiBlackholeBody>(() => api.charts.blackhole(), onDefi);
+  const bridgeTransfers = useOneShot<ApiChartSeries>(() => api.charts.bridgeTransfers(), onDefi);
+  const bridgeFees = useOneShot<ApiChartSeries>(() => api.charts.bridgeFees(), onDefi);
+  const bridgeTvl = useOneShot<ApiChartSeries>(() => api.charts.bridgeTvl(), onDefi);
+  const bridgeTransfersTotalRaw = useOneShot<ApiChartSeries>(() => api.charts.bridgeTransfersTotal(), onDefi);
+  const bridgeFeesTotalRaw = useOneShot<ApiChartSeries>(() => api.charts.bridgeFeesTotal(), onDefi);
   const bridgeTransfersTotal = useMemo(
     () => withZeroBaseline(bridgeTransfersTotalRaw),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1423,7 +1428,6 @@ export const NetworkCharts: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  const [category, setCategory] = useState<Category>('blockchain');
   // The Confidential Assets icon strip opens decluttered — the AMM Liquidity
   // Tokens are hidden until the user toggles them on.
   const [hideAmml, setHideAmml] = useState(true);

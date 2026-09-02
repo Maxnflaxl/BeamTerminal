@@ -25,6 +25,7 @@ import { BlockHeight } from '../../../../shared/components/BlockHeight';
 import { ActionTimeline } from './ActionTimeline';
 import { api } from '../../api/client';
 import type { ApiBansAction } from '../../api/types';
+import { usePolled } from '../../hooks';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -100,6 +101,41 @@ function copyText(text: string): void {
   navigator.clipboard.writeText(text).catch(() => {
     /* ignore */
   });
+}
+
+interface ContractSnapshot {
+  tipHeight: number | null;
+  kind: string;
+  deployedAt: number | null;
+  domains: Domain[];
+}
+
+const EMPTY_DOMAINS: Domain[] = [];
+const EMPTY_ACTIONS: ApiBansAction[] = [];
+
+// Contract state from the explorer: tip height, shader kind, deploy height
+// (first Version History entry) and the parsed domain table.
+async function fetchContractSnapshot(apiBase: string): Promise<ContractSnapshot> {
+  const url = `${apiBase.replace(/\/$/, '')}/contract?id=${CID}&exp_am=1&nMaxTxs=${CONTRACT_NMAXTXS}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json()) as any;
+  let deployedAt: number | null = null;
+  const vh = data && data['Version History'] && data['Version History'].value;
+  if (Array.isArray(vh) && vh.length > 1) {
+    const firstVer = vh[1];
+    if (firstVer && Array.isArray(firstVer)) {
+      const h = firstVer[0] && typeof firstVer[0] === 'object' ? firstVer[0].value : firstVer[0];
+      const n = Number(h);
+      if (Number.isFinite(n)) deployedAt = n;
+    }
+  }
+  return {
+    tipHeight: typeof data.h === 'number' ? data.h : null,
+    kind: data.kind || '—',
+    deployedAt,
+    domains: parseDomains(data),
+  };
 }
 
 function parseDomains(data: any): Domain[] {
@@ -433,12 +469,30 @@ export const BANS: React.FC = () => {
   // our own explorer.
   const apiBase = EXPLORER_API_BASE;
 
-  const [tipHeight, setTipHeight] = useState<number | null>(null);
-  const [kind, setKind] = useState<string>('—');
-  const [deployedAt, setDeployedAt] = useState<number | null>(null);
-  const [domains, setDomains] = useState<Domain[]>([]);
-  const [apiActions, setApiActions] = useState<ApiBansAction[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  // One poll for the contract snapshot + indexed action history. The action
+  // fetch keeps its last-good list on failure (list/timeline stay on stale
+  // data until the next poll); a contract failure surfaces as `error`.
+  const lastActionsRef = useRef<ApiBansAction[]>(EMPTY_ACTIONS);
+  const feed = usePolled(
+    () =>
+      Promise.all([
+        fetchContractSnapshot(apiBase),
+        api.bansActions().then(
+          (r) => r.actions,
+          () => lastActionsRef.current,
+        ),
+      ]),
+    [apiBase],
+    POLL_MS,
+  );
+  const snapshot = feed.data ? feed.data[0] : null;
+  const apiActions = feed.data ? feed.data[1] : EMPTY_ACTIONS;
+  lastActionsRef.current = apiActions;
+  const tipHeight = snapshot?.tipHeight ?? null;
+  const kind = snapshot?.kind ?? '—';
+  const deployedAt = snapshot?.deployedAt ?? null;
+  const domains = snapshot?.domains ?? EMPTY_DOMAINS;
+  const error = feed.error !== null ? `Failed to load contract data: ${feed.error}` : null;
 
   const [search, setSearch] = useState('');
   const [searchParams] = useSearchParams();
@@ -454,18 +508,6 @@ export const BANS: React.FC = () => {
   const [page, setPage] = useState(0);
   const [activityPage, setActivityPage] = useState(0);
 
-  const apiBaseRef = useRef(apiBase);
-  // Guards the async loaders below — a poll resolving after navigate-away must
-  // not setState on the unmounted component.
-  const aliveRef = useRef(true);
-  useEffect(
-    () => () => {
-      aliveRef.current = false;
-    },
-    [],
-  );
-  apiBaseRef.current = apiBase;
-
   // Section anchors for the jump-nav.
   const overviewRef = useRef<HTMLDivElement>(null);
   const domainsRef = useRef<HTMLDivElement>(null);
@@ -477,63 +519,6 @@ export const BANS: React.FC = () => {
 
   // Resolve block timestamps from the same explorer node the user picked.
   const blockUrl = useCallback((h: number) => `${apiBase.replace(/\/$/, '')}/block?height=${h}`, [apiBase]);
-
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const url = `${apiBaseRef.current.replace(/\/$/, '')}/contract?id=${CID}&exp_am=1&nMaxTxs=${CONTRACT_NMAXTXS}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as any;
-      if (!aliveRef.current) return;
-      setTipHeight(typeof data.h === 'number' ? data.h : null);
-      setKind(data.kind || '—');
-      setDomains(parseDomains(data));
-
-      const vh = data && data['Version History'] && data['Version History'].value;
-      if (Array.isArray(vh) && vh.length > 1) {
-        const firstVer = vh[1];
-        if (firstVer && Array.isArray(firstVer)) {
-          const h = firstVer[0] && typeof firstVer[0] === 'object' ? firstVer[0].value : firstVer[0];
-          const n = Number(h);
-          if (Number.isFinite(n)) setDeployedAt(n);
-        }
-      }
-    } catch (err) {
-      if (!aliveRef.current) return;
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(`Failed to load contract data: ${msg}`);
-    }
-  }, []);
-
-  // Initial + polling
-  useEffect(() => {
-    void load();
-    const id = setInterval(() => {
-      if (document.hidden) return;
-      void load();
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [load]);
-
-  // Full BANS action history from our indexed API — drives both the timeline
-  // chart and the activity list below.
-  const loadActions = useCallback(async () => {
-    try {
-      const res = await api.bansActions();
-      if (aliveRef.current) setApiActions(res.actions);
-    } catch {
-      /* keep last-good; list/timeline just stay on stale data until the next poll */
-    }
-  }, []);
-  useEffect(() => {
-    void loadActions();
-    const id = setInterval(() => {
-      if (document.hidden) return;
-      void loadActions();
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [loadActions]);
 
   // ---- KPIs ----
   const kpi = useMemo(() => {
@@ -864,7 +849,7 @@ export const BANS: React.FC = () => {
             type="button"
             data-variant="ghost"
             onClick={() => {
-              void load();
+              feed.refetch();
             }}
           >
             Refresh

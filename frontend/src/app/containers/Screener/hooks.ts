@@ -163,16 +163,23 @@ export function useOhlcv(
   const inflightRef = useRef(false);
   const hasMoreRef = useRef(false);
   const oldestRef = useRef<number | null>(null);
+  // Bumped on every reset. A scroll-back page requested under a previous
+  // id/interval/denom compares against it after awaiting and is dropped, so
+  // foreign candles never prepend onto the new series and the cursor/inflight
+  // refs are never clobbered under the new fetch.
+  const genRef = useRef(0);
 
   // Reset + initial load on key change.
   useEffect(() => {
     let cancelled = false;
+    genRef.current += 1;
     setCandles([]);
     setError(null);
     setHasMore(false);
     cursorRef.current = null;
     oldestRef.current = null;
     hasMoreRef.current = false;
+    inflightRef.current = false;
     if (!id) {
       setLoading(false);
       return () => {
@@ -195,8 +202,10 @@ export function useOhlcv(
         if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (!cancelled) setLoading(false);
-        inflightRef.current = false;
+        if (!cancelled) {
+          setLoading(false);
+          inflightRef.current = false;
+        }
       }
     })();
     return () => {
@@ -211,6 +220,7 @@ export function useOhlcv(
     if (to === null) return;
     inflightRef.current = true;
     setLoading(true);
+    const gen = genRef.current;
     (async () => {
       try {
         const res = await api.ohlcv(id, {
@@ -219,6 +229,7 @@ export function useOhlcv(
           limit,
           to,
         });
+        if (genRef.current !== gen) return;
         const older = res.candles;
         if (older.length === 0) {
           hasMoreRef.current = false;
@@ -238,10 +249,13 @@ export function useOhlcv(
         setHasMore(nextCursor !== null);
         oldestRef.current = older[0]?.time ?? oldestRef.current;
       } catch (err) {
+        if (genRef.current !== gen) return;
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setLoading(false);
-        inflightRef.current = false;
+        if (genRef.current === gen) {
+          setLoading(false);
+          inflightRef.current = false;
+        }
       }
     })();
   }, [id, opts.interval, opts.denom, limit]);
@@ -254,22 +268,6 @@ export function useOhlcv(
     loadOlder,
   };
 }
-
-export const useTrades = (id: string | undefined, limit = 50): AsyncState<ApiTradesList> & { refetch: () => void } =>
-  usePolling(
-    () => (id ? api.trades(id, { limit }) : Promise.reject(new Error('no id'))),
-    [id ?? '', limit],
-    POLL_INTERVAL_MS,
-    Boolean(id),
-  );
-
-export const useLpEvents = (id: string | undefined, limit = 50): AsyncState<ApiLpList> & { refetch: () => void } =>
-  usePolling(
-    () => (id ? api.lpEvents(id, { limit }) : Promise.reject(new Error('no id'))),
-    [id ?? '', limit],
-    POLL_INTERVAL_MS,
-    Boolean(id),
-  );
 
 /**
  * Numbered (offset) pagination for the recent-trades table. `count=true` so the

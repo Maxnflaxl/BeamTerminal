@@ -23,8 +23,42 @@ import { q } from '../../db.js';
 export async function loadSparklines7d(
   poolIds: ReadonlyArray<number>,
 ): Promise<Map<number, number[]>> {
+  if (poolIds.length === 0) return new Map();
+  // Memoised per distinct pool set: the grid query is ~43 lateral seeks per
+  // pool, and the listing asks for the same page over and over. Caching the
+  // promise collapses concurrent misses into one query (see repos/usd.ts).
+  const key = [...new Set(poolIds)].sort((a, b) => a - b).join(',');
+  const now = Date.now();
+  const hit = sparklineCache.get(key);
+  if (hit && now - hit.at < SPARKLINE_TTL_MS) return hit.promise;
+  const entry = { at: now, promise: fetchSparklines7d(poolIds) };
+  if (sparklineCache.size >= SPARKLINE_CACHE_MAX) {
+    for (const [k, v] of sparklineCache) {
+      if (now - v.at >= SPARKLINE_TTL_MS) sparklineCache.delete(k);
+    }
+    if (sparklineCache.size >= SPARKLINE_CACHE_MAX) {
+      const oldest = sparklineCache.keys().next().value;
+      if (oldest !== undefined) sparklineCache.delete(oldest);
+    }
+  }
+  sparklineCache.set(key, entry);
+  try {
+    return await entry.promise;
+  } catch (err) {
+    // Never cache a failure — the next caller retries immediately.
+    if (sparklineCache.get(key) === entry) sparklineCache.delete(key);
+    throw err;
+  }
+}
+
+const SPARKLINE_TTL_MS = 60_000;
+const SPARKLINE_CACHE_MAX = 200;
+const sparklineCache = new Map<string, { at: number; promise: Promise<Map<number, number[]>> }>();
+
+async function fetchSparklines7d(
+  poolIds: ReadonlyArray<number>,
+): Promise<Map<number, number[]>> {
   const out = new Map<number, number[]>();
-  if (poolIds.length === 0) return out;
 
   // For every (pool, 4h grid step) cell, take the most recent candle close at
   // or before that step. The LATERAL both carries the last trade forward across

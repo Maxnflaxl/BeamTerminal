@@ -14,7 +14,7 @@ import App from './app';
 // Skip when the path points at a real file (`*.html`): inside the BEAM Wallet
 // the page loads at `http://127.0.0.1:<port>/<guid>/app/index.html`, and
 // rewriting that into the hash drops the path component, so every relative
-// XHR (./amm.wasm, ./dao-accumulator.wasm, favicon.svg) resolves to the
+// XHR (./amm.wasm, favicon.svg) resolves to the
 // server root and 404s.
 if (typeof window !== 'undefined') {
   const p = window.location.pathname;

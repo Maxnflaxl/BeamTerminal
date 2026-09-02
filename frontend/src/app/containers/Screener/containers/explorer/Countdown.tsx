@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
 import { EXPLORER_API } from '@app/shared/constants';
 import { fmtAmount } from './supplyMath';
 import { PageNarrow, Card, H2, Label, Value, Muted, theme } from './shared';
+import { usePolled } from '../../hooks';
 
 // Mainnet emission schedule — mirrors beam/core/block_crypt.cpp Rules::Emission.
 const DROP0 = 1440 * 365; // blocks until first halving
@@ -187,73 +188,46 @@ const Footnote = styled.p`
 // Component
 // ---------------------------------------------------------------------------
 
-export const Countdown: React.FC = () => {
-  const [state, setState] = useState<State>(initialState);
-  const [now, setNow] = useState<number>(Date.now());
-  const stateRef = useRef(state);
-  stateRef.current = state;
-
-  useEffect(() => {
-    let stopped = false;
-
-    async function poll(): Promise<void> {
-      try {
-        const res = await fetch(`${EXPLORER_API}/status?exp_am=1`);
-        const data = (await res.json()) as Record<string, unknown>;
-        if (stopped) return;
-        const tip = parseTipFromStatus(data);
-
-        if (tip === null || tip < 1) {
-          setState({ ...initialState, tip, error: 'Could not read chain height from explorer.' });
-          return;
-        }
-
-        const { rate } = getEmissionEx(tip, EMIT_BASE);
-        if (!rate) {
-          setState({ ...initialState, tip, exhausted: true });
-          return;
-        }
-
-        const nextH = nextHalvingHeight(tip);
-        const blocksLeft = nextH !== null ? Math.max(0, nextH - tip) : null;
-
-        const statusTs = extractTimestampSeconds(data);
-        let lastBlockMs = statusTs !== null ? statusTs * 1000 : null;
-        if (lastBlockMs === null) {
-          lastBlockMs = await fetchTipBlockTimestamp(tip);
-        }
-        if (stopped) return;
-        setState({
-          tip,
-          nextH,
-          blocksLeft,
-          lastBlockMs,
-          exhausted: false,
-          error: null,
-        });
-      } catch {
-        if (stopped) return;
-        setState({ ...initialState, error: 'Explorer unavailable.' });
-      }
+// One halving snapshot from the explorer's /status (falling back to the tip
+// block's own timestamp when status carries none). Throws when the explorer
+// is unreachable; a readable-but-unusable height is reported in `error`.
+async function fetchHalvingState(): Promise<State> {
+  try {
+    const res = await fetch(`${EXPLORER_API}/status?exp_am=1`);
+    const data = (await res.json()) as Record<string, unknown>;
+    const tip = parseTipFromStatus(data);
+    if (tip === null || tip < 1) {
+      return { ...initialState, tip, error: 'Could not read chain height from explorer.' };
     }
+    const { rate } = getEmissionEx(tip, EMIT_BASE);
+    if (!rate) return { ...initialState, tip, exhausted: true };
 
-    void poll();
-    const pollId = setInterval(() => {
-      if (document.hidden) return;
-      void poll();
-    }, POLL_MS);
+    const nextH = nextHalvingHeight(tip);
+    const blocksLeft = nextH !== null ? Math.max(0, nextH - tip) : null;
+    const statusTs = extractTimestampSeconds(data);
+    const lastBlockMs = statusTs !== null ? statusTs * 1000 : await fetchTipBlockTimestamp(tip);
+    return { tip, nextH, blocksLeft, lastBlockMs, exhausted: false, error: null };
+  } catch {
+    throw new Error('Explorer unavailable.');
+  }
+}
+
+export const Countdown: React.FC = () => {
+  const poll = usePolled<State>(fetchHalvingState, [], POLL_MS);
+  const state = poll.data ?? initialState;
+  const [now, setNow] = useState<number>(Date.now());
+
+  // Second-by-second countdown tick, paused while the tab is hidden.
+  useEffect(() => {
     const tickId = setInterval(() => {
       if (document.hidden) return;
       setNow(Date.now());
     }, 1000);
-    return () => {
-      stopped = true;
-      clearInterval(pollId);
-      clearInterval(tickId);
-    };
+    return () => clearInterval(tickId);
   }, []);
 
-  const { tip, nextH, blocksLeft, lastBlockMs, exhausted, error } = state;
+  const { tip, nextH, blocksLeft, lastBlockMs, exhausted } = state;
+  const error = poll.error ?? state.error;
 
   let status: { text: string; kind: 'ok' | 'bad' | 'muted' } | null = null;
   let showCountdown = false;

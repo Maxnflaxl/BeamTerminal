@@ -2,7 +2,8 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import type { ApiAssetListEntry } from '../api/types';
 import { useWallet, invokeCreatePool } from '../wallet';
-import { useAssets, usePairs } from '../hooks';
+import { usePairs } from '../hooks';
+import { useSharedAssets } from '../assetColors';
 import { Overlay, Card, CloseBtn, Btn, FEE_TIERS, actionButtonState } from './modalChrome';
 
 const Head = styled.div`
@@ -133,7 +134,7 @@ export const CreatePoolModal: React.FC<Props> = ({
   onClose,
 }) => {
   const { headless, connecting, connect } = useWallet();
-  const { data } = useAssets();
+  const { data } = useSharedAssets();
   const assets = useMemo(() => (data?.assets ?? []).slice().sort((a, b) => a.aid - b.aid), [data]);
 
   // Every existing pool (one row per fee tier) → keyed "aid1_aid2_kind" so we

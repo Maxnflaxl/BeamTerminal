@@ -22,3 +22,21 @@ export function queryBool(fallback: boolean) {
       return z.NEVER;
     });
 }
+
+/**
+ * Query-string integer with a fallback and a clamp. Absent, empty, or
+ * non-integer input (`abc`, `1.5`) yields `fallback`; integers outside
+ * `[min, max]` are clamped rather than rejected, so an oversized `limit` still
+ * serves the largest page instead of a 400.
+ */
+export function queryInt(
+  value: string | undefined,
+  opts: { default: number; min: number; max?: number },
+): number {
+  const { default: fallback, min, max } = opts;
+  if (value === undefined || value.trim() === '') return fallback;
+  const n = Number(value);
+  if (!Number.isInteger(n)) return fallback;
+  const lower = Math.max(n, min);
+  return max === undefined ? lower : Math.min(lower, max);
+}

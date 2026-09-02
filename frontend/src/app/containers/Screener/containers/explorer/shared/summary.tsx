@@ -109,13 +109,6 @@ export const EmptySub = styled.div`
   max-width: 440px;
 `;
 
-/** "Xs/m/h/d ago" from an ISO timestamp (wallet-gossip feeds report ISO). */
-export function fmtRelative(iso: string): string {
-  const ts = new Date(iso).getTime();
-  if (!Number.isFinite(ts)) return '—';
-  const delta = Math.round((Date.now() - ts) / 1000);
-  if (delta < 60) return `${delta}s ago`;
-  if (delta < 3600) return `${Math.round(delta / 60)}m ago`;
-  if (delta < 86400) return `${Math.round(delta / 3600)}h ago`;
-  return `${Math.round(delta / 86400)}d ago`;
-}
+// Relative-time formatting lives with the other display helpers; re-exported
+// here so the swap-listing pages keep importing it from `./shared`.
+export { fmtRelative } from '../../../components/format';

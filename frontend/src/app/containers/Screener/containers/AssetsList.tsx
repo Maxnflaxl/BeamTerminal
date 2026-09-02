@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate } from 'react-router-dom';
 import AssetIcon from '@app/shared/components/AssetsIcon';
 import { MOBILE_MEDIA, DesktopOnly, MobileOnly, useIsMobile } from '../components/responsive';
-import { useAssets } from '../hooks';
-import { fmtNum } from '../components/format';
+import type { ApiAssetsList } from '../api/types';
+import { useSharedAssets } from '../assetColors';
+import { fmtNum, fromGroths } from '../components/format';
 import { CenteredNote } from '../components/CenteredNote';
 import {
   ListPage as Page,
@@ -122,19 +123,102 @@ const ImposterBadge = styled.span`
   letter-spacing: 0.4px;
 `;
 
+type AssetEntry = ApiAssetsList['assets'][number];
+
+interface AssetRowProps {
+  a: AssetEntry;
+  onOpen: (aid: number) => void;
+}
+
+// Human supply figures for one catalogue row. Minter-issued assets with no cap
+// (UINT64_MAX sentinel) keep max_supply null on the backend — render those as
+// "∞" so they're visually distinct from non-minter rows ("—").
+function supplyLabels(a: AssetEntry): { emission: string; max: string } {
+  const emission = a.emission ? fmtNum(fromGroths(a.emission, a.decimals), 0) : '—';
+  const max = a.max_supply ? fmtNum(fromGroths(a.max_supply, a.decimals), 0) : a.minter_cid ? '∞' : '—';
+  return { emission, max };
+}
+
+const AssetCard = React.memo(({ a, onOpen }: AssetRowProps) => {
+  const supply = supplyLabels(a);
+  return (
+    <ACard onClick={() => onOpen(a.aid)}>
+      <RowAssetIcon asset_id={a.aid} color={a.color} />
+      <ACardMain>
+        <ACardTitleRow>
+          <ACardTitle>{a.short_name ?? `aid${a.aid}`}</ACardTitle>
+          <ACardSub>#{a.aid}</ACardSub>
+          {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
+        </ACardTitleRow>
+        {a.name && <ACardSub>{a.name}</ACardSub>}
+        {a.description && <ACardDesc>{a.description}</ACardDesc>}
+        <ACardStats cols={3}>
+          <ACardStat column>
+            <span>Emission</span>
+            <span>{supply.emission}</span>
+          </ACardStat>
+          <ACardStat column>
+            <span>Max</span>
+            <span>{supply.max}</span>
+          </ACardStat>
+          <ACardStat column>
+            <span>Pools</span>
+            <span>{a.pool_count}</span>
+          </ACardStat>
+        </ACardStats>
+      </ACardMain>
+    </ACard>
+  );
+});
+
+const AssetRow = React.memo(({ a, onOpen }: AssetRowProps) => {
+  const supply = supplyLabels(a);
+  return (
+    <tr onClick={() => onOpen(a.aid)}>
+      <td style={{ color: 'rgba(255,255,255,0.4)' }}>#{a.aid}</td>
+      <td>
+        <Cell>
+          <RowAssetIcon asset_id={a.aid} color={a.color} />
+          <Sym>
+            {a.short_name ?? `aid${a.aid}`}
+            <small>{a.name ?? ''}</small>
+            {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
+          </Sym>
+        </Cell>
+      </td>
+      <td>
+        <Desc>{a.description ?? ''}</Desc>
+      </td>
+      <td style={{ fontFamily: 'var(--font-mono)' }}>{supply.emission}</td>
+      <td style={{ fontFamily: 'var(--font-mono)' }}>{supply.max}</td>
+      <td style={{ fontFamily: 'var(--font-mono)' }}>{a.pool_count}</td>
+    </tr>
+  );
+});
+
 export const AssetsList: React.FC = () => {
   const navigate = useNavigate();
-  const { data, loading, error } = useAssets();
+  const { data, loading, error } = useSharedAssets();
   const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showImposters, setShowImposters] = useState(false);
   // Render only the active layout's rows — same gate as PairsList: the card
   // and table lists both map every asset, and without it both live in the DOM
   // with one CSS-hidden, doubling row count and icon subscriptions.
   const isMobile = useIsMobile();
 
+  // Debounce search input so each keystroke doesn't re-filter and re-render
+  // every row.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const onOpen = useCallback((aid: number) => navigate(`/asset/${aid}`), [navigate]);
+
   const filtered = useMemo(() => {
     const all = data?.assets ?? [];
-    const q = searchInput.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     return all
       .filter((a) => (showImposters ? true : !a.is_imposter))
       .filter((a) => {
@@ -143,7 +227,7 @@ export const AssetsList: React.FC = () => {
         const name = (a.name ?? '').toLowerCase();
         return sym.includes(q) || name.includes(q) || String(a.aid).includes(q);
       });
-  }, [data, searchInput, showImposters]);
+  }, [data, debouncedSearch, showImposters]);
 
   return (
     <Page>
@@ -172,42 +256,7 @@ export const AssetsList: React.FC = () => {
           <CenteredNote>No assets match.</CenteredNote>
         ) : (
           <>
-            <MobileOnly>
-              {isMobile &&
-                filtered.map((a) => {
-                  const supplyHuman = a.emission ? Number(a.emission) / 10 ** a.decimals : null;
-                  const maxSupplyHuman = a.max_supply ? Number(a.max_supply) / 10 ** a.decimals : null;
-                  const maxSupplyLabel = maxSupplyHuman !== null ? fmtNum(maxSupplyHuman, 0) : a.minter_cid ? '∞' : '—';
-                  return (
-                    <ACard key={a.aid} onClick={() => navigate(`/asset/${a.aid}`)}>
-                      <RowAssetIcon asset_id={a.aid} color={a.color} />
-                      <ACardMain>
-                        <ACardTitleRow>
-                          <ACardTitle>{a.short_name ?? `aid${a.aid}`}</ACardTitle>
-                          <ACardSub>#{a.aid}</ACardSub>
-                          {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
-                        </ACardTitleRow>
-                        {a.name && <ACardSub>{a.name}</ACardSub>}
-                        {a.description && <ACardDesc>{a.description}</ACardDesc>}
-                        <ACardStats cols={3}>
-                          <ACardStat column>
-                            <span>Emission</span>
-                            <span>{supplyHuman !== null ? fmtNum(supplyHuman, 0) : '—'}</span>
-                          </ACardStat>
-                          <ACardStat column>
-                            <span>Max</span>
-                            <span>{maxSupplyLabel}</span>
-                          </ACardStat>
-                          <ACardStat column>
-                            <span>Pools</span>
-                            <span>{a.pool_count}</span>
-                          </ACardStat>
-                        </ACardStats>
-                      </ACardMain>
-                    </ACard>
-                  );
-                })}
-            </MobileOnly>
+            <MobileOnly>{isMobile && filtered.map((a) => <AssetCard key={a.aid} a={a} onOpen={onOpen} />)}</MobileOnly>
             <DesktopOnly>
               <Table>
                 <thead>
@@ -220,41 +269,7 @@ export const AssetsList: React.FC = () => {
                     <th style={{ width: 70 }}>Pools</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {!isMobile &&
-                    filtered.map((a) => {
-                      const supplyHuman = a.emission ? Number(a.emission) / 10 ** a.decimals : null;
-                      const maxSupplyHuman = a.max_supply ? Number(a.max_supply) / 10 ** a.decimals : null;
-                      // Minter-issued assets with no cap (UINT64_MAX sentinel) keep
-                      // max_supply null on the backend — render those as "∞" so
-                      // they're visually distinct from non-minter rows ("—").
-                      const maxSupplyLabel =
-                        maxSupplyHuman !== null ? fmtNum(maxSupplyHuman, 0) : a.minter_cid ? '∞' : '—';
-                      return (
-                        <tr key={a.aid} onClick={() => navigate(`/asset/${a.aid}`)}>
-                          <td style={{ color: 'rgba(255,255,255,0.4)' }}>#{a.aid}</td>
-                          <td>
-                            <Cell>
-                              <RowAssetIcon asset_id={a.aid} color={a.color} />
-                              <Sym>
-                                {a.short_name ?? `aid${a.aid}`}
-                                <small>{a.name ?? ''}</small>
-                                {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
-                              </Sym>
-                            </Cell>
-                          </td>
-                          <td>
-                            <Desc>{a.description ?? ''}</Desc>
-                          </td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>
-                            {supplyHuman !== null ? fmtNum(supplyHuman, 0) : '—'}
-                          </td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{maxSupplyLabel}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{a.pool_count}</td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
+                <tbody>{!isMobile && filtered.map((a) => <AssetRow key={a.aid} a={a} onOpen={onOpen} />)}</tbody>
               </Table>
             </DesktopOnly>
           </>

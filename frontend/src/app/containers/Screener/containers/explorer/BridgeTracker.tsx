@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { api } from '@app/containers/Screener/api/client';
+import { usePolled } from '@app/containers/Screener/hooks';
+import { fmt$ } from '@app/containers/Screener/components/format';
+import { Overlay, Card as ModalCard, CloseBtn, useEscapeClose } from '@app/containers/Screener/components/modalChrome';
 import type {
-  ApiBridgeHealth,
   ApiBridgeHealthRow,
   ApiBridgeMessage,
   ApiBridgeMessages,
@@ -32,6 +34,7 @@ import {
   Input,
 } from './shared/components';
 import { theme } from './shared/theme';
+import { fmtRelative } from './shared';
 
 // ---------------------------------------------------------------------------
 // Bridge Tracker
@@ -82,8 +85,10 @@ const CardTop = styled.div`
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
   margin-bottom: 12px;
+  & > * + * {
+    margin-left: 10px;
+  }
 `;
 
 const CardTitle = styled.div`
@@ -107,7 +112,9 @@ const PegBar = styled.div`
 
 const PegFill = styled.div`
   position: absolute;
-  inset: 0 auto 0 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
   border-radius: 4px;
   background: ${theme.color.accent};
   &[data-tone='warn'] {
@@ -146,20 +153,24 @@ const CardFoot = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
   flex-wrap: wrap;
-  /* auto, not a fixed gap: absorbs the difference in chip-row height so the
+  /* auto, not a fixed margin: absorbs the difference in chip-row height so the
      footer and the button below it line up across the row. */
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid ${theme.color.borderDim};
   font-size: 11px;
   color: ${theme.color.muted};
+  & > * + * {
+    margin-left: 8px;
+  }
 `;
 
 const LinkRow = styled.div`
   display: flex;
-  gap: 6px;
+  & > * + * {
+    margin-left: 6px;
+  }
 `;
 
 // Default anchor styling (bright blue, underlined) is unreadable against the
@@ -213,24 +224,30 @@ const NavChip = styled.button`
   }
 `;
 
+// Wrapping rows space their children with per-child margins and pull the
+// container in by the same amount, so the outer edges stay flush.
 const Chips = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
   /* The footer's separator is positioned with margin-top:auto, which collapses
      to zero on a card whose content already fills the column — leaving the rule
-     flush against these chips. The gap has to live here, where nothing can
-     collapse it. Kept tight: the rule is a divider, not a section break. */
-  margin-bottom: 10px;
+     flush against these chips. The spacing has to live here, where nothing can
+     collapse it. Kept tight: the rule is a divider, not a section break.
+     Resolves to 12px above and 10px below once the child margins are added. */
+  margin: 9px -3px 7px;
+  & > * {
+    margin: 3px;
+  }
 `;
 
 const Filters = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
   align-items: center;
-  margin: 12px 0;
+  margin: 7px -5px;
+  & > * {
+    margin: 5px;
+  }
 `;
 
 // Sorting is server-side (the table is paginated), so a header click refetches
@@ -252,15 +269,18 @@ const SortMark = styled.span`
 
 const RefCell = styled.div`
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
+  margin: -3px;
+  & > * {
+    margin: 3px;
+  }
 `;
 
 const Mono = styled.span`
   font-family: ${theme.font.mono};
 
-  /* An underflowed amount is a real figure — the fee's overshoot — but not a
-     transfer, so it reads as a number in a warning colour rather than a pill. */
+  /* An underflowed amount is a real figure but not a transfer: a number in a
+     warning colour, not a pill. */
   &[data-tone='warn'] {
     color: ${theme.color.warn};
   }
@@ -268,12 +288,14 @@ const Mono = styled.span`
 
 const Pager = styled.div`
   display: flex;
-  gap: 8px;
   align-items: center;
   justify-content: flex-end;
   margin-top: 12px;
   font-size: 12px;
   color: ${theme.color.muted};
+  & > * + * {
+    margin-left: 8px;
+  }
 `;
 
 // ---------------------------------------------------------------------------
@@ -293,10 +315,9 @@ function fmtAmount(n: number | null, maxFrac = 6): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: maxFrac });
 }
 
-// Underflowed amounts arrive unwrapped (negative): the fee overshot the amount by
-// that much, which is the whole story and worth printing. Overflowed ones carry no
-// meaningful number — the point of the attempt was the wrap, not the figure — so
-// they get a label instead.
+// Underflowed amounts arrive unwrapped (negative) and are worth printing: that
+// is how far the fee overshot. An overflow's figure means nothing — wrapping the
+// total was the point — so it gets a label instead.
 function malformedNote(kind: 'overflow' | 'underflow'): string {
   const lines =
     kind === 'underflow'
@@ -310,26 +331,6 @@ function malformedNote(kind: 'overflow' | 'underflow'): string {
           'The relayer refuses these.',
         ];
   return lines.join(' ');
-}
-
-function fmtUsd(n: number | null): string {
-  if (n === null || !Number.isFinite(n)) return '—';
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${n.toFixed(0)}`;
-}
-
-function fmtAge(iso: string | null): string {
-  if (!iso) return '—';
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '—';
-  const secs = Math.max(0, (Date.now() - t) / 1000);
-  const d = Math.floor(secs / 86400);
-  if (d >= 365) return `${(d / 365).toFixed(1)}y`;
-  if (d >= 1) return `${d}d`;
-  const h = Math.floor(secs / 3600);
-  if (h >= 1) return `${h}h`;
-  return `${Math.floor(secs / 60)}m`;
 }
 
 // Bridges span more than one EVM chain, so neither the filter nor the table can
@@ -360,9 +361,12 @@ function statusTone(status: string): Tone {
     case 'unclaimed':
       return 'info';
     case 'not_delivered':
+    case 'skipped':
       return 'warn';
     case 'failed':
       return 'danger';
+    // 'unsettleable' falls through to the default: terminal, but nothing was
+    // lost and the bridge is fine, so it should not read as an alarm.
     default:
       return 'purple';
   }
@@ -378,6 +382,10 @@ function statusLabel(status: string): string {
       return 'awaiting claim';
     case 'pending':
       return 'in flight';
+    case 'unsettleable':
+      return 'cannot settle';
+    case 'skipped':
+      return 'passed over';
     default:
       return status;
   }
@@ -475,8 +483,18 @@ const BridgeSummaryCard: React.FC<{
         {row.incoming.unclaimed > 0 && <Pill data-tone="info">{row.incoming.unclaimed} awaiting claim</Pill>}
         {row.incoming.not_delivered > 0 && <Pill data-tone="warn">{row.incoming.not_delivered} not delivered</Pill>}
         {row.outgoing.failed > 0 && <Pill data-tone="danger">{row.outgoing.failed} failed</Pill>}
-        {/* Deliberately not 'danger': the backing is fine, one message is broken.
-            Red here reads as "this bridge is short of collateral", which is the
+        {row.outgoing.skipped > 0 && (
+          <Pill
+            data-tone="warn"
+            title={
+              'Outgoing messages the relayer has moved past — later ones on this bridge have ' +
+              'already settled. It retries three times, so these will not be picked up again.'
+            }
+          >
+            {row.outgoing.skipped} {statusLabel('skipped')}
+          </Pill>
+        )}
+        {/* Not 'danger': red reads as "this bridge is short of collateral", the
             opposite of what the count means. */}
         {(row.over_collateral ?? 0) > 0 && (
           <Pill
@@ -500,7 +518,7 @@ const BridgeSummaryCard: React.FC<{
       </Chips>
 
       <CardFoot>
-        <span>last activity {fmtAge(row.last_message_ts)} ago</span>
+        <span>last activity {fmtRelative(row.last_message_ts)}</span>
         <LinkRow>
           <LinkChip
             href={evmAddrUrl(row.eth_pipe, row.chain_id)}
@@ -532,23 +550,11 @@ const BridgeSummaryCard: React.FC<{
 // usually fine, and saying so plainly is the point of this dialog.
 // ---------------------------------------------------------------------------
 
-const Overlay = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 8vh 16px 16px;
-  background: rgba(4, 12, 24, 0.72);
-  overflow-y: auto;
-`;
-
-const Dialog = styled.div`
-  width: 100%;
+// Wider than the shared modal card: lookup results carry a two-column grid
+// plus a row of reference links.
+const Dialog = styled(ModalCard)`
   max-width: 620px;
-  border: 1px solid ${theme.color.border};
-  border-radius: 12px;
+  border-color: ${theme.color.border};
   /* Opaque page background, not the translucent card surface — a dialog over an
      overlay has to be solid or the page shows through it. */
   background: ${theme.color.bg};
@@ -559,30 +565,19 @@ const DialogTop = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
   margin-bottom: 4px;
-`;
-
-const CloseBtn = styled.button`
-  border: 1px solid ${theme.color.border};
-  border-radius: 6px;
-  background: transparent;
-  color: ${theme.color.muted};
-  font-size: 14px;
-  line-height: 1;
-  padding: 6px 10px;
-  cursor: pointer;
-  &:hover {
-    color: ${theme.color.text};
-    border-color: ${theme.color.text};
+  & > * + * {
+    margin-left: 12px;
   }
 `;
 
 const LookupForm = styled.form`
   display: flex;
-  gap: 8px;
-  margin: 14px 0 4px;
   flex-wrap: wrap;
+  margin: 10px -4px 0;
+  & > * {
+    margin: 4px;
+  }
 `;
 
 const ResultCard = styled.div`
@@ -626,16 +621,10 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     [value],
   );
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  useEscapeClose(onClose);
 
   return (
-    <Overlay onClick={onClose}>
+    <Overlay z={60} backdrop="rgba(4, 12, 24, 0.72)" onClick={onClose}>
       <Dialog onClick={(e) => e.stopPropagation()}>
         <DialogTop>
           <H2 style={{ margin: 0 }}>Check a transfer</H2>
@@ -689,7 +678,7 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <PegStatLabel>Message</PegStatLabel>
               <PegStatValue>#{m.msg_id}</PegStatValue>
               <PegStatLabel>Age</PegStatLabel>
-              <PegStatValue>{fmtAge(m.src_ts)}</PegStatValue>
+              <PegStatValue>{fmtRelative(m.src_ts)}</PegStatValue>
               {(m.src_call_height ?? m.src_height) !== null && (
                 <>
                   <PegStatLabel>Beam block</PegStatLabel>
@@ -701,7 +690,7 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   <PegStatLabel>Delivered</PegStatLabel>
                   <PegStatValue>
                     {`block ${m.delivered_height}`}
-                    {m.delivered_ts ? ` · ${fmtAge(m.delivered_ts)} ago` : ''}
+                    {m.delivered_ts ? ` · ${fmtRelative(m.delivered_ts)}` : ''}
                   </PegStatValue>
                 </>
               )}
@@ -710,7 +699,7 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   <PegStatLabel>Claimed</PegStatLabel>
                   <PegStatValue>
                     {`block ${m.claimed_height}`}
-                    {m.claimed_ts ? ` · ${fmtAge(m.claimed_ts)} ago` : ''}
+                    {m.claimed_ts ? ` · ${fmtRelative(m.claimed_ts)}` : ''}
                   </PegStatValue>
                 </>
               )}
@@ -758,8 +747,7 @@ const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 // ---------------------------------------------------------------------------
 
 const BridgeTracker: React.FC = () => {
-  const [health, setHealth] = useState<ApiBridgeHealth | null>(null);
-  const [healthErr, setHealthErr] = useState<string | null>(null);
+  const { data: health, error: healthErr } = usePolled(() => api.bridgeHealth(), [], POLL_MS);
 
   const [msgs, setMsgs] = useState<ApiBridgeMessages | null>(null);
   const [msgsErr, setMsgsErr] = useState<string | null>(null);
@@ -772,15 +760,6 @@ const BridgeTracker: React.FC = () => {
   const [sort, setSort] = useState('age');
   const [dir, setDir] = useState<'asc' | 'desc'>('desc');
   const [offset, setOffset] = useState(0);
-
-  const loadHealth = useCallback(async () => {
-    try {
-      setHealth(await api.bridgeHealth());
-      setHealthErr(null);
-    } catch (err) {
-      setHealthErr(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
 
   const loadMessages = useCallback(async () => {
     setLoadingMsgs(true);
@@ -802,14 +781,6 @@ const BridgeTracker: React.FC = () => {
       setLoadingMsgs(false);
     }
   }, [fBridge, fDirection, fStatus, sort, dir, offset]);
-
-  useEffect(() => {
-    void loadHealth();
-    const t = setInterval(() => {
-      void loadHealth();
-    }, POLL_MS);
-    return () => clearInterval(t);
-  }, [loadHealth]);
 
   useEffect(() => {
     void loadMessages();
@@ -910,7 +881,7 @@ const BridgeTracker: React.FC = () => {
       <StatGrid>
         <StatCard>
           <Label>Bridge TVL</Label>
-          <Value>{fmtUsd(health?.tvl_usd ?? null)}</Value>
+          <Value>{fmt$(health?.tvl_usd)}</Value>
           <SubValue>
             collateral locked across {totals.bridges || 0} {totals.bridges === 1 ? 'bridge' : 'bridges'}
             {health && health.tvl_priced < totals.bridges ? ` · ${totals.bridges - health.tvl_priced} unpriced` : ''}
@@ -1059,7 +1030,7 @@ const BridgeTracker: React.FC = () => {
                   <td>
                     <Mono>{shortHex(m.receiver)}</Mono>
                   </td>
-                  <td>{fmtAge(m.src_ts)}</td>
+                  <td>{fmtRelative(m.src_ts)}</td>
                   <td>
                     {(() => {
                       const chainId = health?.bridges.find((b) => b.bridge === m.bridge)?.chain_id;
