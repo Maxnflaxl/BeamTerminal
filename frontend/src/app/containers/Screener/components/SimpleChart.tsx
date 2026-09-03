@@ -56,18 +56,10 @@ interface Props {
   overlayLabel?: string;
   /** Overlay line colour. Defaults to a muted amber. */
   overlayColor?: string;
-  /** When true, preserve the user's zoom/pan across data updates instead of
-   *  re-fitting on every refresh: `fitContent` runs once, then subsequent
-   *  `setData` swaps restore the last visible range. */
+  /** Free wheel-zoom and drag-pan, and a time-of-day axis. Every new series is
+   *  still fitted to the plot: the data only changes when a toolbar button
+   *  picks a new window or bucket, and that is a new view. */
   interactive?: boolean;
-  /** Called (in interactive mode) whenever the user pans/zooms the chart,
-   *  with the new visible range in unix seconds. */
-  onVisibleRangeChange?: (fromSec: number, toSec: number) => void;
-  /** Imperative "preset" window (e.g. a timeframe button) to apply via
-   *  `setVisibleRange`. Bump `nonce` to re-apply the same from/to — the effect
-   *  keys off it rather than from/to so clicking the same button twice still
-   *  re-centers. Only honoured in interactive mode. */
-  presetWindow?: { from: number; to: number; nonce: number };
 }
 
 // lightweight-charts asserts on non-ascending or duplicate timestamps. Per-block
@@ -135,8 +127,6 @@ export const SimpleChart: React.FC<Props> = ({
   overlayLabel,
   overlayColor = '#f5a623',
   interactive = false,
-  onVisibleRangeChange,
-  presetWindow,
 }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -150,14 +140,6 @@ export const SimpleChart: React.FC<Props> = ({
     onChartReadyRef.current = onChartReady;
   }, [onChartReady]);
 
-  // Interactive (zoom-preserving) mode bookkeeping.
-  const didFitRef = useRef(false);
-  const programmaticRef = useRef(false); // guards setData/setVisibleRange re-entrancy
-  const onRangeRef = useRef(onVisibleRangeChange); // ref-stash so the once-on-creation subscribe
-  useEffect(() => {
-    onRangeRef.current = onVisibleRangeChange;
-  }, [onVisibleRangeChange]); // effect never depends on the raw prop
-  const lastRangeRef = useRef<{ from: number; to: number } | null>(null);
   // Whether the current main / overlay data is all >= 0 (read by the series'
   // autoscaleInfoProvider to floor the axis at 0 — see nonNegAutoscale).
   const nonNegRef = useRef(true);
@@ -181,8 +163,7 @@ export const SimpleChart: React.FC<Props> = ({
         ...(interactive ? { timeVisible: true, secondsVisible: false } : {}),
       },
       // Grid cells are static previews (no free pan/zoom). The expanded chart is
-      // interactive: native wheel/drag zoom is on, and zooming refetches finer
-      // data for the visible window (handled by ExpandedChart).
+      // interactive: native wheel/drag zoom is on.
       ...(interactive ? {} : { handleScroll: false, handleScale: false }),
     });
     chartRef.current = chart;
@@ -194,15 +175,6 @@ export const SimpleChart: React.FC<Props> = ({
       priceFormat: { type: 'custom', formatter, minMove: 0.000001 },
       autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => nonNegAutoscale(base, nonNegRef.current),
     });
-    if (interactive) {
-      chart.timeScale().subscribeVisibleTimeRangeChange((r) => {
-        if (programmaticRef.current || !r) return; // ignore our own writes + null edges
-        const from = Number(r.from);
-        const to = Number(r.to);
-        lastRangeRef.current = { from, to };
-        onRangeRef.current?.(from, to);
-      });
-    }
     const teardown = onChartReadyRef.current?.(chart, el);
     return () => {
       if (typeof teardown === 'function') teardown();
@@ -232,53 +204,17 @@ export const SimpleChart: React.FC<Props> = ({
   // `seriesRef.current` null, bail, and never call `setData` — leaving every
   // chart blank until `series` next changes (which never happens for the static
   // grid charts). Passive phase runs effects in declaration order, so this runs
-  // after the create-effect. The one-frame settle in interactive mode is
-  // acceptable; a blank grid is not.
+  // after the create-effect. The one-frame settle is acceptable; a blank grid
+  // is not.
   useEffect(() => {
     const s = seriesRef.current;
     const chart = chartRef.current;
     if (!s || !chart) return;
     const data: LineData[] = toLineData(series, scale);
     nonNegRef.current = allNonNegative(data); // floor the axis at 0 when all >= 0
-    programmaticRef.current = true; // suppress the range event our writes cause
     s.setData(data);
-    if (!interactive) {
-      if (data.length > 0) chart.timeScale().fitContent();
-    } else if (!didFitRef.current) {
-      if (data.length > 0) {
-        chart.timeScale().fitContent();
-        didFitRef.current = true;
-      }
-    } else if (lastRangeRef.current) {
-      chart
-        .timeScale()
-        .setVisibleRange({ from: lastRangeRef.current.from as never, to: lastRangeRef.current.to as never });
-    }
-    // release the guard after LWC processes the writes
-    requestAnimationFrame(() => {
-      programmaticRef.current = false;
-    });
-  }, [series, scale, interactive]);
-
-  // Buttons-as-presets: a timeframe click sets the visible window imperatively.
-  // Starts unset so a preset that already exists at mount is applied too: an
-  // expanded chart can mount *after* its window was computed — a deep link
-  // opening straight into a timeframe, where the range and the series arrive on
-  // different ticks — and skipping that first apply leaves the full-history
-  // `fitContent` view on screen under a timeframe button that reads 3M.
-  const presetNonceRef = useRef<number | null>(null);
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart || !interactive || !presetWindow) return;
-    if (presetNonceRef.current === presetWindow.nonce) return;
-    presetNonceRef.current = presetWindow.nonce;
-    programmaticRef.current = true; // suppress the range event our own write causes
-    chart.timeScale().setVisibleRange({ from: presetWindow.from as never, to: presetWindow.to as never });
-    lastRangeRef.current = { from: presetWindow.from, to: presetWindow.to };
-    requestAnimationFrame(() => {
-      programmaticRef.current = false;
-    });
-  }, [interactive, presetWindow]);
+    if (data.length > 0) chart.timeScale().fitContent();
+  }, [series, scale]);
 
   // Optional overlay comparison line — created lazily on the same right axis,
   // updated on data/scale change, and removed if the prop clears. Mirrors the

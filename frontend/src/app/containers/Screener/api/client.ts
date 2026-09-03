@@ -302,6 +302,11 @@ export interface ApiChartPoint {
 }
 export interface ApiChartSeries {
   series: ApiChartPoint[];
+  /** Range mode only: the bucket the server actually served. It can be coarser
+   *  than the requested one — the range endpoint climbs its ladder rather than
+   *  refusing a window that spans too many tiles — so a caller that labels the
+   *  data must read this rather than echo what it asked for. */
+  res?: ChartRes;
 }
 
 // One line per asset locked in the BlackHole burn contract. `value` is the
@@ -329,6 +334,8 @@ export interface ApiKeyedSeries {
 }
 export interface ApiKeyedSeriesBody {
   series: ApiKeyedSeries[];
+  /** Range mode only: the bucket actually served. See ApiChartSeries.res. */
+  res?: ChartRes;
 }
 
 export { ApiError };
