@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate } from 'react-router-dom';
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { AssetLabel } from '@app/shared/components/AssetLabel';
 import { MOBILE_MEDIA, DesktopOnly, MobileOnly, useIsMobile } from '../components/responsive';
 import type { ApiAssetsList } from '../api/types';
 import { useSharedAssets } from '../assetColors';
@@ -94,7 +95,7 @@ const Sym = styled.div`
     color: rgba(255, 255, 255, 0.4);
     font-weight: 400;
     font-size: 11px;
-    margin-left: 6px;
+    margin-left: 8px;
   }
 `;
 
@@ -146,8 +147,9 @@ const AssetCard = React.memo(({ a, onOpen }: AssetRowProps) => {
       <RowAssetIcon asset_id={a.aid} color={a.color} />
       <ACardMain>
         <ACardTitleRow>
-          <ACardTitle>{a.short_name ?? `aid${a.aid}`}</ACardTitle>
-          <ACardSub>#{a.aid}</ACardSub>
+          <ACardTitle>
+            <AssetLabel aid={a.aid} sym={a.short_name} />
+          </ACardTitle>
           {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
         </ACardTitleRow>
         {a.name && <ACardSub>{a.name}</ACardSub>}
@@ -180,7 +182,7 @@ const AssetRow = React.memo(({ a, onOpen }: AssetRowProps) => {
         <Cell>
           <RowAssetIcon asset_id={a.aid} color={a.color} />
           <Sym>
-            {a.short_name ?? `aid${a.aid}`}
+            {a.short_name ?? `Asset #${a.aid}`}
             <small>{a.name ?? ''}</small>
             {a.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
           </Sym>

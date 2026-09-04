@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { styled } from '@linaria/react';
+import { AssetLabel } from '@app/shared/components/AssetLabel';
 import type { ApiPair, ApiPairTier } from '../api/types';
 import { fmt$, fmtPrice, fmtPriceImpact, toGroths, fromGroths } from './format';
 import { Box, BoxHeader, Row, Input, TokenBadge, BadgeAssetIcon, InfoRow } from './amountBox';
@@ -403,7 +404,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
           <TokenBadge>
             <BadgeAssetIcon asset_id={pay.aid} color={payColor} />
             <div>
-              {pay.symbol} <small>#{pay.aid}</small>
+              <AssetLabel aid={pay.aid} sym={pay.symbol} />
             </div>
           </TokenBadge>
         </Row>
@@ -434,7 +435,7 @@ export const SwapPanel: React.FC<Props> = ({ pair, tiers, onPreviewChange }) => 
           <TokenBadge>
             <BadgeAssetIcon asset_id={receive.aid} color={receiveColor} />
             <div>
-              {receive.symbol} <small>#{receive.aid}</small>
+              <AssetLabel aid={receive.aid} sym={receive.symbol} />
             </div>
           </TokenBadge>
         </Row>

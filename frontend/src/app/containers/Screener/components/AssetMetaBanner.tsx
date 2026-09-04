@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { styled } from '@linaria/react';
 import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
+import { AssetLabel } from '@app/shared/components/AssetLabel';
 import { useAsset, useAssetHistory, useStats } from '../hooks';
 import type { ApiAsset, ApiAssetHistoryItem } from '../api/types';
 import { IconsPair } from './IconsPair';
@@ -296,23 +297,17 @@ export const AssetMetaBanner: React.FC<Props> = ({ aid1, aid2, sym1, sym2 }) => 
       <Bar type="button" onClick={() => setOpen((v) => !v)}>
         <IconsPair aid1={aid1} aid2={aid2} />
         <span className="asset">
-          <span className="id">
-            Asset ID:
-            {aid1}
-          </span>
           <span className="nm">
-            {name1} ({sym1})
+            <AssetLabel aid={aid1} sym={sym1} />
           </span>
+          <span className="id">{name1}</span>
         </span>
         <span className="sep">·</span>
         <span className="asset">
-          <span className="id">
-            Asset ID:
-            {aid2}
-          </span>
           <span className="nm">
-            {name2} ({sym2})
+            <AssetLabel aid={aid2} sym={sym2} />
           </span>
+          <span className="id">{name2}</span>
         </span>
         <span className={`chevron ${open ? 'open' : ''}`}>▼</span>
       </Bar>

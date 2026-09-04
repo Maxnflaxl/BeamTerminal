@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { useNavigate, useParams } from 'react-router-dom';
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { AssetLabel } from '@app/shared/components/AssetLabel';
 import { ROUTES } from '@app/shared/constants';
 import { BackButton } from '@app/shared/components/BackButton';
 import type { ApiCandle, ApiPair, Interval, Denom } from '../api/types';
@@ -356,10 +357,6 @@ const PoolRow = styled.div`
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .lbl small {
-    color: rgba(255, 255, 255, 0.4);
-    margin-left: 4px;
   }
   .val {
     font-family: var(--font-mono);
@@ -875,13 +872,7 @@ export const PairDetail: React.FC = () => {
             <PoolRow>
               <div className="name">
                 <PoolAssetIcon asset_id={p.aid1} size={20} color={poolColor1} />
-                <span className="lbl">
-                  {p.symbol1 ?? `aid${p.aid1}`}{' '}
-                  <small>
-                    (#
-                    {p.aid1})
-                  </small>
-                </span>
+                <AssetLabel className="lbl" aid={p.aid1} sym={p.symbol1} />
               </div>
               <span className="val">
                 {fmtNum(p.reserve1_human, 2)}
@@ -891,13 +882,7 @@ export const PairDetail: React.FC = () => {
             <PoolRow>
               <div className="name">
                 <PoolAssetIcon asset_id={p.aid2} size={20} color={poolColor2} />
-                <span className="lbl">
-                  {p.symbol2 ?? `aid${p.aid2}`}{' '}
-                  <small>
-                    (#
-                    {p.aid2})
-                  </small>
-                </span>
+                <AssetLabel className="lbl" aid={p.aid2} sym={p.symbol2} />
               </div>
               <span className="val">
                 {fmtNum(p.reserve2_human, 2)}
@@ -910,7 +895,7 @@ export const PairDetail: React.FC = () => {
             <h4>Pair Info</h4>
             <StatRow>
               <span className="lbl">LP Token</span>
-              <span className="val">aid #{p.lp_token}</span>
+              <span className="val">#{p.lp_token}</span>
             </StatRow>
             <StatRow>
               <span className="lbl">Fee tier</span>

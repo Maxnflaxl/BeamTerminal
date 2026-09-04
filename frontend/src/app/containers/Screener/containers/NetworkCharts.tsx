@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
+import { assetLabel } from '@app/shared/components/AssetLabel';
 import {
   api,
   type ApiChartPoint,
@@ -785,7 +786,7 @@ function blackholeLines(series: ReadonlyArray<ApiBlackholeSeries>): MultiSeriesL
   return series.map((s) => ({
     id: String(s.aid),
     label: s.label,
-    legendLabel: `${s.label} #${s.aid}`,
+    legendLabel: assetLabel(s.aid, s.label),
     points: s.points,
   }));
 }

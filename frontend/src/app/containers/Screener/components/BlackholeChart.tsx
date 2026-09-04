@@ -11,6 +11,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
+import { AssetAid, assetLabel } from '@app/shared/components/AssetLabel';
 import { PALLETE_ASSETS } from '@app/shared/constants';
 import { clearChildren, createBeamChart, makeSpan } from './chartTheme';
 import type { ApiBlackholeSeries } from '../api/client';
@@ -171,11 +172,6 @@ const LegendItem = styled.button<{ off?: boolean }>`
     border-top-width: 2px;
     border-top-style: solid;
     opacity: ${(p) => (p.off ? 0.35 : 1)};
-  }
-
-  & > .aid {
-    margin-left: 4px;
-    color: rgba(255, 255, 255, 0.4);
   }
 
   &:hover {
@@ -707,7 +703,7 @@ export const BlackholeChart: React.FC<Props> = ({
           const sw = makeSpan('sw');
           sw.style.borderTopStyle = 'solid';
           sw.style.borderTopColor = colors.get(r.aid) ?? '#fff';
-          const lbl = makeSpan('lbl', `${r.label} #${r.aid}`);
+          const lbl = makeSpan('lbl', assetLabel(r.aid, r.label));
           const val = makeSpan('val');
           row.appendChild(sw);
           row.appendChild(lbl);
@@ -903,7 +899,7 @@ export const BlackholeChart: React.FC<Props> = ({
               }}
             />
             {s.label}
-            <span className="aid">#{s.aid}</span>
+            <AssetAid>(#{s.aid})</AssetAid>
           </LegendItem>
         ))}
       </Legend>
@@ -976,7 +972,7 @@ export const BlackholeChart: React.FC<Props> = ({
                     <PopName>
                       <PopNameMain>{hoverMeta?.name ?? hoverSeries.label}</PopNameMain>
                       <PopNameSub>
-                        {[hoverMeta?.short_name ?? hoverSeries.label, hoverMeta?.unit_name, `aid ${hoverAid}`]
+                        {[assetLabel(hoverAid, hoverMeta?.short_name ?? hoverSeries.label), hoverMeta?.unit_name]
                           .filter(Boolean)
                           .join(' · ')}
                       </PopNameSub>

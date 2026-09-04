@@ -4,6 +4,7 @@ import { styled } from '@linaria/react';
 import type { IChartApi, UTCTimestamp } from 'lightweight-charts';
 
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { assetLabel } from '@app/shared/components/AssetLabel';
 import { BlockHeight } from '@app/shared/components/BlockHeight';
 import { SimpleChart } from './SimpleChart';
 import { useSharedAssets } from '../assetColors';
@@ -576,9 +577,8 @@ const HoveredPopover: React.FC<HoveredPopoverProps> = ({ marker, onMouseEnter, o
 
   const bottom = BOTTOM_OFFSET_PX + (lane + 1) * LANE_PX + 4;
   const subParts = [
-    asset.short_name,
+    assetLabel(asset.aid, asset.short_name),
     asset.unit_name && asset.unit_name !== asset.short_name ? asset.unit_name : null,
-    `aid ${asset.aid}`,
   ]
     .filter(Boolean)
     .join(' · ');

@@ -20,3 +20,4 @@ export { default as LoadingSkileton } from './LoadingSkileton';
 export { default as TopNav } from './TopNav';
 export { default as TableScrollViewport } from './TableScrollViewport';
 export { default as BlockHeight, useBlockTimestamp } from './BlockHeight';
+export { AssetLabel, AssetAid, assetLabel, assetSymbol } from './AssetLabel';

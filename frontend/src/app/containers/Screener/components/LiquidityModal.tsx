@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { styled } from '@linaria/react';
+import { AssetLabel } from '@app/shared/components/AssetLabel';
 import type { ApiPair } from '../api/types';
 import { useWallet, invokeAddLiquidity, invokeWithdraw, type LiquidityResult } from '../wallet';
 import { useAssetColor } from '../assetColors';
@@ -299,7 +300,7 @@ export const LiquidityModal: React.FC<Props> = ({ mode, pair, kind, reserve1Huma
                 <TokenBadge>
                   <BadgeAssetIcon asset_id={aid1} color={color1} />
                   <div>
-                    {sym1} <small>#{aid1}</small>
+                    <AssetLabel aid={aid1} sym={sym1} />
                   </div>
                 </TokenBadge>
               </Row>
@@ -320,7 +321,7 @@ export const LiquidityModal: React.FC<Props> = ({ mode, pair, kind, reserve1Huma
                 <TokenBadge>
                   <BadgeAssetIcon asset_id={aid2} color={color2} />
                   <div>
-                    {sym2} <small>#{aid2}</small>
+                    <AssetLabel aid={aid2} sym={sym2} />
                   </div>
                 </TokenBadge>
               </Row>

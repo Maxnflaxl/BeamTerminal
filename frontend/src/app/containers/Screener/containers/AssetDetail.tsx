@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AssetIcon, { normalizeOptColor } from '@app/shared/components/AssetsIcon';
+import { AssetLabel } from '@app/shared/components/AssetLabel';
 import { BlockHeight } from '@app/shared/components/BlockHeight';
 import { BackButton } from '@app/shared/components/BackButton';
 import { useAsset, useAssetDistribution, useAssetHistory, usePairs } from '../hooks';
@@ -297,7 +298,9 @@ export const AssetDetail: React.FC = () => {
               {asset.name ?? `Asset #${asset.aid}`}
               {asset.is_imposter && <ImposterBadge>Fake</ImposterBadge>}
             </FullName>
-            <Ticker>{asset.short_name ?? `aid${asset.aid}`}</Ticker>
+            <Ticker>
+              <AssetLabel aid={asset.aid} sym={asset.short_name} />
+            </Ticker>
           </NameCol>
         </HeaderRow>
 

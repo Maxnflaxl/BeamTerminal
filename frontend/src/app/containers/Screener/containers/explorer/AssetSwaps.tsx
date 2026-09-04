@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
 import AssetsSwapGlyph from '@app/shared/icons/icon-assets-swap.svg';
 import AssetIcon from '@app/shared/components/AssetsIcon';
+import { AssetLabel } from '@app/shared/components/AssetLabel';
 import {
   Page,
   Card,
@@ -15,7 +16,6 @@ import {
   DataTable,
   ScrollX,
   ErrorBox,
-  theme,
   Toolbar,
   SummaryStrip,
   Headline,
@@ -50,11 +50,6 @@ const AssetCell = styled.span`
 const CellIcon = styled(AssetIcon)`
   margin-right: 0;
   flex: 0 0 18px;
-`;
-
-const AssetAid = styled.span`
-  color: ${theme.color.muted};
-  font-size: 11px;
 `;
 
 // ---------------------------------------------------------------------------
@@ -121,9 +116,9 @@ export const AssetSwaps: React.FC = () => {
     return m;
   }, [assets]);
 
-  function labelForAid(aid: number, fallback: string | null): string {
+  function labelForAid(aid: number, fallback: string | null): string | null {
     const a = assetIndex.get(aid);
-    return a?.short_name ?? a?.unit_name ?? a?.name ?? fallback ?? `AID ${aid}`;
+    return a?.short_name ?? a?.unit_name ?? a?.name ?? fallback;
   }
 
   // Render the `<icon> <name> (<id>)` cell used in both swap legs. The shared
@@ -135,11 +130,7 @@ export const AssetSwaps: React.FC = () => {
     return (
       <AssetCell>
         <CellIcon asset_id={aid} size={18} color={asset?.color} logoUrl={asset?.logo_url} />
-        <span>{label}</span>
-        <AssetAid>
-          (#
-          {aid})
-        </AssetAid>
+        <AssetLabel aid={aid} sym={label} />
       </AssetCell>
     );
   }

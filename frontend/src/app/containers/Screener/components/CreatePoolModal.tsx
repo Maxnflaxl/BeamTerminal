@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { styled } from '@linaria/react';
+import { assetLabel } from '@app/shared/components/AssetLabel';
 import type { ApiAssetListEntry } from '../api/types';
 import { useWallet, invokeCreatePool } from '../wallet';
 import { usePairs } from '../hooks';
@@ -154,8 +155,7 @@ export const CreatePoolModal: React.FC<Props> = ({
 
   const label = (aid: number): string => {
     const a = assets.find((x) => x.aid === aid);
-    const sym = a?.short_name ?? a?.unit_name ?? a?.name ?? `aid${aid}`;
-    return `${sym} · #${aid}`;
+    return assetLabel(aid, a?.short_name ?? a?.unit_name ?? a?.name);
   };
 
   const sameAsset = aid1 !== null && aid2 !== null && aid1 === aid2;

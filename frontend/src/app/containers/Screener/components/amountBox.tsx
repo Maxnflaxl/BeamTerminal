@@ -67,11 +67,6 @@ export const TokenBadge = styled.div`
   font-weight: 600;
   font-size: 13px;
   white-space: nowrap;
-  small {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
-    font-weight: 400;
-  }
 `;
 
 export const BadgeAssetIcon = styled(AssetIcon)`

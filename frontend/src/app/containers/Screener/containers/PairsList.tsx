@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { ROUTES } from '@app/shared/constants';
 import IconFavorite from '@app/shared/icons/icon-favorite.svg';
 import IconFavoriteFilled from '@app/shared/icons/icon-favorite-filled.svg';
+import { AssetAid } from '@app/shared/components/AssetLabel';
 import { MOBILE_MEDIA, DesktopOnly, MobileOnly, useIsMobile } from '../components/responsive';
 import { usePairs, useStats } from '../hooks';
 import type { ApiPair, SortKey, SortOrder } from '../api/types';
@@ -164,12 +165,6 @@ const PairCell = styled.div`
 
 const PairName = styled.div`
   font-weight: 600;
-  small {
-    color: rgba(255, 255, 255, 0.4);
-    font-weight: 400;
-    font-size: 11px;
-    margin-left: 6px;
-  }
 `;
 
 // Row-filter pills (All / My / Liquid / Empty / Favorites). Reuses the SortPill
@@ -261,7 +256,7 @@ const PairCard = React.memo(({ p, idx, fav, onOpen, onToggleFav }: PairRowProps)
             {p.symbol1 ?? `aid${p.aid1}`}/{p.symbol2 ?? `aid${p.aid2}`}
           </CardTitle>
           <CardSub>
-            #{p.aid2} · #{idx + 1}
+            (#{p.aid1}/#{p.aid2}) · #{idx + 1}
           </CardSub>
           <TiersBadge kinds={p.tiers?.map((t) => t.kind) ?? [p.kind]} />
         </CardTopRow>
@@ -343,7 +338,9 @@ const PairRow = React.memo(({ p, idx, fav, onOpen, onToggleFav }: PairRowProps) 
           <IconsPair aid1={p.aid1} aid2={p.aid2} />
           <PairName>
             {p.symbol1 ?? `aid${p.aid1}`}/{p.symbol2 ?? `aid${p.aid2}`}
-            <small>#{p.aid2}</small>
+            <AssetAid>
+              (#{p.aid1}/#{p.aid2})
+            </AssetAid>
           </PairName>
         </PairCell>
       </td>

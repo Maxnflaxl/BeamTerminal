@@ -22,6 +22,7 @@ import {
 import { specialBlocks } from './supplyMath';
 import { CenteredNote } from '../../components/CenteredNote';
 import { useBlockTimestamp, type BlockUrlResolver } from '../../../../shared/components/BlockHeight';
+import { assetLabel } from '../../../../shared/components/AssetLabel';
 import { useComparePoints } from '../../components/chart-compare/useComparePoints';
 import type { UseComparePoints } from '../../components/chart-compare/useComparePoints';
 import { computeDeltas } from '../../components/chart-compare/computeDeltas';
@@ -916,7 +917,8 @@ function AmountClr({ amount }: { amount: string }): JSX.Element {
 }
 
 function AssetLink({ aid, ctx }: { aid: number | string; ctx: RenderCtx }): JSX.Element {
-  if (String(aid) === '0') return <span style={{ color: theme.color.accent, fontWeight: 600 }}>Beam</span>;
+  if (String(aid) === '0')
+    return <span style={{ color: theme.color.accent, fontWeight: 600 }}>{assetLabel(0, 'BEAM')}</span>;
   return (
     <Link
       onClick={(e) => {
@@ -926,8 +928,7 @@ function AssetLink({ aid, ctx }: { aid: number | string; ctx: RenderCtx }): JSX.
       href="#"
       style={{ color: theme.color.purple }}
     >
-      Asset-
-      {aid}
+      {assetLabel(Number(aid), null)}
     </Link>
   );
 }

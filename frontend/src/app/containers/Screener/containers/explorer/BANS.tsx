@@ -22,6 +22,7 @@ import {
   theme,
 } from './shared';
 import { BlockHeight } from '../../../../shared/components/BlockHeight';
+import { assetLabel } from '../../../../shared/components/AssetLabel';
 import { ActionTimeline } from './ActionTimeline';
 import { api } from '../../api/client';
 import type { ApiBansAction } from '../../api/types';
@@ -917,7 +918,9 @@ export const BANS: React.FC = () => {
                           <>
                             <Price>{d.price.toLocaleString('en-US', { maximumFractionDigits: 8 })}</Price>
                             <PriceAid>
-                              {d.priceAid === 0 ? 'BEAM' : `aid:${d.priceAid !== null ? d.priceAid : '?'}`}
+                              {d.priceAid === null
+                                ? 'Asset #?'
+                                : assetLabel(d.priceAid, d.priceAid === 0 ? 'BEAM' : null)}
                             </PriceAid>
                           </>
                         ) : (

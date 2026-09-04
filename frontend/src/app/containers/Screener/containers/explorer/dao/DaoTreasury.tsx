@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { styled } from '@linaria/react';
 import AssetIcon, { useAssetColorResolver } from '@app/shared/components/AssetsIcon';
 import { BlockHeight } from '@app/shared/components';
+import { AssetLabel } from '@app/shared/components/AssetLabel';
 import { Overlay, useEscapeClose } from '../../../components/modalChrome';
 import { usePolled } from '../../../hooks';
 import { useSharedAssetIndex } from '../../../assetColors';
@@ -234,7 +235,7 @@ export const DaoTreasury: React.FC = () => {
 
   const assetColor = useAssetColorResolver();
 
-  const symOf = (aid: number): string => meta.get(aid)?.short_name ?? `aid ${aid}`;
+  const symOf = (aid: number): string | null => meta.get(aid)?.short_name ?? null;
   const nameOf = (aid: number): string | null => meta.get(aid)?.name ?? null;
   // Colour donut slices / legend swatches exactly the way AssetIcon paints the
   // glyph, so a slice always matches its icon (same OPT_COLOR → palette chain).
@@ -323,7 +324,7 @@ export const DaoTreasury: React.FC = () => {
         </StatCard>
         <StatCard>
           <Label>Largest holding</Label>
-          <Value>{holdings[0] ? symOf(holdings[0].aid) : '—'}</Value>
+          <Value>{holdings[0] ? <AssetLabel aid={holdings[0].aid} sym={symOf(holdings[0].aid)} /> : '—'}</Value>
         </StatCard>
       </StatGrid>
 
@@ -359,7 +360,9 @@ export const DaoTreasury: React.FC = () => {
                   <td>
                     <AssetCell>
                       <AssetIcon asset_id={h.aid} color={meta.get(h.aid)?.color} size={20} />
-                      <b>{symOf(h.aid)}</b>
+                      <b>
+                        <AssetLabel aid={h.aid} sym={symOf(h.aid)} />
+                      </b>
                       {nameOf(h.aid) && <small>{nameOf(h.aid)}</small>}
                     </AssetCell>
                   </td>
@@ -398,7 +401,7 @@ export const DaoTreasury: React.FC = () => {
                     <FundTag key={aid} style={{ color: neg ? theme.color.danger : theme.color.accent }}>
                       <AssetIcon asset_id={id} color={meta.get(id)?.color} size={14} />
                       {neg ? '' : '+'}
-                      {fromGrothsStr(amt, dec)} {symOf(id)}
+                      {fromGrothsStr(amt, dec)} <AssetLabel aid={id} sym={symOf(id)} />
                     </FundTag>
                   );
                 })}
@@ -507,7 +510,9 @@ export const DaoTreasury: React.FC = () => {
                   >
                     <span className="l">
                       <AssetIcon asset_id={h.aid} color={meta.get(h.aid)?.color} size={16} />
-                      <b>{symOf(h.aid)}</b>
+                      <b>
+                        <AssetLabel aid={h.aid} sym={symOf(h.aid)} />
+                      </b>
                     </span>
                     <span className="r">
                       {h.pct.toFixed(2)}% ·{fmtAmt(h.amount, h.aid)} ·{fmtUsd(h.value_usd)}
@@ -526,7 +531,8 @@ export const DaoTreasury: React.FC = () => {
             <ModalHead>
               <span style={{ display: 'flex', alignItems: 'center' }}>
                 <AssetIcon asset_id={hist.aid} color={meta.get(hist.aid)?.color} size={18} />
-                {symOf(hist.aid)} · deposit history
+                <AssetLabel aid={hist.aid} sym={symOf(hist.aid)} />
+                <span style={{ marginLeft: 4 }}>· deposit history</span>
               </span>
               <Closer type="button" onClick={() => setHist(null)}>
                 ✕
