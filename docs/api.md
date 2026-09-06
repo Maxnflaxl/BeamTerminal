@@ -1171,6 +1171,43 @@ request. `weight` is the voter's BeamX stake in groths.
 400 (`BAD_REQUEST`) for a non-integer id, 404 (`NOT_FOUND`) when no such
 proposal exists. `Cache-Control: public, max-age=60`.
 
+## `GET /api/oracle`
+
+Current state of the Oracle2 price feed (`ORACLE_CID`), projected by
+`services/oracle2.ts` from the `oracle2_app.wasm` app shader.
+
+```json
+{
+  "cid": "4f160f01dcc6751e61d793279b803328d5332125fe8492e93ee8f3bfe9abe13b",
+  "kind": "Oracle2 v0",
+  "height": 4024924,
+  "refreshed_at": "2026-09-06T09:41:12.004Z",
+  "h_validity": 220,
+  "min_providers": 3,
+  "median": null,
+  "median_h_end": 0,
+  "median_valid": false,
+  "valid_providers": 2,
+  "quorum": false,
+  "providers": [
+    { "index": 2, "pk": "69a12cff…212a7601", "value": "0.010839069",
+      "h_updated": 4024911, "age": 13, "stale": false }
+  ]
+}
+```
+
+`height` is the chain tip the snapshot was taken at; `age` and `stale` are
+measured against it, an entry being stale once `age > h_validity`. `median` is
+the median *stored on-chain*, which the contract recomputes only when a
+provider writes to it — `null` (with `median_h_end: 0`) means no median has
+been written since the last settings change, and `median_valid` says whether
+the stored one still covers `height`. `quorum` is
+`valid_providers >= min_providers`. Values are decimal strings in USD.
+
+503 (`UNAVAILABLE`) until the indexer has written its first snapshot — which
+needs `WALLET_API_URL`, as the shader runs inside the wallet daemon.
+`Cache-Control: public, max-age=30`.
+
 ## `GET /api/dapps`
 
 The DApp Store registry, projected from on-chain calls by

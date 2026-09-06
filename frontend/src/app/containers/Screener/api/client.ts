@@ -11,6 +11,7 @@ import type {
   ApiNetwork,
   ApiBansActions,
   ApiDaoOverview,
+  ApiOracleState,
   ApiBridgeHealth,
   ApiBridgeMessages,
   ApiBridgeLookup,
@@ -123,6 +124,7 @@ export const api = {
   daoRevenue: (groupBy: 'source' | 'pool' | 'tier' | 'asset' = 'source'): Promise<ApiDaoRevenue> =>
     get<ApiDaoRevenue>(`/dao/revenue?groupBy=${groupBy}`),
   daoGovernance: (): Promise<ApiDaoGovernance> => get<ApiDaoGovernance>('/dao/governance'),
+  oracle: (): Promise<ApiOracleState> => get<ApiOracleState>('/oracle'),
 
   bridgeHealth: (): Promise<ApiBridgeHealth> => get<ApiBridgeHealth>('/bridge/health'),
   bridgeMessages: (

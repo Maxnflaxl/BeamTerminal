@@ -17,6 +17,7 @@ import { ingestRange as ingestBlockMetricsRange, maxIndexedHeight as maxBlockMet
 import { syncAssetSwapOffers } from './services/assetSwapOffers.js';
 import { syncAtomicSwapOffers, snapshotAtomicSwapTotals } from './services/atomicSwaps.js';
 import { syncDappStore } from './services/dappStore.js';
+import { syncOracleState } from './services/oracle2.js';
 import { ingestWatchedContracts } from './services/contractActivity.js';
 import { projectDaoVote } from './services/daoGovernance.js';
 import { refreshDaoStats } from './services/daoStats.js';
@@ -81,6 +82,13 @@ let ipfsPinInflight = false;
 const BRIDGE_RESYNC_MS = 5 * 60 * 1000;
 let lastBridgeSync = 0;
 let bridgeInflight = false;
+
+// Oracle2 state projection. Three read-only calls (two shader invocations plus
+// one explorer fetch for the version label) feeding a single row, so a per-tick
+// cadence would be wasteful — a provider writes at most every few blocks.
+const ORACLE_STATE_RESYNC_MS = 60 * 1000;
+let lastOracleStateSync = 0;
+let oracleStateInflight = false;
 
 // Mining pool stats refresh. Triggered when the chain head advances (pool
 // numbers update once per block, ~1 min on BEAM), inflight-gated and async so a
@@ -261,6 +269,29 @@ function maybeKickDappStoreSync(): void {
       );
     })
     .finally(() => { dappStoreInflight = false; });
+}
+
+// Oracle2 provider/median state, read through `oracle2_app.wasm` in wallet-api.
+// The explorer can't decode the stored Median record, so this is the only
+// source for the height the current median stays valid through.
+function maybeKickOracleStateSync(headHeight: number): void {
+  if (oracleStateInflight) return;
+  if (!config.WALLET_API_URL) return; // wasm execution needs the daemon
+  const now = Date.now();
+  if (now - lastOracleStateSync < ORACLE_STATE_RESYNC_MS) return;
+  oracleStateInflight = true;
+  syncOracleState(headHeight)
+    .then((res) => {
+      lastOracleStateSync = Date.now();
+      logger.debug(res, 'oracle state synced');
+    })
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'oracle state sync failed; will retry next tick',
+      );
+    })
+    .finally(() => { oracleStateInflight = false; });
 }
 
 function maybeKickBridgeSync(): void {
@@ -564,6 +595,7 @@ async function tick(): Promise<void> {
   // chunks. Cheap when there's no backlog.
   maybeKickIpfsPinSync();
   maybeKickBridgeSync();
+  maybeKickOracleStateSync(status.height);
 
   // Watched-contract call-history ingest (BANS, …). Inline (not fire-and-forget)
   // because contract_call_events is reorg-cleaned — a background run could race

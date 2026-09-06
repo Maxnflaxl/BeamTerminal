@@ -672,6 +672,33 @@ export interface ApiDaoAssetHistory {
   rows: { height: number; ts: string; method: string; amount: string }[];
 }
 
+export interface ApiOracleProvider {
+  index: number;
+  pk: string;
+  /** Feed value in USD, as a decimal string. */
+  value: string;
+  h_updated: number;
+  /** Blocks since the entry was written, at `height`. */
+  age: number;
+  stale: boolean;
+}
+
+export interface ApiOracleState {
+  cid: string;
+  kind: string | null;
+  height: number;
+  refreshed_at: string;
+  h_validity: number;
+  min_providers: number;
+  /** Median stored on-chain; null when the contract holds none. */
+  median: string | null;
+  median_h_end: number;
+  median_valid: boolean;
+  valid_providers: number;
+  quorum: boolean;
+  providers: ApiOracleProvider[];
+}
+
 export interface ApiDaoRevenue {
   total_usd: number;
   series: { day: string; by_asset: Record<string, number> }[];

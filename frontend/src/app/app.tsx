@@ -56,6 +56,9 @@ const BridgeTracker = React.lazy(() =>
 const Mining = React.lazy(() =>
   import('@app/containers/Screener/containers/explorer/Mining').then((m) => ({ default: m.Mining })),
 );
+const Oracle = React.lazy(() =>
+  import('@app/containers/Screener/containers/explorer/Oracle').then((m) => ({ default: m.Oracle })),
+);
 const BeamExplorer = React.lazy(() =>
   import('@app/containers/Screener/containers/explorer/BeamExplorer').then((m) => ({ default: m.BeamExplorer })),
 );
@@ -122,6 +125,7 @@ const routes = [
       { path: 'supply', element: <Supply /> },
       { path: 'bridge', element: <BridgeTracker /> },
       { path: 'mining', element: <Mining /> },
+      { path: 'oracle', element: <Oracle /> },
       {
         path: 'dao',
         element: <DaoLayout />,

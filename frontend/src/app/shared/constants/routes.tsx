@@ -11,6 +11,7 @@ export const ROUTES = {
     EXPLORER_SUPPLY: '/explorer/supply',
     EXPLORER_BRIDGE: '/explorer/bridge',
     EXPLORER_MINING: '/explorer/mining',
+    EXPLORER_ORACLE: '/explorer/oracle',
     EXPLORER_DAO: '/explorer/dao',
     EXPLORER_DAO_TREASURY: '/explorer/dao/treasury',
     EXPLORER_DAO_REVENUE: '/explorer/dao/revenue',

@@ -58,6 +58,7 @@ const items = [
   { to: ROUTES.NAV.EXPLORER_DAO, label: 'DAO' },
   { to: ROUTES.NAV.EXPLORER_BRIDGE, label: 'Bridge' },
   { to: ROUTES.NAV.EXPLORER_MINING, label: 'Mining' },
+  { to: ROUTES.NAV.EXPLORER_ORACLE, label: 'Oracle' },
 ];
 
 export const ExplorerLayout: React.FC = () => (

@@ -22,6 +22,7 @@ import { miningRoutes } from './routes/mining.js';
 import { networkRoutes } from './routes/network.js';
 import { bansRoutes } from './routes/bans.js';
 import { daoRoutes } from './routes/dao.js';
+import { oracleRoutes } from './routes/oracle.js';
 import { ogRoutes } from './routes/og.js';
 import { pairChartRoutes } from './routes/pair_chart.js';
 import { cgTickersRoutes } from './routes/cg/tickers.js';
@@ -94,6 +95,7 @@ export function buildApp(): FastifyInstance {
   void app.register(networkRoutes, { prefix: '/api' });
   void app.register(bansRoutes, { prefix: '/api' });
   void app.register(daoRoutes, { prefix: '/api' });
+  void app.register(oracleRoutes, { prefix: '/api' });
   void app.register(ogRoutes);
   // Chart PNG endpoint for chat bots (Telegram /c, Discord /c). Registered
   // without /api prefix alongside ogRoutes so the URL is short and easily

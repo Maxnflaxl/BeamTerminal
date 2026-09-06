@@ -93,3 +93,44 @@ Read-only manager actions used by the indexer:
 `remote_msg` exists but is only useful for messages currently at status 2:
 `ReceiveFunds` deletes the message header when the recipient claims
 (`pipe_contract.cpp` Method_4), so completed messages report "absent".
+
+## `oracle2_app.wasm`
+
+App-shader for the Oracle2 contract (`ORACLE_CID`). The explorer decodes the
+oracle's state well enough for the median price the indexer needs, but not the
+stored `Median.m_hEnd` — the height the last written median stays valid
+through, which is what separates "no quorum right now" from "a median that is
+simply old". The shader reads both `s_StateFull` and `s_Median` directly.
+
+### Provenance (pinned)
+
+| Field | Value |
+| --- | --- |
+| Source | `https://github.com/BeamMW/beam/blob/master/bvm/Shaders/oracle2/app.wasm` |
+| Pinned commit | `24fee817b089c7609d9f4e2e6fde7edbf906adba` (BeamMW/beam#2087, "oracle2: fix app shader response documents") |
+| SHA-256 | `828f0efedaa38a32b44fa2a77a3fbf22a57d6dc37f10d2ad704d62013a3aa899` |
+| Size | 22 621 bytes |
+
+**Older builds are unusable here.** Before #2087 `view_median` opened a
+`DocArray` and wrote named fields into it, producing `{"res": ["val": 0,…]}` —
+not parseable JSON — and `view_params` did not emit `hValidity` /
+`nMinProviders`, so a caller could not tell why a feed had no quorum or which
+entries were stale. Only the app shader changed; `ShaderID` hashes
+`contract.wasm`, so the deployed ContractID is unaffected.
+
+### What it exposes
+
+Read-only manager actions used by the indexer:
+
+- `role=manager,action=view_params,cid=<ORACLE_CID>` →
+  `{ "params": { "hValidity": 220, "nMinProviders": 3,
+                 "provs": [ { pk, val, hUpd }, … ] } }`
+  — `val` is the provider's feed value scaled by 1e9 (`get_Norm_n`), `hUpd`
+  the height it was last written. An entry is stale once
+  `tip - hUpd > hValidity`.
+- `role=manager,action=view_median,cid=<ORACLE_CID>` →
+  `{ "res": { "val": <price × 1e9>, "hEnd": <height> } }` — the *stored*
+  median, recomputed only when a provider writes to the contract. `hEnd: 0`
+  means no median has ever reached quorum since the last settings change.
+
+`services/oracle2.ts` verifies the hash on first use.
