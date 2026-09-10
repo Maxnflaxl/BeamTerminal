@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { styled } from '@linaria/react';
 import { api } from '@app/containers/Screener/api/client';
 import { usePolled } from '@app/containers/Screener/hooks';
@@ -597,29 +597,47 @@ const ResultGrid = styled.div`
   font-size: 12px;
 `;
 
-const LookupModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [value, setValue] = useState('');
+const LookupModal: React.FC<{
+  /** Transfer id the page was linked to, looked up once on open. */
+  initial: string;
+  /** Reports a looked-up id so the page can put it in the address bar. */
+  onQuery: (q: string) => void;
+  onClose: () => void;
+}> = ({ initial, onQuery, onClose }) => {
+  const [value, setValue] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<ApiBridgeLookup | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const run = useCallback(async (q: string) => {
+    setBusy(true);
+    setErr(null);
+    setRes(null);
+    try {
+      setRes(await api.bridgeLookup(q));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  // Mount-time value only: writing the id to the URL feeds a new `initial`
+  // straight back in, and reacting to that would run every lookup twice.
+  const linked = useRef(initial);
+  useEffect(() => {
+    if (linked.current) void run(linked.current);
+  }, [run]);
+
   const submit = useCallback(
-    async (e: React.FormEvent) => {
+    (e: React.FormEvent) => {
       e.preventDefault();
       const q = value.trim();
       if (!q) return;
-      setBusy(true);
-      setErr(null);
-      setRes(null);
-      try {
-        setRes(await api.bridgeLookup(q));
-      } catch (e2) {
-        setErr(e2 instanceof Error ? e2.message : String(e2));
-      } finally {
-        setBusy(false);
-      }
+      onQuery(q);
+      void run(q);
     },
-    [value],
+    [value, onQuery, run],
   );
 
   useEscapeClose(onClose);
@@ -754,7 +772,31 @@ const BridgeTracker: React.FC = () => {
   const [msgsErr, setMsgsErr] = useState<string | null>(null);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
 
-  const [lookupOpen, setLookupOpen] = useState(false);
+  // `?tx=<id>` makes a lookup result shareable: the param opens the dialog and
+  // runs the lookup, and closing it takes the param back out.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedTx = searchParams.get('tx');
+  const [lookupOpen, setLookupOpen] = useState(linkedTx !== null);
+
+  useEffect(() => {
+    if (linkedTx !== null) setLookupOpen(true);
+  }, [linkedTx]);
+
+  const putTx = useCallback(
+    (q: string | null) => {
+      const next = new URLSearchParams(searchParams);
+      if (q === null) next.delete('tx');
+      else next.set('tx', q);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const closeLookup = useCallback(() => {
+    setLookupOpen(false);
+    if (linkedTx !== null) putTx(null);
+  }, [linkedTx, putTx]);
+
   const [fBridge, setFBridge] = useState('');
   const [fDirection, setFDirection] = useState('');
   const [fStatus, setFStatus] = useState('');
@@ -867,7 +909,7 @@ const BridgeTracker: React.FC = () => {
         </Btn>
       </ExplorerHeader>
 
-      {lookupOpen && <LookupModal onClose={() => setLookupOpen(false)} />}
+      {lookupOpen && <LookupModal initial={linkedTx ?? ''} onQuery={putTx} onClose={closeLookup} />}
 
       {healthErr && <ErrorBox>Could not load bridge health: {healthErr}</ErrorBox>}
 
